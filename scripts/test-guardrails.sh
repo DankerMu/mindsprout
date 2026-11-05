@@ -72,7 +72,18 @@ cd "$wt" || exit 1
 pass=0
 fail=0
 
+# expect_reject [--line <exact output line>] [--absent <text>] <name> <reason> <cmd...>
+# --line also requires one output line to equal the text; --absent requires the text to be missing.
 expect_reject() {
+  line=""
+  absent=""
+  while :; do
+    case "$1" in
+      --line) line="$2"; shift 2 ;;
+      --absent) absent="$2"; shift 2 ;;
+      *) break ;;
+    esac
+  done
   name="$1"
   reason="$2"
   shift 2
@@ -88,6 +99,14 @@ expect_reject() {
     echo "FAIL  $name — exited $rc without naming \"$reason\" — crash, not rejection:"
     printf '%s\n' "$out" | sed 's/^/        /'
     fail=$((fail + 1))
+  elif [ -n "$line" ] && ! printf '%s\n' "$out" | grep -qxF -- "$line"; then
+    echo "FAIL  $name — exited $rc without the line \"$line\":"
+    printf '%s\n' "$out" | sed 's/^/        /'
+    fail=$((fail + 1))
+  elif [ -n "$absent" ] && printf '%s\n' "$out" | grep -qF -- "$absent"; then
+    echo "FAIL  $name — exited $rc but printed \"$absent\" (must abort before that):"
+    printf '%s\n' "$out" | sed 's/^/        /'
+    fail=$((fail + 1))
   else
     echo "PASS  $name — guard rejected the violation and named it (exit $rc)"
     pass=$((pass + 1))
@@ -98,14 +117,20 @@ skip() {
   echo "SKIP  $1 — $2 (a skipped guard is a readiness gap, not a pass)"
 }
 
+# expect_accept [--what <accepted input>] <name> <cmd...>   (default: "the clean tree")
 expect_accept() {
+  what="the clean tree"
+  if [ "$1" = "--what" ]; then
+    what="$2"
+    shift 2
+  fi
   name="$1"
   shift
   if "$@" >/dev/null 2>&1; then
-    echo "PASS  $name — guard accepts the clean tree"
+    echo "PASS  $name — guard accepts $what"
     pass=$((pass + 1))
   else
-    echo "FAIL  $name — guard REJECTED the clean tree (always-failing guard or broken setup)"
+    echo "FAIL  $name — guard REJECTED $what (always-failing guard or broken setup)"
     fail=$((fail + 1))
   fi
 }
@@ -216,7 +241,84 @@ else
   skip "commit-msg guard" "no commitlint config found"
 fi
 
-# 9. Residue — reap every recorded fixture group, then sweep for anything that still names the root.
+# 9. PR diff size guard — counts the PR diff against constraints.yaml size_limits.max_pr_diff_lines,
+# honours an exact diff-limit-exempt line in PR_LABELS, and fails closed when it cannot count.
+# The guard runs from the repo root (the version under test) with the worktree as cwd, so it
+# reads the worktree's git history and constraints.yaml. Fixture commits use plumbing only
+# (write-tree + commit-tree + checkout), so no commit hook runs and none is bypassed; every case
+# restores the worktree to $diff_base and leaves it clean.
+diff_guard="$repo_root/scripts/check-diff-size.sh"
+diff_base="$(git rev-parse HEAD)"
+fixture_lines() {
+  seq 1 "$1" | sed 's/^/diff guard fixture line /'
+}
+commit_fixture() {
+  git add -A -- "$@" &&
+    fixture_commit=$(GIT_AUTHOR_NAME=guardrails GIT_AUTHOR_EMAIL=guardrails@example.invalid \
+      GIT_COMMITTER_NAME=guardrails GIT_COMMITTER_EMAIL=guardrails@example.invalid \
+      git commit-tree -p HEAD -m "guardrail diff fixture" "$(git write-tree)") &&
+    git checkout --quiet --detach "$fixture_commit"
+}
+restore_fixture() {
+  git checkout --quiet --detach "$diff_base"
+  git checkout --quiet -- constraints.yaml
+}
+
+fixture_lines 401 > diff-guard-fixture.txt
+commit_fixture diff-guard-fixture.txt
+expect_reject --line "Changed lines (excluding lockfiles/snapshots/records): 401 (limit: 400)" \
+  "diff guard (401 lines, no label)" "diff limit" \
+  env -u PR_LABELS bash "$diff_guard" "$diff_base"
+expect_reject "diff guard (401 lines, near-miss label)" "diff limit" \
+  env PR_LABELS=$'bug\nnot-diff-limit-exempt' bash "$diff_guard" "$diff_base"
+expect_accept --what "an exempt PR" "diff guard (401 lines, diff-limit-exempt label)" \
+  env PR_LABELS=$'bug\ndiff-limit-exempt' bash "$diff_guard" "$diff_base"
+restore_fixture
+
+fixture_lines 400 > diff-guard-fixture.txt
+commit_fixture diff-guard-fixture.txt
+expect_accept --what "a PR at the limit" "diff guard (exactly 400 lines, no label)" \
+  env -u PR_LABELS bash "$diff_guard" "$diff_base"
+restore_fixture
+
+mkdir -p sub decisions
+fixture_lines 401 > sub/pnpm-lock.yaml
+fixture_lines 401 > x.lock
+fixture_lines 401 > decisions/diff-guard-fixture.md
+commit_fixture sub/pnpm-lock.yaml x.lock decisions/diff-guard-fixture.md
+expect_accept --what "excluded lockfiles and records" \
+  "diff guard (401+ lines in sub/pnpm-lock.yaml, x.lock, decisions/)" \
+  env -u PR_LABELS bash "$diff_guard" "$diff_base"
+restore_fixture
+
+missing_base="deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+expect_reject --absent "Changed lines" "diff guard (unresolvable base)" "base ref '$missing_base'" \
+  env -u PR_LABELS bash "$diff_guard" "$missing_base"
+
+expect_reject "diff guard (no base argument)" "usage" \
+  env -u PR_LABELS bash "$diff_guard"
+
+awk 'prev ~ /^  max_pr_diff_lines:$/ && /^    value: / { $0 = "    value: unreadable" }
+  { print; prev = $0 }' constraints.yaml > "$tmp/constraints.yaml" &&
+  cat "$tmp/constraints.yaml" > constraints.yaml
+expect_reject --absent "Changed lines" "diff guard (unreadable max_pr_diff_lines)" "max_pr_diff_lines" \
+  env -u PR_LABELS bash "$diff_guard" "$diff_base"
+restore_fixture
+
+# A resolvable base with no merge base makes git diff itself fail; LC_ALL=C pins git's message.
+unrelated_base=$(GIT_AUTHOR_NAME=guardrails GIT_AUTHOR_EMAIL=guardrails@example.invalid \
+  GIT_COMMITTER_NAME=guardrails GIT_COMMITTER_EMAIL=guardrails@example.invalid \
+  git commit-tree -m "guardrail unrelated base" "$(git rev-parse "HEAD^{tree}")")
+expect_reject --absent "Changed lines" "diff guard (git diff fails: no merge base)" "no merge base" \
+  env -u PR_LABELS LC_ALL=C bash "$diff_guard" "$unrelated_base"
+
+if [ "$(git rev-parse HEAD)" != "$diff_base" ] || [ -n "$(git status --porcelain)" ]; then
+  echo "FAIL  diff guard fixtures left the worktree off $diff_base or dirty:"
+  git status --short | sed 's/^/        /'
+  fail=$((fail + 1))
+fi
+
+# 10. Residue — reap every recorded fixture group, then sweep for anything that still names the root.
 reap_fixtures
 strays=$(fixture_strays)
 if [ -n "$strays" ]; then

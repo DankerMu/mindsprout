@@ -113,7 +113,7 @@ size_limits:
     value: 400
     description: "PRs exceeding this require justification or splitting"
     severity: "block"
-    enforced_by: "CI layer6-diff-size-guard (.github/workflows/ci.yml)"
+    enforced_by: "CI layer6-diff-size-guard (.github/workflows/pr-diff-guard.yml)"
 
 # ── Test Discipline ────────────────────────────────────────────
 
