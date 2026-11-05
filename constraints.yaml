@@ -178,6 +178,7 @@ module_boundaries:
       "application -> domain",
       "infrastructure -> domain|application",
       "any -> src/shared",
+      "domain -> zod (schema language, decision 0005)",
     ]
   forbidden_import_patterns:
     [

@@ -59,7 +59,7 @@ AI 驱动的思维导图生成器 — 输入一句话，让想法自动生长成
 ```
 src/app/            Next.js routes + composition root — nothing imports from here;  src/components/ shared client-safe UI
 src/contexts/<ctx>/ bounded contexts: map | ai | account | export
-  domain/           pure: entities, TreeOp schema + reducer, ports                   — imports only itself + src/shared
+  domain/           pure: entities, TreeOp schema + reducer, ports                   — imports only itself + src/shared + zod
   application/      use cases, orchestration via ports                               — never imports infrastructure/
   infrastructure/   adapters: providers, persistence; next/drizzle/postgres live here
   acl/              anti-corruption layer: the only door to another context

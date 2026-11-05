@@ -8,12 +8,12 @@ This codebase uses Domain-Driven Design to keep business logic and infrastructur
 
 ### Layering (per bounded context, enforced by `pnpm boundaries`)
 
-| Layer                           | Path                                 | May depend on                   | Forbidden to import                                             |
-| ------------------------------- | ------------------------------------ | ------------------------------- | --------------------------------------------------------------- |
-| Domain                          | `src/contexts/<ctx>/domain/`         | itself, `src/shared`            | framework, infra, application                                   |
-| Application                     | `src/contexts/<ctx>/application/`    | domain                          | infrastructure, presentation                                    |
-| Infrastructure                  | `src/contexts/<ctx>/infrastructure/` | domain (via ports), application | presentation                                                    |
-| Presentation / composition root | `src/app/`, `src/components/`        | application                     | infrastructure directly (components), other contexts' internals |
+| Layer                           | Path                                 | May depend on                               | Forbidden to import                                             |
+| ------------------------------- | ------------------------------------ | ------------------------------------------- | --------------------------------------------------------------- |
+| Domain                          | `src/contexts/<ctx>/domain/`         | itself, `src/shared`, `zod` (decision 0005) | framework, infra, application                                   |
+| Application                     | `src/contexts/<ctx>/application/`    | domain                                      | infrastructure, presentation                                    |
+| Infrastructure                  | `src/contexts/<ctx>/infrastructure/` | domain (via ports), application             | presentation                                                    |
+| Presentation / composition root | `src/app/`, `src/components/`        | application                                 | infrastructure directly (components), other contexts' internals |
 
 ### Bounded contexts
 

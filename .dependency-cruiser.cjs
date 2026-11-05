@@ -24,10 +24,17 @@ module.exports = {
     {
       name: 'domain-is-pure',
       severity: 'error',
-      comment: 'domain/ depends on nothing but itself and src/shared',
+      comment: 'domain/ depends on nothing but itself, src/shared and zod (decision 0005)',
       from: { path: '^src/contexts/[^/]+/domain/' },
       to: {
-        pathNot: ['^src/contexts/[^/]+/domain/', '^src/shared/'],
+        pathNot: [
+          '^src/contexts/[^/]+/domain/',
+          '^src/shared/',
+          // zod only, both pnpm layouts; two entries because the single optional-group form
+          // `(\.pnpm/[^/]+/node_modules/)?` is rejected by depcruise's safe-regex check.
+          '^node_modules/zod/',
+          '^node_modules/\\.pnpm/[^/]+/node_modules/zod/',
+        ],
         dependencyTypesNot: ['core'],
       },
     },
