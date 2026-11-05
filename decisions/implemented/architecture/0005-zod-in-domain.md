@@ -29,5 +29,5 @@ The `TreeOp` schema is a domain contract: the map reducer validates every op aga
 ## Consequences
 
 - The allowance is one package. Any further package imported from `domain/` needs its own decision record and the same four mirrors plus the rule change.
-- `pnpm boundaries` still rejects any other npm import from `domain/`; the rule is verified by temporary probes in the PR that lands this record (no permanent guardrail fixture slot exists in `scripts/test-guardrails.sh`).
+- `pnpm boundaries` still rejects any other npm import from `domain/`; `scripts/test-guardrails.sh` carries "boundaries guard" cases that prove it — zod in `domain/` is accepted, react in `domain/` is rejected as `domain-is-pure`.
 - `zod` becomes part of the domain's public contract: a zod major upgrade (via Renovate) is a domain change and is reviewed as one.
