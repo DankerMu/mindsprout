@@ -225,3 +225,25 @@ Required evidence:
 Non-goals: any MindMap/TreeOp code (issue #3); application/ rules; keeping probes as a guardrail case (no slot in scripts/test-guardrails.sh)
 Review focus: regex matches zod only (evidence above); both pnpm layouts and subpaths covered; each mirror carries its specified text; decision record frontmatter valid; AGENTS.md line budget
 ```
+
+## Fixture — issue #3 (task 1.1)
+
+```text
+Change surface: new files under src/contexts/map/domain/ — types (MindMap, MindNode, ColorToken, NewNode, NodeId, Position), tree-op schemas + TreeOp union + parseTreeOp, TreeOpError, createMindMap — each with its paired *.test.ts; nothing outside domain/
+Must preserve: domain-is-pure (only zod imported; no node core modules, no src/shared), 90% per-file coverage, TDD pairing hook, 700-line / complexity-10 limits, knip zero unused exports (every exported name below is consumed by a test in this PR; the reducer in #4 consumes them next)
+Must add/change (exports, exact names):
+  - types.ts: NodeId (string), Position { x: number; y: number }, ColorToken ('red'|'orange'|'yellow'|'green'|'blue'|'purple'), MindNode { id, text, note?, color?, collapsed?, position?, children }, MindMap { id, title, roots, createdAt, updatedAt } (ownerId is NOT part of the domain shape in M1 — it joins in M2 with the account context; TECH §3 lists it for the DB row), NewNode { id, text, note?, color?, collapsed?, children? } recursive and never carrying position
+  - tree-op.ts: one strict Zod object schema per op (unknown keys rejected): addChildrenOp { op:'add_children', parentId, children: NewNode[] (min 1), index? }, addRootOp { op:'add_root', node: NewNode, position, index? (≥1) }, updateNodeOp { op:'update_node', id, text?, note?: string|null, color?: ColorToken|null, collapsed?: boolean } (at least one field), deleteNodeOp { op:'delete_node', id }, moveNodeOp = union of two strict objects: { op:'move_node', id, newParentId: string, index? } (position forbidden) | { op:'move_node', id, newParentId: null, position, index? }, setRootPositionOp { op:'set_root_position', id, position }, replaceChildrenOp { op:'replace_children', parentId, children: NewNode[] }; treeOpSchema = discriminated union on `op`; TreeOp = z.infer; parseTreeOp(input: unknown): TreeOp — throws TreeOpError('invalid-op') wrapping the ZodError issues; never touches a map
+  - errors.ts: TreeOpErrorCode = 'invalid-op'|'unknown-node'|'primary-root-protected'|'cycle'|'invalid-target'; class TreeOpError extends Error { code; issues?: ZodIssue[] } (name 'TreeOpError')
+  - create-mind-map.ts: createMindMap({ id, rootId, title, rootText, now? }: { now?: () => Date }) → MindMap with roots=[{ id: rootId, text: rootText, children: [] }], createdAt/updatedAt ISO strings from `now` (default Date), no position on roots[0]; `now` is injected so tests are deterministic (AGENTS universal rule: no clock in business logic)
+Governing invariant: a value accepted by parseTreeOp is structurally valid for the reducer — no unknown keys, position present exactly when the op creates or moves a floating root (add_root, move_node with null parent, set_root_position) and absent otherwise — and a map from createMindMap has exactly one root without position
+Sibling surfaces: docs/TECH.md §3/§4 type sketches (docs; the implementer does not edit them — the orchestrator reconciles ownerId/NewNode wording when archiving the change); spec map-tree-ops (oracle, unchanged); #4 applyOp (consumer; not in this PR)
+Seams under test: parseTreeOp (the schema boundary) and createMindMap — unit tests only; no reducer, no React
+Required evidence (vitest, src/contexts/map/domain/*.test.ts):
+  - reject: spec "Malformed payload" (move_node without id → code invalid-op, issues non-empty), "Creation payload cannot carry a position" (add_children child with position → invalid-op), "Detach without a position" (move_node newParentId null, no position → invalid-op), "Reparent with a position" (move_node newParentId 'p1' with position → invalid-op); plus unknown key on any op → invalid-op; update_node with no fields → invalid-op; add_children with empty children → invalid-op
+  - accept: one minimal valid payload per op (seven) parses and round-trips structurally equal
+  - factory: spec "New map has exactly one root" (roots.length 1, roots[0] has no position key, text = rootText, timestamps equal the injected now in ISO form)
+  - gates: pnpm test:unit ≥90% every new file; pnpm boundaries exit 0; pnpm typecheck; pnpm lint; pnpm dead-code exit 0
+Non-goals: applyOp and inverses (#4, #5); MapRepository (#10); nanoid (#12); ownerId (M2); editing TECH.md
+Review focus: `.strict()` on every object schema (zod 4: z.strictObject or .strict()); recursive NewNode via z.lazy with explicit type annotation; nullable vs optional semantics on note/color; move_node union rejects both mismatches; parseTreeOp throws TreeOpError not ZodError; ISO timestamp determinism; file/complexity limits
+```
