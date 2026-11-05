@@ -2,11 +2,11 @@
 
 ## 1. Guard (issue #44)
 
-- [ ] 1.1 Red: add the diff-guard cases (a)–(h) from design "Fixture — issue #44" to `scripts/test-guardrails.sh` and show them failing before the script exists
-- [ ] 1.2 `scripts/check-diff-size.sh`: verbatim counting, exact-label exemption from `PR_LABELS`, fail closed (usage, base, limit, git diff)
-- [ ] 1.3 `.github/workflows/pr-diff-guard.yml` with label triggers, per-PR concurrency, least-privilege token, live label lookup, no `if:`; remove the job from `ci.yml`
-- [ ] 1.4 Point `constraints.yaml` `enforced_by`, AGENTS.md enforcement index and any doc naming the guard's file at `pr-diff-guard.yml`
-- [ ] 1.5 Evidence: `pnpm test:guardrails`, bite checks, `pnpm docs:check`, `pnpm fmt:check`, live probe PR
+- [x] 1.1 Red: add the diff-guard cases (a)–(h) from design "Fixture — issue #44" to `scripts/test-guardrails.sh` and show them failing before the script exists
+- [x] 1.2 `scripts/check-diff-size.sh`: verbatim counting, exact-label exemption from `PR_LABELS`, fail closed (usage, base, limit, git diff)
+- [x] 1.3 `.github/workflows/pr-diff-guard.yml` with label triggers, per-PR concurrency, least-privilege token, live label lookup, no `if:`; remove the job from `ci.yml`
+- [x] 1.4 Point `constraints.yaml` `enforced_by`, AGENTS.md enforcement index and any doc naming the guard's file at `pr-diff-guard.yml`
+- [x] 1.5 Evidence: `pnpm test:guardrails`, bite checks, `pnpm docs:check`, `pnpm fmt:check`, live probe PR
 
 ## Risk packs — issue #44
 

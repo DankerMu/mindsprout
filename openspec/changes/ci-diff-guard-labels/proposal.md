@@ -15,7 +15,7 @@ AGENTS.md's "split or add `diff-limit-exempt`" path is therefore unreliable on a
 - Exemption is decided from the PR's **live** labels, read from the GitHub API at run time, with exact name match. The event payload is no longer read.
 - The counting logic moves verbatim into `scripts/check-diff-size.sh` so the guard can be red/green tested locally. The only behavioural change is that it fails closed: a missing or unresolvable base ref, or an unreadable limit, exits non-zero naming the reason.
 - `scripts/test-guardrails.sh` gains diff-guard cases.
-- `constraints.yaml` `enforced_by`, AGENTS.md's enforcement index and `docs/engineering/agent-operating-rules.md` point at the new file.
+- `constraints.yaml` `enforced_by` and AGENTS.md's enforcement index point at the new file. `docs/engineering/agent-operating-rules.md` names only the unchanged job id and stays as is.
 
 ## Capabilities
 
@@ -29,7 +29,7 @@ None.
 
 ## Impact
 
-- `.github/workflows/ci.yml` (job removed), `.github/workflows/pr-diff-guard.yml` (new), `scripts/check-diff-size.sh` (new), `scripts/test-guardrails.sh`, `constraints.yaml` (`enforced_by` text only), `AGENTS.md`, `docs/engineering/agent-operating-rules.md`.
+- `.github/workflows/ci.yml` (job removed), `.github/workflows/pr-diff-guard.yml` (new), `scripts/check-diff-size.sh` (new), `scripts/test-guardrails.sh`, `constraints.yaml` (`enforced_by` text only), `AGENTS.md`.
 - Critical Path (gate integrity): full cross-review plus `pnpm test:guardrails` evidence plus a live probe PR.
 - No change to the 400-line threshold, the exclusion pathspecs, or any other job.
 

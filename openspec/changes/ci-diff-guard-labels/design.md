@@ -2,7 +2,7 @@
 
 ## Context
 
-`ci.yml` job `layer6-diff-size-guard` (check `PR diff size guard`) uses a step-level `if: !contains(github.event.pull_request.labels.*.name, 'diff-limit-exempt')` and triggers on the default `pull_request` types. The guard sits outside the `All checks passed` aggregator because it runs only on PRs. AGENTS.md lists it as a required check (branch protection is documented, not yet applied).
+`ci.yml` job `layer6-diff-size-guard` (check `PR diff size guard`) uses a step-level `if: !contains(github.event.pull_request.labels.*.name, 'diff-limit-exempt')` and triggers on the default `pull_request` types. The guard sits outside the `All checks passed` aggregator because it runs only on PRs. It is a required check: branch protection on `main` is live (`required_status_checks.contexts` = `All checks passed`, `Lockfile–manifest consistency`, `PR diff size guard`; `strict: true`; linear history), although AGENTS.md still says "not yet applied" (doc drift found in review, filed separately).
 
 ## Decisions
 
@@ -107,7 +107,7 @@ Required evidence:
   - Every run comes from the `PR diff guard` workflow (no copy from CI).
   - `gh run list --workflow=ci.yml --branch agent/44-guard-probe` shows the same run count before step 2 and after step 4 (label events do not re-run CI).
 
-  Branch protection is not applied yet, so the probe shows what protection would evaluate, not an actual blocked merge. Run URLs go in the PR body. Then close the probe PR and delete the branch.
+  Branch protection is live (found in round-1 review), so the probe also records `gh pr view <probe> --json mergeStateStatus`: `BLOCKED` while and after the newest run fails, and not blocked by the guard when the newest run succeeds despite older failed/cancelled runs on the same SHA. It also replays an old success run with `gh run rerun` while the label is absent, and expects failure because labels are read live. Run URLs go in the PR body. Then close the probe PR and delete the branch.
 
 - `pnpm docs:check`, `pnpm fmt:check` exit 0.
 
@@ -120,7 +120,7 @@ Non-goals:
 - Other workflows and jobs.
 - Stryker (#38).
 
-Residual risk: a run from an older head, queued late, can cancel the run on a newer head in the shared per-PR group, leaving that head with only a `cancelled` check. That fails closed (cancelled is not success), and any new event recovers it.
+Residual risk: a run from an older head that is queued late, or a `gh run rerun` of an old-head run, joins the per-PR group and can cancel the newer head's run. That head is then left with a `cancelled` check, or with no check at all ("Expected") if the run was still pending. Both fail closed, because neither is success, and any new event recovers it. Between an `unlabeled` event and the new run, the probe observed `BLOCKED` immediately, so it found no window where the old success counted.
 
 Review focus:
 
