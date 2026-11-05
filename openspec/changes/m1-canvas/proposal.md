@@ -58,3 +58,14 @@ Blast radius: a wrong schema either admits malformed ops into the reducer (every
 Selected risk packs: Schema / columns / units / field names; Public API / CLI / script entry; Error handling / rollback / partial outputs; Config / project setup (amendment: test-file exemption on domain-is-pure, decision 0006)
 Evidence floor: pnpm test:unit (reject + accept + factory scenarios, ≥90% per file); pnpm boundaries; pnpm test:guardrails; pnpm decisions:check; pnpm typecheck; pnpm lint; pnpm dead-code
 ```
+
+## Fixture triage — issue #4 (task 1.2)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree — persisted data shape and the protocol M3 providers emit; shared-state trigger)
+Blast radius: a wrong reducer or inverse corrupts every saved map and makes undo restore a different tree than the user had
+Selected risk packs: Schema / columns / units / field names; Public API / CLI / script entry; Error handling / rollback / partial outputs; Concurrency / shared state / ordering
+Evidence floor: pnpm test:unit (scenario + rejection + untouched-input + seeded round-trip property, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code; pnpm duplicate-code; pnpm fmt:check
+```

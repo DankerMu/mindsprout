@@ -90,6 +90,11 @@ The reducer SHALL validate the op payload against the strict TreeOp schema (unkn
 - **WHEN** `update_node { color: "green" }` is applied to a node without a color
 - **THEN** the inverse is `update_node { color: null }` and applying it removes the color
 
+#### Scenario: Expanded is stored as no flag
+
+- **WHEN** `update_node { collapsed: false }` is applied to a collapsed node, or `add_children` inserts a `NewNode` carrying `collapsed: false`
+- **THEN** the stored node has no `collapsed` field (the reducer never stores `collapsed: false`), and the inverse of `update_node { collapsed: true }` on a node without the flag, `update_node { collapsed: false }`, restores a node deep-equal to the original
+
 ### Requirement: Reparenting never creates a cycle
 
 `move_node` SHALL be rejected when the new parent is the moved node itself or any of its descendants.
