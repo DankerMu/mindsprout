@@ -52,6 +52,7 @@
   },
   "dependencies": {
     "@vercel/otel": "^2.2.1",
+    "nanoid": "^5.1.16",
     "next": "^16.4.5",
     "pino": "^10.4.0",
     "postgres": "^4.0.0",
