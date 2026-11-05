@@ -47,3 +47,14 @@ Blast radius: a wrong rule either lets any npm package into domain/ (silent puri
 Selected risk packs: Config / project setup; Documentation / migration notes; Release / packaging / dependency compatibility
 Evidence floor: pnpm boundaries (zod probe passes, react probe fails on domain-is-pure, probes deleted); regex layout/subpath check; pnpm decisions:check; pnpm docs:check; pnpm test:guardrails; pnpm fmt:check
 ```
+
+## Fixture triage — issue #3 (task 1.1)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree — schema/data-shape trigger; this is the persisted and provider-facing contract)
+Blast radius: a wrong schema either admits malformed ops into the reducer (every later slice) or rejects valid provider output in M3
+Selected risk packs: Schema / columns / units / field names; Public API / CLI / script entry; Error handling / rollback / partial outputs; Config / project setup (amendment: test-file exemption on domain-is-pure, decision 0006)
+Evidence floor: pnpm test:unit (reject + accept + factory scenarios, ≥90% per file); pnpm boundaries; pnpm test:guardrails; pnpm decisions:check; pnpm typecheck; pnpm lint; pnpm dead-code
+```

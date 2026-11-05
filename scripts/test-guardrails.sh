@@ -164,10 +164,11 @@ expect_reject "decisions gate (unknown kind)" "unknown kind" \
   node scripts/check-decisions.mjs
 rm -f decisions/proposed/9999-fixture.md
 
-# 7. Boundaries guard — domain-is-pure admits zod (decision 0005) and nothing else.
+# 7. Boundaries guard — domain-is-pure admits zod (decision 0005) and nothing else;
+# test files are exempt from it (decision 0006).
 # depcruise reads the worktree's committed .dependency-cruiser.cjs and must resolve the
 # probed packages. A symlink to the root node_modules would resolve to real paths
-# outside the worktree (matching no rule path), so mirror only zod and react into the
+# outside the worktree (matching no rule path), so mirror only zod, react and vitest into the
 # worktree, keeping pnpm's .pnpm/<pkg>@<ver>/node_modules/<pkg> layout when present.
 mirror_package() {
   pkg="$1"
@@ -186,17 +187,22 @@ depcruise_bin="$repo_root/node_modules/.bin/depcruise"
 mkdir -p "$wt/node_modules"
 if [ ! -x "$depcruise_bin" ] || [ ! -f .dependency-cruiser.cjs ]; then
   skip "boundaries guard" "depcruise not installed at $depcruise_bin or no .dependency-cruiser.cjs"
-elif ! mirror_package zod || ! mirror_package react; then
-  skip "boundaries guard" "could not mirror zod/react from $repo_root/node_modules"
+elif ! mirror_package zod || ! mirror_package react || ! mirror_package vitest; then
+  skip "boundaries guard" "could not mirror zod/react/vitest from $repo_root/node_modules"
 else
   mkdir -p src/contexts/map/domain
   printf "import { z } from 'zod';\nexport const probe = z.string();\n" > src/contexts/map/domain/zod-probe.ts
   expect_accept "boundaries guard (zod in domain)" \
     "$depcruise_bin" src --config .dependency-cruiser.cjs
+  printf "import { describe } from 'vitest';\nimport { z } from 'zod';\nexport const probe = z.string();\ndescribe;\n" \
+    > src/contexts/map/domain/zod-probe.test.ts
+  expect_accept "boundaries guard (test file in domain)" \
+    "$depcruise_bin" src --config .dependency-cruiser.cjs
   printf "import 'react';\n" > src/contexts/map/domain/react-probe.ts
   expect_reject "boundaries guard (react in domain)" "domain-is-pure" \
     "$depcruise_bin" src --config .dependency-cruiser.cjs
-  rm -f src/contexts/map/domain/zod-probe.ts src/contexts/map/domain/react-probe.ts
+  rm -f src/contexts/map/domain/zod-probe.ts src/contexts/map/domain/zod-probe.test.ts \
+    src/contexts/map/domain/react-probe.ts
 fi
 rm -rf "$wt/node_modules"
 

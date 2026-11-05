@@ -179,6 +179,7 @@ module_boundaries:
       "infrastructure -> domain|application",
       "any -> src/shared",
       "domain -> zod (schema language, decision 0005)",
+      "test files (*.test.ts, *.test.tsx) are exempt from layer rules: they may import the test runner and sibling fixtures (decision 0006)",
     ]
   forbidden_import_patterns:
     [
