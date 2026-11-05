@@ -113,3 +113,14 @@ Blast radius: a store that mutates state outside applyOp, desynchronises map and
 Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; Release / packaging / dependency compatibility
 Evidence floor: pnpm test:unit (node env; dispatch/undo/groups/runGrouped/rename/viewport/notice, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code (knip: zustand used, no unused deps); pnpm duplicate-code; pnpm fmt:check; pnpm install --frozen-lockfile consistency
 ```
+
+## Fixture triage — issue #35 (task 5.1b)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (override — extends the shared editor-store public API every 6.x–9.x issue reads (selection, editing, creation group), owns the creation-group atomicity, and adds the runtime dependency `nanoid` handed off from #12)
+Blast radius: a creation group left open or half-cancelled, a selection pointing at deleted or hidden nodes, or a wrong topmostSelected corrupts history, breaks every shortcut gated on isEditing, or makes group delete/drag act on the wrong nodes
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; Release / packaging / dependency compatibility
+Evidence floor: pnpm test:unit (node env; selection, topmostSelected, creation group, rename editing, pruning, rejection, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code (nanoid used); pnpm duplicate-code; pnpm fmt:check; pnpm install --frozen-lockfile; import inventory (no react / bare zustand in application/)
+```

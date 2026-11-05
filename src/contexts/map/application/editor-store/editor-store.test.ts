@@ -1,6 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
-  deepFreeze,
+  ADD_C,
+  dataOf,
+  DELETE_PRIMARY,
+  expectFlags,
+  expectHistoryError,
+  expectHistoryIntact,
+  expectStep,
+  expectTreeOpError,
+  expectStepsReplaceState,
+  expectUndoRedoRefused,
+  expectUnchanged,
+  GROUP_ACTIONS,
+  intact,
+  loaded,
+  mapOfStore,
+  NOW,
+  RENAME_A,
+} from '../../../../../tests/support/editor-store';
+import {
   errorFrom,
   mapOf,
   node,
@@ -8,10 +26,8 @@ import {
   // Applies any op list in order through the checked apply helper — the expected-map oracle here.
   undo as applied,
 } from '../../../../../tests/support/map-domain';
-import { TreeOpError, type TreeOpErrorCode } from '../../domain/errors';
 import type { TreeOp } from '../../domain/tree-op';
 import type { MindMap } from '../../domain/types';
-import { HistoryError, type HistoryErrorCode } from '../history/history';
 import {
   createEditorStore,
   DEFAULT_VIEWPORT,
@@ -23,108 +39,18 @@ import {
 
 // Design "Fixture — issue #12" and spec map-undo-history: the createEditorStore public API in the
 // node environment over the real History and applyOp — no mocks, no DOM, no React. Expected maps
-// come from the shared apply helper (applyOp directly), never from the store or History.
+// come from the shared apply helper (applyOp directly), never from the store or History. Shared
+// helpers live in tests/support/editor-store.ts; the #35 slice is tested in editor-store-*.test.ts.
 
-type Store = ReturnType<typeof createEditorStore>;
-
-const NOW = '2026-11-05T12:34:56.000Z';
 const NO_MAP: EditorStoreErrorCode = 'no-map';
 
 // sampleMap(): r ─ p ─ (a, b)          f1 @ (10, 20) ─ fc
-const RENAME_A: TreeOp = { op: 'update_node', id: 'a', text: 'A2' };
-const ADD_C: TreeOp = { op: 'add_children', parentId: 'p', children: [{ id: 'c', text: 'C' }] };
 const DELETE_FC: TreeOp = { op: 'delete_node', id: 'fc' };
 const COLOR_B: TreeOp = { op: 'update_node', id: 'b', color: 'blue' };
-const DELETE_PRIMARY: TreeOp = { op: 'delete_node', id: 'r' };
 const ADD_X: TreeOp = { op: 'add_children', parentId: 'p', children: [{ id: 'x', text: '' }] };
 const NAME_X: TreeOp = { op: 'update_node', id: 'x', text: '想法' };
 
-function loaded(map: MindMap = sampleMap()): Store {
-  const store = createEditorStore({ now: () => new Date(NOW) });
-  store.getState().load(map);
-  return store;
-}
-
-function mapOfStore(store: Store): MindMap | null {
-  return store.getState().map;
-}
-
-function expectFlags(store: Store, canUndo: boolean, canRedo: boolean, groupOpen = false): void {
-  const state = store.getState();
-  expect({
-    canUndo: state.canUndo,
-    canRedo: state.canRedo,
-    groupOpen: state.groupOpen,
-  }).toStrictEqual({ canUndo, canRedo, groupOpen });
-}
-
-// Runs one undo or redo and asserts the resulting map and flags.
-function expectStep(
-  store: Store,
-  action: 'undo' | 'redo',
-  map: MindMap,
-  canUndo: boolean,
-  canRedo: boolean,
-): void {
-  store.getState()[action]();
-  expect(mapOfStore(store)).toStrictEqual(map);
-  expectFlags(store, canUndo, canRedo);
-}
-
-// Every data field of the state (actions are functions and cannot be cloned).
-function dataOf(state: EditorState) {
-  const { map, canUndo, canRedo, groupOpen, viewport, notice } = state;
-  return structuredClone({ map, canUndo, canRedo, groupOpen, viewport, notice });
-}
-
-function expectTreeOpError(error: unknown, code: TreeOpErrorCode): void {
-  expect(error).toBeInstanceOf(TreeOpError);
-  expect(error).not.toBeInstanceOf(HistoryError);
-  expect((error as TreeOpError).code).toBe(code);
-}
-
-function expectHistoryError(error: unknown, code: HistoryErrorCode): void {
-  expect(error).toBeInstanceOf(HistoryError);
-  expect((error as HistoryError).code).toBe(code);
-}
-
-// The state is replaced only by set(): a failed action leaves the very same state object.
-function expectUnchanged(store: Store, act: (state: EditorState) => void): unknown {
-  const before = store.getState();
-  const snapshot = dataOf(before);
-  const error = errorFrom(() => {
-    act(store.getState());
-  });
-  expect(store.getState()).toBe(before);
-  expect(dataOf(store.getState())).toStrictEqual(snapshot);
-  return error;
-}
-
-interface Intact {
-  store: Store;
-  base: MindMap;
-  afterA: MindMap;
-  afterB: MindMap;
-}
-
-// load → dispatch a → dispatch b → undo: the map is "after a" and both canUndo and canRedo are true.
-function intact(): Intact {
-  const base = sampleMap();
-  const afterA = applied(base, [RENAME_A]);
-  const afterB = applied(afterA, [ADD_C]);
-  const store = loaded(base);
-  store.getState().dispatch(RENAME_A);
-  store.getState().dispatch(ADD_C);
-  expectStep(store, 'undo', afterA, true, true);
-  return { store, base, afterA, afterB };
-}
-
-// One redo and then undos walk the same maps as a path on which nothing was ever rejected.
-function expectHistoryIntact({ store, base, afterA, afterB }: Intact): void {
-  expectStep(store, 'redo', afterB, true, false);
-  expectStep(store, 'undo', afterA, true, true);
-  expectStep(store, 'undo', base, false, true);
-}
+const EMPTY_SELECTION = { selectedIds: [], primaryId: null, editing: null, menuTargetId: null };
 
 describe('createEditorStore: initial state and load', () => {
   it('starts without a map, without undo, at the default viewport and without a notice', () => {
@@ -137,6 +63,7 @@ describe('createEditorStore: initial state and load', () => {
       groupOpen: false,
       viewport: { x: 0, y: 0, zoom: 1 },
       notice: null,
+      ...EMPTY_SELECTION,
     });
   });
 
@@ -154,6 +81,7 @@ describe('createEditorStore: initial state and load', () => {
       groupOpen: false,
       viewport: { x: 0, y: 0, zoom: 1 },
       notice: null,
+      ...EMPTY_SELECTION,
     });
   });
 
@@ -324,18 +252,7 @@ describe('createEditorStore: explicit groups', () => {
     store.getState().dispatch(ADD_X);
     expectFlags(store, true, false, true);
     expect(mapOfStore(store)).toStrictEqual(applied(afterA, [ADD_X]));
-    expectHistoryError(
-      expectUnchanged(store, (state) => {
-        state.undo();
-      }),
-      'group-open',
-    );
-    expectHistoryError(
-      expectUnchanged(store, (state) => {
-        state.redo();
-      }),
-      'group-open',
-    );
+    expectUndoRedoRefused(store);
     expectHistoryError(
       expectUnchanged(store, (state) => {
         state.beginGroup('nested');
@@ -430,9 +347,6 @@ describe('createEditorStore: viewport and notice', () => {
 });
 
 describe('createEditorStore: before a map is loaded', () => {
-  const mustNotRun = (): void => {
-    throw new Error('fn must not run without a map');
-  };
   const actions: [string, (state: EditorState) => void][] = [
     [
       'dispatch',
@@ -452,30 +366,7 @@ describe('createEditorStore: before a map is loaded', () => {
         state.redo();
       },
     ],
-    [
-      'beginGroup',
-      (state) => {
-        state.beginGroup('g');
-      },
-    ],
-    [
-      'endGroup',
-      (state) => {
-        state.endGroup();
-      },
-    ],
-    [
-      'cancelGroup',
-      (state) => {
-        state.cancelGroup();
-      },
-    ],
-    [
-      'runGrouped',
-      (state) => {
-        state.runGrouped('g', mustNotRun);
-      },
-    ],
+    ...GROUP_ACTIONS,
     [
       'rename',
       (state) => {
@@ -563,13 +454,7 @@ describe('createEditorStore: state objects are replaced, never mutated', () => {
         state.clearNotice();
       },
     ];
-    for (const step of steps) {
-      const previous = store.getState();
-      deepFreeze(previous);
-      const snapshot = dataOf(previous);
-      step(previous);
-      expect(dataOf(previous)).toStrictEqual(snapshot);
-    }
+    expectStepsReplaceState(store, steps);
     expect(mapOfStore(store)).toStrictEqual({
       ...applied(sampleMap(), [RENAME_A, ADD_C, ADD_X, COLOR_B]),
       title: '新标题',
