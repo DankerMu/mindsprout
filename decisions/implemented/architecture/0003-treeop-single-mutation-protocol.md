@@ -30,4 +30,4 @@ Three AI interaction modes (one-shot generation, node-level Grow, conversational
 ## Consequences
 
 - `src/contexts/map/domain/` owns `TreeOp` + reducer and is pure (no framework imports — enforced by `pnpm boundaries`).
-- The Zustand store in `src/app` only dispatches ops; direct state mutation is a review rejection (`AGENTS.md ## Important Development Notes`).
+- The Zustand editor store lives in `src/contexts/map/application/editor-store` and only dispatches ops; `src/app` (the composition root) injects the repository into it and registers browser listeners. Direct state mutation is a review rejection (`AGENTS.md ## Important Development Notes`). (Location revised by change `m1-canvas`: `src/components` must import the store, and nothing may import from `src/app`.)

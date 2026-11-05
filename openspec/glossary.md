@@ -5,7 +5,7 @@ MindSprout 是一个 AI 驱动的思维导图工具：用户给出种子想法�
 ## Language
 
 **MindMap**:
-一张导图：一个 MindNode 森林加标题、所有者等元数据。roots[0] 是主根（中心主题，不可删除或移动），其余是浮动根。整张 MindMap 是一致性边界（聚合）。
+一张导图：一个 MindNode 森林（树状态，只经 TreeOp 修改）加标题、时间戳等元数据（由应用层维护，不可撤销；所有者是 M2 服务端的 account 列，不在客户端模型里）。roots[0] 是主根（中心主题，不可删除或移动），其余是浮动根。整张 MindMap 是一致性边界（聚合）。
 _Avoid_: Map（裸用）, Diagram, Graph, 脑图
 
 **MindNode**:

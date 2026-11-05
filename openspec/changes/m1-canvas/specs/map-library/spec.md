@@ -8,16 +8,16 @@ The home page lists the user's maps and lets them create, open, rename and delet
 
 ### Requirement: Create a map
 
-The home page SHALL offer "新建导图"; creating SHALL produce a map whose primary root text is "新导图" and SHALL navigate to its editor.
+The home page SHALL offer "新建导图"; creating SHALL call the domain factory `createMindMap` to produce a map titled "新导图" whose primary root text is "新导图", save it, and navigate to its editor.
 
 #### Scenario: Create from the empty state
 
 - **WHEN** there are no maps and the user clicks 新建导图
-- **THEN** the editor at `/maps/<new id>` opens with a single root node titled "新导图"
+- **THEN** the editor at `/maps/<new id>` opens with a single root node titled "新导图" and the header shows the title "新导图"
 
 ### Requirement: List maps
 
-The home page SHALL list every stored map with its title and last-updated time, most recently updated first; an empty list SHALL show an empty-state message with the create action.
+The home page SHALL list every stored map with its title and last-updated time (`MapSummary { id, title, updatedAt }`), most recently updated first; an empty list SHALL show an empty-state message with the create action.
 
 #### Scenario: Ordering
 
@@ -26,12 +26,12 @@ The home page SHALL list every stored map with its title and last-updated time, 
 
 ### Requirement: Open, rename, delete
 
-Clicking a list entry SHALL open its editor; rename SHALL update the map title (and the primary root text stays independent); delete SHALL ask for confirmation and then remove the map from storage.
+Clicking a list entry SHALL open its editor; rename SHALL update the map title and `updatedAt` through the application layer (not a TreeOp, not an undo step; the primary root text stays independent); delete SHALL ask for confirmation and then remove the map from storage.
 
 #### Scenario: Rename from the list
 
 - **WHEN** the user renames map A to "读书笔记"
-- **THEN** the list shows "读书笔记" and reopening A shows that title in the editor header
+- **THEN** the list shows "读书笔记" first (its `updatedAt` is newest) and reopening A shows that title in the editor header with the primary root text unchanged
 
 #### Scenario: Delete with confirmation
 
@@ -46,3 +46,17 @@ Opening `/maps/<id>` for an id not in storage SHALL show a not-found state with 
 
 - **WHEN** the user opens `/maps/does-not-exist`
 - **THEN** the page shows "找不到这张导图" and a link to `/`
+
+### Requirement: Library works without storage
+
+When browser storage is unavailable the library SHALL show the same "未保存到浏览器" banner as the editor, list the maps created in this session from the shared in-memory repository, and 新建导图 SHALL still open a working editor; a full reload of such an editor URL SHALL show the not-found state together with the banner.
+
+#### Scenario: Create with storage blocked
+
+- **WHEN** IndexedDB is blocked and the user clicks 新建导图, adds a child, and navigates back to `/`
+- **THEN** the banner is visible on both pages, the list shows the new map, and reopening it from the list shows the child
+
+#### Scenario: Reload with storage blocked
+
+- **WHEN** IndexedDB is blocked and the user reloads `/maps/<id>` of a map created in this session
+- **THEN** the page shows "找不到这张导图" and the banner "未保存到浏览器"

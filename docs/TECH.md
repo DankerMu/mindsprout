@@ -40,25 +40,27 @@ Supabase (Postgres + Auth + RLS)
 
 ```ts
 type NodeId = string; // nanoid
+type ColorToken = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple';
 
 interface MindNode {
   id: NodeId;
-  text: string; // 节点标题，约束 ≤ 40 字
-  note?: string; // 备注，Markdown
-  color?: string;
+  text: string; // 单行，长度不限（≤ 40 字是 AI prompt 约束，见 §5.5）
+  note?: string; // 多行纯文本；M1 不渲染 Markdown
+  color?: ColorToken; // 六个语义色 token 之一，按名存储
   collapsed?: boolean;
   position?: { x: number; y: number }; // 仅浮动根有
   children: MindNode[];
 }
 
 // 森林：roots[0] 是主根（不可删除/移动），其余为浮动根（决策 0004）
+// 客户端模型没有 ownerId：所有者是 M2 由 account 上下文在服务端附加的列（owner_id，RLS），
+// M2 接入时 schemaVersion 升到 2。
 interface MindMap {
   id: string;
-  ownerId: string;
-  title: string;
-  roots: MindNode[];
+  title: string; // 元数据：由应用层在保存/重命名时写，reducer 不碰
+  roots: MindNode[]; // 树状态：只经 TreeOp reducer 修改
   createdAt: string;
-  updatedAt: string;
+  updatedAt: string; // 元数据：应用层每次保存前盖时间戳
 }
 ```
 
@@ -76,34 +78,38 @@ RLS 策略：`owner_id = auth.uid()`，所有表统一。
 三种 AI 模式都通过同一组操作改树，前端 reducer 只认这几种：
 
 ```ts
-type NewNode = { id: NodeId; text: string; note?: string; color?: ColorToken };
+// 创建载荷：递归整棵子树，永远不带 position（schema 为 strict，未知字段拒绝）
+type NewNode = {
+  id: NodeId;
+  text: string;
+  note?: string;
+  color?: ColorToken;
+  collapsed?: boolean;
+  children?: NewNode[];
+};
+type Position = { x: number; y: number };
 type TreeOp =
   | { op: 'add_children'; parentId: NodeId; children: NewNode[]; index?: number }
-  | { op: 'add_root'; node: NewNode; position: { x: number; y: number } } // 浮动根
+  | { op: 'add_root'; node: NewNode; position: Position; index?: number } // 浮动根；index 为 roots 下标（≥ 1）
   | {
       op: 'update_node';
       id: NodeId;
       text?: string;
-      note?: string;
-      color?: ColorToken;
+      note?: string | null; // 缺省不动，null 清除
+      color?: ColorToken | null; // 缺省不动，null 清除
       collapsed?: boolean;
     }
-  | { op: 'delete_node'; id: NodeId } // 主根拒绝
-  | {
-      op: 'move_node';
-      id: NodeId;
-      newParentId: NodeId | null;
-      index?: number;
-      position?: { x: number; y: number };
-    } // null = 脱离为浮动根
-  | { op: 'set_root_position'; id: NodeId; position: { x: number; y: number } }
-  | { op: 'replace_children'; parentId: NodeId; children: MindNode[] }; // 精简/重排用
+  | { op: 'delete_node'; id: NodeId } // 主根拒绝；树节点或浮动根均可
+  | { op: 'move_node'; id: NodeId; newParentId: NodeId; index?: number } // 改挂（浮动根挂回树时丢弃 position）
+  | { op: 'move_node'; id: NodeId; newParentId: null; position: Position; index?: number } // 脱离为浮动根
+  | { op: 'set_root_position'; id: NodeId; position: Position } // 仅浮动根
+  | { op: 'replace_children'; parentId: NodeId; children: NewNode[] }; // 精简/重排用；可复用被替换子树内的 id
 ```
 
 好处：
 
-- 每个 op 由 reducer 返回精确逆操作，AI 的每一步都可撤销，用户随时回退
-- reducer 拒绝成环、删除/移动主根、未知节点、重复 id，抛类型化错误而非静默忽略
+- 每个 op 由 reducer 返回精确逆操作（`applyOp(map, op): { map, inverse: TreeOp[] }`），AI 的每一步都可撤销，用户随时回退
+- reducer 拒绝成环、删除/移动主根、未知节点、重复 id、非浮动根定位、schema 不合法，抛带 `code` 的 `TreeOpError`（`invalid-op` / `unknown-node` / `primary-root-protected` / `cycle` / `invalid-target`，见 change `m1-canvas` design D2）而非静默忽略
 - 流式时 op 逐个到达，节点逐个出现
 - 手动编辑和 AI 编辑走同一条路，不会有两套状态
 

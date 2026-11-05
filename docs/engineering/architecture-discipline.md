@@ -28,7 +28,7 @@ Contexts never import each other's domain types directly. Translation lives in `
 
 ### Aggregates, repositories, domain services, value objects
 
-- An aggregate has exactly one root entity (`MindMap` → root `MindNode`). External references go through the root.
+- An aggregate has exactly one root entity (`MindMap`; its `roots[0]` is the primary `MindNode`, further roots are floating subtrees — decision 0004). External references go through the root.
 - A single transaction touches one aggregate. Cross-aggregate coordination uses domain events (past-tense names: `MapCreated`, `NodesGrown`), dispatched after commit; payloads are additive-only contracts.
 - One repository interface per aggregate root, defined in `domain/`, implemented in `infrastructure/persistence/`, injected into application services. Methods are named in domain terms.
 - Domain services are stateless, live in `domain/`, and exist only when behaviour fits no entity or value object.
