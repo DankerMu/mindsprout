@@ -8,17 +8,21 @@ Direct manipulation of a map on the editor canvas: creating, editing, selecting,
 
 ### Requirement: Create child and sibling nodes
 
-The user SHALL be able to add a child to the selected node (Tab, context menu) and a sibling after it (Enter, context menu). On any root — the primary root or a floating root — Enter SHALL add a child instead, because a root has no sibling list; the menu item 添加兄弟节点 SHALL be disabled on every root. A new node SHALL be created with empty text and enter inline editing immediately; creation and naming SHALL be one undo step (design D3). When the parent is collapsed, creation SHALL first expand it (`update_node { collapsed: false }`) inside the same undo group, so the new child is visible and editable, and one undo SHALL remove the child and re-collapse the parent; a cancelled creation SHALL re-collapse it too.
+The user SHALL be able to add a child to the selected node (Tab, context menu) and a sibling after it (Enter, context menu). A new node SHALL be created with empty text and enter inline editing immediately; creation and naming SHALL be one undo step (design D3).
 
 #### Scenario: Tab adds a child
 
 - **WHEN** node N is selected and the user presses Tab
 - **THEN** a new node appears as N's last child, is selected, and its title input is focused
 
-#### Scenario: Tab on a collapsed node
+#### Scenario: Name a new node
 
-- **WHEN** collapsed node N (two hidden children) is selected and the user presses Tab
-- **THEN** N expands, a new node appears as N's third child with its title input focused, and after naming it one Cmd/Ctrl+Z removes the new child and leaves N collapsed again
+- **WHEN** a node created with Tab is titled "想法" and committed with Enter, and the user presses Cmd/Ctrl+Z once
+- **THEN** the node is gone (creation and naming were one undo step)
+
+### Requirement: Creation on roots adds a child
+
+On any root — the primary root or a floating root — Enter SHALL add a child instead of a sibling, because a root has no sibling list; the menu item 添加兄弟节点 SHALL be disabled on every root.
 
 #### Scenario: Enter on the primary root
 
@@ -30,10 +34,14 @@ The user SHALL be able to add a child to the selected node (Tab, context menu) a
 - **WHEN** floating root F is selected and the user presses Enter
 - **THEN** a new child of F is created and F stays a floating root at its position
 
-#### Scenario: Name a new node
+### Requirement: Creation under a collapsed parent expands it
 
-- **WHEN** a node created with Tab is titled "想法" and committed with Enter, and the user presses Cmd/Ctrl+Z once
-- **THEN** the node is gone (creation and naming were one undo step)
+When the parent is collapsed, creation SHALL first expand it (`update_node { collapsed: false }`) inside the same undo group so the new child is visible and editable; one undo SHALL remove the child and re-collapse the parent, and a cancelled creation SHALL re-collapse it too.
+
+#### Scenario: Tab on a collapsed node
+
+- **WHEN** collapsed node N (two hidden children) is selected and the user presses Tab
+- **THEN** N expands, a new node appears as N's third child with its title input focused, and after naming it one Cmd/Ctrl+Z removes the new child and leaves N collapsed again
 
 ### Requirement: Inline title editing
 
@@ -133,7 +141,7 @@ Cmd/Ctrl+Z SHALL undo and Cmd/Ctrl+Shift+Z SHALL redo the editor history; the to
 
 ### Requirement: Drag to reparent, detach and reposition
 
-Dragging one or more selected nodes and dropping on another node SHALL move them (with subtrees) under that node as one undo step; dropping on empty canvas SHALL detach a tree node into a floating root at the drop point, or reposition a floating root. The dragged set SHALL be the selection normalised to its top-most nodes (descendants of a dragged node move with it). A drop SHALL be refused — the nodes snap back, nothing is dispatched, no undo step is added — when it would create a cycle, when the primary root is in the dragged set, or when the target is a dragged node or a descendant of one. A group drop on empty canvas SHALL detach each top-most tree node as its own floating root, each offset from the drop point by its laid-out offset from the grabbed node, and reposition floating members by the same delta, all as one undo step.
+Dragging one or more selected nodes and dropping on another node SHALL move them (with subtrees) under that node as one undo step; dropping on empty canvas SHALL detach a tree node into a floating root at the drop point, or reposition a floating root. The dragged set SHALL be the selection normalised to its top-most nodes (descendants of a dragged node move with it).
 
 #### Scenario: Reparent by drop
 
@@ -145,11 +153,6 @@ Dragging one or more selected nodes and dropping on another node SHALL move them
 - **WHEN** the user drags node C and drops it on empty canvas at (400, 300)
 - **THEN** C becomes a floating root at (400, 300) with its subtree intact
 
-#### Scenario: Refused cycle
-
-- **WHEN** the user drags node A and drops it on A's descendant D
-- **THEN** nothing changes, A returns to its laid-out position, and no undo step is added
-
 #### Scenario: Group drag
 
 - **WHEN** nodes A and B (different parents, each with a child) are selected and dropped on node P
@@ -160,10 +163,28 @@ Dragging one or more selected nodes and dropping on another node SHALL move them
 - **WHEN** node A and its child D are both selected and dropped on node P
 - **THEN** A is P's last child, D is still A's child, and one undo restores A
 
+### Requirement: Drop refusals
+
+A drop SHALL be refused — the nodes snap back, nothing is dispatched, no undo step is added — when it would create a cycle, when the primary root is in the dragged set, or when the target is a dragged node or a descendant of one.
+
+#### Scenario: Refused cycle
+
+- **WHEN** the user drags node A and drops it on A's descendant D
+- **THEN** nothing changes, A returns to its laid-out position, and no undo step is added
+
 #### Scenario: Drop on a selected node is refused
 
 - **WHEN** nodes A and B are selected and the user drops them on B
 - **THEN** nothing changes, both snap back, and no undo step is added
+
+#### Scenario: Primary root in the dragged set
+
+- **WHEN** the selection includes the primary root and the user drags it onto a floating root
+- **THEN** every node snaps back to its laid-out position, nothing is dispatched and no undo step is added
+
+### Requirement: Group drop on empty canvas
+
+A group drop on empty canvas SHALL detach each top-most tree node as its own floating root, each offset from the drop point by its laid-out offset from the grabbed node, and reposition floating members by the same delta, all as one undo step.
 
 #### Scenario: Group detach to canvas
 
@@ -172,7 +193,7 @@ Dragging one or more selected nodes and dropping on another node SHALL move them
 
 ### Requirement: Context menu
 
-Right-click on a node SHALL open a menu with: 添加子节点, 添加兄弟节点, 重命名, 删除, 折叠/展开, 设置颜色 (six tokens plus 无颜色), 编辑备注, 脱离为浮动节点. 添加兄弟节点 and 脱离为浮动节点 SHALL be disabled on every root (primary or floating); 删除 SHALL be disabled on the primary root only. 重命名, 折叠/展开 and 编辑备注 SHALL act on the right-clicked node only, regardless of the selection; 删除 and 设置颜色 SHALL act on the whole selection when the target is selected. 脱离为浮动节点 SHALL act on the right-clicked node only, regardless of the selection: it SHALL dispatch one `move_node { id: target, newParentId: null, position }` where `position` is the target's current laid-out canvas position, so the node stays where it is with its subtree and only its parent link is cut; one undo SHALL restore it under its previous parent at its previous index. The menu SHALL be built from a registry so later features can add items.
+Right-click on a node SHALL open a menu with: 添加子节点, 添加兄弟节点, 重命名, 删除, 折叠/展开, 设置颜色 (six tokens plus 无颜色), 编辑备注, 脱离为浮动节点. 添加兄弟节点 and 脱离为浮动节点 SHALL be disabled on every root (primary or floating); 删除 SHALL be disabled on the primary root only. The menu SHALL be built from a registry so later features can add items.
 
 #### Scenario: Menu on the primary root
 
@@ -184,11 +205,6 @@ Right-click on a node SHALL open a menu with: 添加子节点, 添加兄弟节�
 - **WHEN** the user right-clicks floating root F
 - **THEN** 添加兄弟节点 and 脱离为浮动节点 are disabled, 删除 is enabled, and choosing 删除 removes F with its subtree
 
-#### Scenario: Detach from the menu
-
-- **WHEN** the user right-clicks child C (laid out at (x, y), with one child) and chooses 脱离为浮动节点
-- **THEN** C is a floating root at (x, y) with its subtree intact, C's previous parent no longer lists it, and one undo restores C under its previous parent at its previous index
-
 #### Scenario: Set color from the menu
 
 - **WHEN** the user picks "blue" under 设置颜色 for node N
@@ -199,10 +215,23 @@ Right-click on a node SHALL open a menu with: 添加子节点, 添加兄弟节�
 - **WHEN** node N carries "blue" and the user picks 无颜色 under 设置颜色
 - **THEN** N renders without a color token, one undo step was added, and undo restores "blue"
 
+### Requirement: Context menu item scope
+
+重命名, 折叠/展开 and 编辑备注 SHALL act on the right-clicked node only, regardless of the selection; 删除 and 设置颜色 SHALL act on the whole selection when the target is selected.
+
 #### Scenario: Collapse with three nodes selected
 
 - **WHEN** three nodes with children are selected and the user right-clicks one of them and chooses 折叠
 - **THEN** only the right-clicked node is collapsed, the other two remain expanded, and one undo step was added
+
+### Requirement: Detach item keeps the node in place
+
+脱离为浮动节点 SHALL act on the right-clicked node only: it SHALL dispatch one `move_node { id: target, newParentId: null, position }` where `position` is the target's current laid-out canvas position, so the node stays where it is with its subtree and only its parent link is cut; one undo SHALL restore it under its previous parent at its previous index.
+
+#### Scenario: Detach from the menu
+
+- **WHEN** the user right-clicks child C (laid out at (x, y), with one child) and chooses 脱离为浮动节点
+- **THEN** C is a floating root at (x, y) with its subtree intact, C's previous parent no longer lists it, and one undo restores C under its previous parent at its previous index
 
 ### Requirement: Color tokens
 

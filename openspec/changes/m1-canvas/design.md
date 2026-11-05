@@ -202,3 +202,26 @@ Target: on a generated 500-node map (primary tree, branching 3–7, depth 5) dra
 - Automated performance harness in CI (distinct from D11's manual profiling): what runs in CI, on which machine class, and what budget fails the build.
 - Touch and mobile interaction model for the canvas (PRD lists mobile editing as out of v1 but a read-only mobile view is unresolved).
 - Snapping/alignment helpers for floating subtrees (grid, guides) — the problem space is visible but no requirement can be stated yet.
+
+## Fixture — issue #2 (task 1.0)
+
+```text
+Change surface: .dependency-cruiser.cjs (domain-is-pure `to` filter AND its `comment` string), constraints.yaml module_boundaries.allowed_dependency_directions, AGENTS.md ## Directory Map, docs/engineering/architecture-discipline.md Layering table (domain row), decisions/implemented/architecture/0005-zod-in-domain.md
+Must preserve: domain-is-pure still rejects every npm package except zod (react probe fails naming the rule as the only violation); every other dependency-cruiser rule unchanged; AGENTS.md stays within the 320-line budget; pnpm test-guardrails cases unchanged (no boundaries fixture slot exists — probes are temporary files deleted before commit, never kept)
+Must add/change (exact text per file):
+  - .dependency-cruiser.cjs: `to.pathNot` gains the two entries `'^node_modules/zod/'` and `'^node_modules/\.pnpm/[^/]+/node_modules/zod/'` (one optional-group pattern is rejected by dependency-cruiser's safe-regex check) (keeping dependencyTypesNot: ['core']); rule `comment` becomes "domain/ depends on nothing but itself, src/shared and zod (decision 0005)"
+  - constraints.yaml module_boundaries.allowed_dependency_directions: new list entry "domain -> zod (schema language, decision 0005)"
+  - AGENTS.md ## Directory Map, the `domain/` line: "imports only itself + src/shared + zod"
+  - docs/engineering/architecture-discipline.md Layering table, Domain row "May depend on" cell: "itself, `src/shared`, `zod` (decision 0005)"
+  - decisions/implemented/architecture/0005-zod-in-domain.md: kind architecture, status implemented, Alternatives considered incl. re-export via src/shared rejected
+Governing invariant: a domain/ file may import zod (any subpath: zod, zod/v4, zod/mini) and nothing else outside domain/ and src/shared, under both pnpm layouts (hoisted node_modules/zod/ and node_modules/.pnpm/zod@*/node_modules/zod/)
+Sibling surfaces: constraints.yaml module_boundaries (mirror, in scope); docs/engineering/architecture-discipline.md Layering table (mirror, in scope); .dependency-cruiser.cjs comment (mirror, in scope); scripts/test-guardrails.sh (no change — no boundaries slot; non-goal)
+Seams under test: pnpm boundaries (dependency-cruiser over src/) — the single seam; pnpm decisions:check and pnpm docs:check cover the record and prose mirrors
+Required evidence:
+  - probe src/contexts/map/domain/zod-probe.ts (`import { z } from 'zod'; export const probe = z.string();`) → `pnpm boundaries` exit 0
+  - probe src/contexts/map/domain/react-probe.ts (`import 'react';`) → `pnpm boundaries` exit non-zero, output contains "domain-is-pure", and the only reported violation is react-probe.ts
+  - regex evidence: a node one-liner shows the new `pathNot` entries (either matching) cover `node_modules/.pnpm/zod@4.6.7/node_modules/zod/index.js`, `node_modules/zod/index.js`, `node_modules/zod/v4/index.js` and does NOT match `node_modules/.pnpm/zod-x@1/node_modules/zod-x/index.js` nor `node_modules/zodiac/index.js`
+  - both probes deleted (git status shows no src/contexts/map/domain/*-probe.ts); pnpm decisions:check exit 0; pnpm docs:check exit 0; pnpm test:guardrails exit 0; pnpm fmt:check exit 0
+Non-goals: any MindMap/TreeOp code (issue #3); application/ rules; keeping probes as a guardrail case (no slot in scripts/test-guardrails.sh)
+Review focus: regex matches zod only (evidence above); both pnpm layouts and subpaths covered; each mirror carries its specified text; decision record frontmatter valid; AGENTS.md line budget
+```

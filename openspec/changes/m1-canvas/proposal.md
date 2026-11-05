@@ -36,3 +36,14 @@ MindSprout's differentiator (node-level AI growth, streaming ops) needs a canvas
 - New dependencies: `@xyflow/react` (canvas), `d3-hierarchy` + `@types/d3-hierarchy` (layout), `nanoid` (ids), `idb` (IndexedDB), `zustand` (editor store), `fake-indexeddb` (dev, persistence tests), `jsdom` + `@testing-library/react` (dev, component tests). All MIT.
 - Documents revised in this change: `CONTEXT.md` (invariants: forest, metadata vs tree state; map and account context rows: `MapRepository` port owned by map), `openspec/glossary.md` (`MindMap`), `docs/TECH.md` §2/§3/§4/§6/§10, `docs/PRD.md` §8 (undo/redo row), `docs/engineering/architecture-discipline.md` (aggregate-root sentence), `decisions/implemented/architecture/0003-treeop-single-mutation-protocol.md` (consequence: store location), new `decisions/implemented/architecture/0004-mindmap-forest-with-primary-root.md`; task 1.0 adds `decisions/implemented/architecture/0005-zod-in-domain.md` and amends `.dependency-cruiser.cjs`, `constraints.yaml` `module_boundaries` and `AGENTS.md ## Directory Map`.
 - Verification surfaces: `e2e/smoke.spec.ts` gains `/maps/[id]`; `constraints.yaml` `key_ui_paths` status updated; `vitest.config.ts` gains `setupFiles` for the jsdom component-test tier. The 500-node drag budget (design D11) is review-only Runtime evidence. No API routes, no database schema, no AI calls.
+
+## Fixture triage — issue #2 (task 1.0)
+
+```text
+Issue type: refactor
+Fixture level: expanded
+Upstream suggested level: expanded (agree — constraints.yaml is a Critical Path: gate integrity)
+Blast radius: a wrong rule either lets any npm package into domain/ (silent purity loss) or keeps rejecting zod and blocks 1.1
+Selected risk packs: Config / project setup; Documentation / migration notes; Release / packaging / dependency compatibility
+Evidence floor: pnpm boundaries (zod probe passes, react probe fails on domain-is-pure, probes deleted); regex layout/subpath check; pnpm decisions:check; pnpm docs:check; pnpm test:guardrails; pnpm fmt:check
+```

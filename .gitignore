@@ -45,3 +45,6 @@ next-env.d.ts
 .review-gate.json
 .claude/settings.local.json
 __pycache__/
+
+# subagent-workflow review evidence
+.workplans/

@@ -8,7 +8,7 @@ date: 2026-11-05
 
 # TreeOp is the only way to mutate a MindMap
 
-Status: active — op list extended by 0004 (forest; `add_root`, `set_root_position`, `move_node` detach)
+Status: active — op list extended by 0004 (forest; `add_root`, `set_root_position`, `move_node` detach); domain purity refined by 0005 (zod is the one permitted package)
 
 ## Problem
 
