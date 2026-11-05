@@ -8,7 +8,7 @@ date: 2026-11-05
 
 # TreeOp is the only way to mutate a MindMap
 
-Status: active
+Status: active — op list extended by 0004 (forest; `add_root`, `set_root_position`, `move_node` detach)
 
 ## Problem
 
@@ -16,8 +16,8 @@ Three AI interaction modes (one-shot generation, node-level Grow, conversational
 
 ## Decision
 
-- A `MindMap` is a JSON tree; the canvas is a projection of it.
-- Every mutation — human or AI — is a `TreeOp` (`add_children`, `update_node`, `delete_node`, `move_node`, `replace_children`) applied by one reducer in the `map` context's domain layer.
+- A `MindMap` is a JSON forest with one primary root (0004); the canvas is a projection of it.
+- Every mutation — human or AI — is a `TreeOp` (`add_children`, `add_root`, `update_node`, `delete_node`, `move_node`, `set_root_position`, `replace_children`; see 0004) applied by one reducer in the `map` context's domain layer.
 - An AI session groups its ops into one undo unit; streaming renders ops as they arrive.
 - Providers emit `TreeOp`s and nothing else (decision 0002).
 

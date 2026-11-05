@@ -21,18 +21,18 @@ Supabase (Postgres + Auth + RLS)
 
 ## 2. 技术选型
 
-| 层     | 选型                                                                            | 理由                                                     |
-| ------ | ------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| 框架   | Next.js 15 (App Router) + TypeScript                                            | 全栈一体，Vercel 零配置部署，SSE 流式支持好              |
-| 画布   | React Flow (@xyflow/react) + d3-hierarchy                                       | 节点是 React 组件，交互全自定义；d3 做树形布局           |
-| 状态   | Zustand + Immer + zundo (undo/redo)                                             | 树操作频繁，不可变更新省心，撤销重做开箱即用             |
-| 样式   | Tailwind CSS + shadcn/ui                                                        | 快速出 UI，组件可控                                      |
-| 数据库 | Supabase Postgres + Drizzle ORM                                                 | 托管、免费额度够、RLS 做行级隔离，Drizzle 类型安全       |
-| 认证   | Supabase Auth                                                                   | 邮箱 / GitHub / Google 一站式，和数据库同一个服务        |
-| AI     | Vercel AI SDK (`ai`) 做提供方抽象；Claude 走 `@anthropic-ai/sdk` 直连以用全特性 | 一套接口接 Claude、OpenAI、任意 OpenAI 兼容端点和 Ollama |
-| 导出   | html-to-image (PNG/SVG)，自写 Markdown/OPML 序列化                              | 树到文本是纯函数，容易测                                 |
-| 部署   | Vercel + Supabase 云                                                            | 零运维                                                   |
-| 测试   | Vitest (单元) + Playwright (端到端)                                             | 树操作和序列化用单元测试覆盖                             |
+| 层     | 选型                                                                                      | 理由                                                     |
+| ------ | ----------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| 框架   | Next.js 15 (App Router) + TypeScript                                                      | 全栈一体，Vercel 零配置部署，SSE 流式支持好              |
+| 画布   | React Flow (@xyflow/react) + d3-hierarchy                                                 | 节点是 React 组件，交互全自定义；d3 做树形布局           |
+| 状态   | Zustand；undo/redo 用 reducer 返回的逆操作栈（决策 0004 的 change `m1-canvas` design D3） | 一条 TreeOp 一步撤销，AI 会话可分组，不存整树快照        |
+| 样式   | Tailwind CSS + shadcn/ui                                                                  | 快速出 UI，组件可控                                      |
+| 数据库 | Supabase Postgres + Drizzle ORM                                                           | 托管、免费额度够、RLS 做行级隔离，Drizzle 类型安全       |
+| 认证   | Supabase Auth                                                                             | 邮箱 / GitHub / Google 一站式，和数据库同一个服务        |
+| AI     | Vercel AI SDK (`ai`) 做提供方抽象；Claude 走 `@anthropic-ai/sdk` 直连以用全特性           | 一套接口接 Claude、OpenAI、任意 OpenAI 兼容端点和 Ollama |
+| 导出   | html-to-image (PNG/SVG)，自写 Markdown/OPML 序列化                                        | 树到文本是纯函数，容易测                                 |
+| 部署   | Vercel + Supabase 云                                                                      | 零运维                                                   |
+| 测试   | Vitest (单元) + Playwright (端到端)                                                       | 树操作和序列化用单元测试覆盖                             |
 
 ## 3. 数据模型
 
@@ -47,14 +47,16 @@ interface MindNode {
   note?: string; // 备注，Markdown
   color?: string;
   collapsed?: boolean;
+  position?: { x: number; y: number }; // 仅浮动根有
   children: MindNode[];
 }
 
+// 森林：roots[0] 是主根（不可删除/移动），其余为浮动根（决策 0004）
 interface MindMap {
   id: string;
   ownerId: string;
   title: string;
-  root: MindNode;
+  roots: MindNode[];
   createdAt: string;
   updatedAt: string;
 }
@@ -62,8 +64,8 @@ interface MindMap {
 
 数据库表（Drizzle）：
 
-- `maps`：id, owner_id, title, root (jsonb), created_at, updated_at
-- `map_versions`：id, map_id, root (jsonb), created_at，保留最近 20 版
+- `maps`：id, owner_id, title, roots (jsonb), schema_version, created_at, updated_at
+- `map_versions`：id, map_id, roots (jsonb), created_at，保留最近 20 版
 - `ai_usage`：user_id, date, provider, model, tokens_in, tokens_out, calls，做每日配额
 - `user_providers`：user_id, provider, base_url, encrypted_key, default_model，用户自定义提供方
 
@@ -74,17 +76,34 @@ RLS 策略：`owner_id = auth.uid()`，所有表统一。
 三种 AI 模式都通过同一组操作改树，前端 reducer 只认这几种：
 
 ```ts
+type NewNode = { id: NodeId; text: string; note?: string; color?: ColorToken };
 type TreeOp =
-  | { op: 'add_children'; parentId: NodeId; children: { text: string; note?: string }[] }
-  | { op: 'update_node'; id: NodeId; text?: string; note?: string }
-  | { op: 'delete_node'; id: NodeId }
-  | { op: 'move_node'; id: NodeId; newParentId: NodeId; index?: number }
+  | { op: 'add_children'; parentId: NodeId; children: NewNode[]; index?: number }
+  | { op: 'add_root'; node: NewNode; position: { x: number; y: number } } // 浮动根
+  | {
+      op: 'update_node';
+      id: NodeId;
+      text?: string;
+      note?: string;
+      color?: ColorToken;
+      collapsed?: boolean;
+    }
+  | { op: 'delete_node'; id: NodeId } // 主根拒绝
+  | {
+      op: 'move_node';
+      id: NodeId;
+      newParentId: NodeId | null;
+      index?: number;
+      position?: { x: number; y: number };
+    } // null = 脱离为浮动根
+  | { op: 'set_root_position'; id: NodeId; position: { x: number; y: number } }
   | { op: 'replace_children'; parentId: NodeId; children: MindNode[] }; // 精简/重排用
 ```
 
 好处：
 
-- AI 的每一步都是一个可撤销的 op，用户随时回退
+- 每个 op 由 reducer 返回精确逆操作，AI 的每一步都可撤销，用户随时回退
+- reducer 拒绝成环、删除/移动主根、未知节点、重复 id，抛类型化错误而非静默忽略
 - 流式时 op 逐个到达，节点逐个出现
 - 手动编辑和 AI 编辑走同一条路，不会有两套状态
 
@@ -160,9 +179,10 @@ SSE 事件流 → 解析 op → dispatch 到 Zustand → React Flow 重算布局
 
 ## 6. 画布实现要点
 
-- 布局：d3-hierarchy 的 `tree()` 算坐标，根在左、子树向右展开（也支持上下）
+- 布局：d3-hierarchy 的 `tree()` 算坐标，根在左、子树向右展开；方向是布局参数，M1 不提供切换 UI
+- 浮动根：按自身 position 放置，子树内部同样自动布局；拖到节点上即挂接，拖到空白处即脱离
 - 性能：500 节点内，React Flow 的虚拟化足够；节点组件用 `memo`，布局计算放 `useMemo`
-- 交互：Tab 加子节点、Enter 加兄弟、Delete 删除、Cmd/Ctrl+Z 撤销、双击编辑、拖到其他节点上重新挂载
+- 交互：Tab 加子节点、Enter 加兄弟、Delete 删除、Cmd/Ctrl+Z 撤销、Cmd/Ctrl+Shift+Z 重做、F2/双击编辑、方向键移动选中、Cmd/Ctrl+A 全选、Space/中键拖拽平移、滚轮缩放、拖到其他节点上重新挂载；多选支持删除、整组改挂、改颜色
 - 折叠：折叠节点不渲染子树，布局时跳过
 
 ## 7. 目录结构（草案）
@@ -210,8 +230,6 @@ docs/                  PRD、技术文档
 
 ## 10. 待决策
 
-- 布局方向默认左右还是上下
-- 是否支持自由节点（不挂在树上的浮动节点）
 - 对话式模式的 AI 是否能"看到"整棵树的摘要
 - 用户自带 Key 是否计入平台每日配额
 - 线上版本如何安全地让用户连自己电脑上的 Ollama

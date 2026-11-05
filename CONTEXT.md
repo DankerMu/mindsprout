@@ -19,13 +19,14 @@ Canonical terms and their prohibited aliases live in `openspec/glossary.md`. Rea
 
 | Context                           | Owns                                                                                                          | Key terms (defined in `openspec/glossary.md`) | Forbidden logic                      | Integration boundary                                                          |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------- |
-| map (`src/contexts/map/`)         | MindMap tree, TreeOp reducer, undo grouping, layout model                                                     | MindMap, MindNode, TreeOp                     | provider calls, persistence, auth    | consumes TreeOps from ai via `acl/ai.ts`; hands read-only snapshots to export |
+| map (`src/contexts/map/`)         | MindMap forest (primary root + floating roots), TreeOp reducer, undo grouping, layout model                   | MindMap, MindNode, TreeOp                     | provider calls, persistence, auth    | consumes TreeOps from ai via `acl/ai.ts`; hands read-only snapshots to export |
 | ai (`src/contexts/ai/`)           | Provider port + adapters, prompt assembly, capability router, quota accounting                                | Provider, Grow, TreeOp (emits)                | tree mutation, UI state, key storage | emits TreeOps only; reads credentials through an account port                 |
 | account (`src/contexts/account/`) | identity/session, encrypted user-supplied provider credentials, map persistence under RLS, daily quota ledger | —                                             | AI calls, tree logic                 | exposes repositories to map and ai application layers                         |
 | export (`src/contexts/export/`)   | PNG/SVG/Markdown/OPML serialisers                                                                             | MindMap (read)                                | mutation of any kind                 | pure functions over a MindMap snapshot                                        |
 
 ## Core Invariants
 
+- A MindMap is a forest with exactly one primary root (`roots[0]`), which is never deleted or moved; floating roots carry a canvas position, other nodes never do (decision 0004).
 - A MindMap is mutated only by applying a TreeOp through the map reducer; no code path writes tree state directly (decision 0003).
 - Every AI session is one undo unit: one undo restores the tree to its pre-session state.
 - A Provider's output is validated against the TreeOp schema before it touches the tree; invalid output is rejected, never "repaired" silently.
@@ -36,11 +37,11 @@ Canonical terms and their prohibited aliases live in `openspec/glossary.md`. Rea
 
 ## Public Interfaces and Contracts
 
-| Interface                      | Contract source                                            | Backward compatibility rule                                            | Test seam                                                 |
-| ------------------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------- |
-| HTTP API (`/api/*`)            | `schemas/openapi.yaml`                                     | additive changes only; a removed or renamed field is a versioned route | `tests/contract/openapi-snapshot.test.ts`, `smoke/*.hurl` |
-| TreeOp protocol                | `src/contexts/map/domain/` (Zod schema, to be added in M1) | additive only; new op kinds need a decision record                     | map domain unit tests                                     |
-| Export formats (Markdown/OPML) | `src/contexts/export/`                                     | existing output stays byte-stable; changes are snapshot-reviewed       | export snapshot tests                                     |
+| Interface                      | Contract source                                                | Backward compatibility rule                                                                     | Test seam                                                 |
+| ------------------------------ | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| HTTP API (`/api/*`)            | `schemas/openapi.yaml`                                         | additive changes only; a removed or renamed field is a versioned route                          | `tests/contract/openapi-snapshot.test.ts`, `smoke/*.hurl` |
+| TreeOp protocol (7 ops)        | `src/contexts/map/domain/` (Zod schema, M1 change `m1-canvas`) | additive only; new op kinds need a decision record (0004 added `add_root`, `set_root_position`) | map domain unit tests                                     |
+| Export formats (Markdown/OPML) | `src/contexts/export/`                                         | existing output stays byte-stable; changes are snapshot-reviewed                                | export snapshot tests                                     |
 
 ## Forbidden Logic & Irreversible Operations
 
