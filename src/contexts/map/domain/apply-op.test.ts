@@ -1,120 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { applyOp } from './apply-op';
-import { createMindMap } from './create-mind-map';
-import { TreeOpError, type TreeOpErrorCode } from './errors';
+import {
+  ORIGIN,
+  UPDATED_AT,
+  apply,
+  applyAndUndo,
+  entriesOf,
+  expectRejected,
+  idsOf,
+  mapOf,
+  metadataOf,
+  node,
+  nodeIn,
+  rejection,
+  sampleMap,
+  undo,
+} from '../../../../tests/support/map-domain';
 import type { TreeOp } from './tree-op';
-import type { ColorToken, MindMap, MindNode, NewNode, NodeId } from './types';
+import type { MindMap, MindNode, NewNode, NodeId } from './types';
 
-// Seam under test: applyOp only (design "Fixture — issue #4"). Every map handed to applyOp is
-// deep-frozen first, so any in-place write throws, and is compared to a structuredClone snapshot.
-
-const UPDATED_AT = '2026-11-05T10:00:00.000Z';
-
-function deepFreeze(value: unknown): void {
-  if (typeof value !== 'object' || value === null) return;
-  Object.freeze(value);
-  const children: unknown[] = Object.values(value);
-  children.forEach(deepFreeze);
-}
-
-function node(
-  id: NodeId,
-  children: MindNode[] = [],
-  fields: Partial<Omit<MindNode, 'id' | 'children'>> = {},
-): MindNode {
-  return { id, text: id.toUpperCase(), ...fields, children };
-}
-
-function mapOf(...roots: MindNode[]): MindMap {
-  return {
-    id: 'm1',
-    title: '导图',
-    roots,
-    createdAt: '2026-11-05T09:00:00.000Z',
-    updatedAt: UPDATED_AT,
-  };
-}
-
-// r ─ p ─ (a, b)          f1 @ (10, 20) ─ fc
-function sampleMap(): MindMap {
-  return mapOf(
-    node('r', [node('p', [node('a'), node('b')])]),
-    node('f1', [node('fc')], { position: { x: 10, y: 20 } }),
-  );
-}
-
-function metadataOf({ id, title, createdAt, updatedAt }: MindMap) {
-  return { id, title, createdAt, updatedAt };
-}
-
-// "Input map is untouched" + "Reducer leaves metadata untouched", asserted on every applied op.
-function apply(map: MindMap, op: TreeOp): { map: MindMap; inverse: TreeOp[] } {
-  deepFreeze(map);
-  const before = structuredClone(map);
-  const result = applyOp(map, op);
-  expect(map).toStrictEqual(before);
-  expect(metadataOf(result.map)).toStrictEqual(metadataOf(before));
-  return result;
-}
-
-function undo(map: MindMap, inverse: readonly TreeOp[]): MindMap {
-  return inverse.reduce((current, op) => apply(current, op).map, map);
-}
-
-function applyAndUndo(map: MindMap, op: TreeOp): { map: MindMap; inverse: TreeOp[] } {
-  const result = apply(map, op);
-  expect(undo(result.map, result.inverse)).toStrictEqual(map);
-  return result;
-}
-
-function rejection(map: MindMap, op: unknown): TreeOpError {
-  deepFreeze(map);
-  const before = structuredClone(map);
-  try {
-    applyOp(map, op as TreeOp);
-  } catch (error) {
-    expect(map).toStrictEqual(before);
-    if (error instanceof TreeOpError) return error;
-    throw error;
-  }
-  throw new Error('expected applyOp to reject the op');
-}
-
-function expectRejected(map: MindMap, op: unknown, code: TreeOpErrorCode): void {
-  expect(rejection(map, op).code).toBe(code);
-}
-
-interface Entry {
-  node: MindNode;
-  parentId: NodeId | null;
-  index: number;
-  siblingCount: number;
-  depth: number;
-}
-
-function entriesOf(map: MindMap): Entry[] {
-  const entries: Entry[] = [];
-  const walk = (nodes: readonly MindNode[], parentId: NodeId | null, depth: number): void => {
-    nodes.forEach((child, index) => {
-      entries.push({ node: child, parentId, index, siblingCount: nodes.length, depth });
-      walk(child.children, child.id, depth + 1);
-    });
-  };
-  walk(map.roots, null, 0);
-  return entries;
-}
-
-function nodeIn(map: MindMap, id: NodeId): MindNode {
-  const found = entriesOf(map).find((entry) => entry.node.id === id);
-  if (found === undefined) throw new Error(`node ${id} is not in the map`);
-  return found.node;
-}
-
-function idsOf(nodes: readonly { id: NodeId }[]): NodeId[] {
-  return nodes.map((child) => child.id);
-}
-
-const ORIGIN = { x: 0, y: 0 };
+// Seam under test: applyOp only (design "Fixture — issue #4"): add_children, add_root, update_node,
+// delete_node, validation and metadata. move_node / set_root_position / replace_children live in
+// apply-op-reshape.test.ts, the seven-op round-trip property in apply-op-round-trip.test.ts; the
+// frozen-input, metadata and D1 assertions run inside the shared helpers (tests/support).
 
 function addingRoot(newNode: NewNode, index?: number): TreeOp {
   return {
@@ -527,18 +434,6 @@ describe('applyOp — validation', () => {
     expect(error.code).toBe('invalid-op');
     expect(error.issues?.length).toBeGreaterThan(0);
   });
-
-  it.each([
-    { op: 'move_node', id: 'a', newParentId: 'b' },
-    { op: 'set_root_position', id: 'f1', position: { x: 0, y: 0 } },
-    { op: 'replace_children', parentId: 'p', children: [] },
-  ] as const)('throws invalid-op for the not-yet-supported $op', (op) => {
-    const error = rejection(sampleMap(), op);
-
-    expect(error.code).toBe('invalid-op');
-    expect(error.message).toBe(`${op.op} is not supported yet`);
-    expect('issues' in error).toBe(false);
-  });
 });
 
 describe('applyOp — Reducer leaves metadata untouched', () => {
@@ -547,6 +442,10 @@ describe('applyOp — Reducer leaves metadata untouched', () => {
     { op: 'add_root', node: { id: 'z', text: 'Z' }, position: { x: 0, y: 0 } },
     { op: 'update_node', id: 'a', text: 'renamed' },
     { op: 'delete_node', id: 'b' },
+    { op: 'move_node', id: 'a', newParentId: 'fc' },
+    { op: 'move_node', id: 'a', newParentId: null, position: { x: 1, y: 2 } },
+    { op: 'set_root_position', id: 'f1', position: { x: 5, y: 6 } },
+    { op: 'replace_children', parentId: 'p', children: [{ id: 'a', text: 'A2' }] },
   ])('$op keeps id, title, createdAt and updatedAt', (op) => {
     const { map: next } = applyAndUndo(sampleMap(), op);
 
@@ -556,187 +455,5 @@ describe('applyOp — Reducer leaves metadata untouched', () => {
       createdAt: '2026-11-05T09:00:00.000Z',
       updatedAt: UPDATED_AT,
     });
-  });
-});
-
-// ---- Round-trip property: seeded PRNG, no dependency (fixture: not fast-check). ----
-
-const COLORS: readonly ColorToken[] = ['red', 'orange', 'yellow', 'green', 'blue', 'purple'];
-const SEEDS = Array.from({ length: 200 }, (_, i) => i + 1);
-
-// mulberry32: tiny deterministic PRNG so every case is reproducible from its seed.
-function mulberry32(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function createRandom(seed: number) {
-  const next = mulberry32(seed);
-  let counter = 0;
-  const int = (maxExclusive: number): number => Math.floor(next() * maxExclusive);
-  return {
-    int,
-    chance: (): boolean => next() < 0.5,
-    pick: <T>(items: readonly T[]): T => {
-      const item = items[int(items.length)];
-      if (item === undefined) throw new Error('pick from an empty list');
-      return item;
-    },
-    freshId: (): NodeId => `n${String((counter += 1))}`,
-  };
-}
-
-type Random = ReturnType<typeof createRandom>;
-
-function randomNewNode(random: Random, depth: number): NewNode {
-  const id = random.freshId();
-  const children = depth > 0 && random.chance() ? randomNewNodes(random, depth - 1) : undefined;
-  return {
-    id,
-    text: `text ${id}`,
-    ...(random.chance() ? { note: `note ${id}` } : {}),
-    ...(random.chance() ? { color: random.pick(COLORS) } : {}),
-    ...(random.chance() ? { collapsed: true } : {}),
-    ...(children === undefined ? {} : { children }),
-  };
-}
-
-function randomNewNodes(random: Random, depth: number): NewNode[] {
-  return Array.from({ length: 1 + random.int(2) }, () => randomNewNode(random, depth));
-}
-
-function randomAddChildren(random: Random, map: MindMap, withIndex: boolean): TreeOp {
-  const parent = random.pick(entriesOf(map)).node;
-  const index = random.int(parent.children.length + 1);
-  return {
-    op: 'add_children',
-    parentId: parent.id,
-    children: randomNewNodes(random, 2),
-    ...(withIndex ? { index } : {}),
-  };
-}
-
-function randomAddRoot(random: Random, map: MindMap, withIndex: boolean): TreeOp {
-  const index = 1 + random.int(map.roots.length);
-  const position = { x: random.int(1000) - 500, y: random.int(1000) - 500 };
-  return {
-    op: 'add_root',
-    node: randomNewNode(random, 2),
-    position,
-    ...(withIndex ? { index } : {}),
-  };
-}
-
-function randomUpdateFields(random: Random) {
-  return {
-    ...(random.chance() ? { text: `renamed ${random.freshId()}` } : {}),
-    ...(random.chance() ? { note: random.chance() ? `note ${random.freshId()}` : null } : {}),
-    ...(random.chance() ? { color: random.chance() ? random.pick(COLORS) : null } : {}),
-    ...(random.chance() ? { collapsed: random.chance() } : {}),
-  };
-}
-
-function randomUpdate(random: Random, map: MindMap): TreeOp {
-  const target = random.pick(entriesOf(map)).node;
-  const fields = randomUpdateFields(random);
-  return {
-    op: 'update_node',
-    id: target.id,
-    ...(Object.keys(fields).length > 0 ? fields : { collapsed: true }),
-  };
-}
-
-function randomDelete(random: Random, map: MindMap): TreeOp {
-  const candidates = entriesOf(map).filter((entry) => entry.parentId !== null || entry.index > 0);
-  return { op: 'delete_node', id: random.pick(candidates).node.id };
-}
-
-// Canonical map: createMindMap + random add_children / add_root with explicit in-range indices.
-function randomMap(random: Random): MindMap {
-  let map = createMindMap({
-    id: 'm-prop',
-    rootId: 'root',
-    title: '性质',
-    rootText: '根',
-    now: () => new Date(UPDATED_AT),
-  });
-  const steps = 1 + random.int(8);
-  for (let step = 0; step < steps; step += 1) {
-    const op =
-      random.int(4) === 0 ? randomAddRoot(random, map, true) : randomAddChildren(random, map, true);
-    map = applyOp(map, op).map;
-  }
-  return map;
-}
-
-// Drawn ops sometimes omit `index` so the default-append path is exercised too.
-function drawAddChildren(random: Random, map: MindMap): TreeOp {
-  return randomAddChildren(random, map, random.chance());
-}
-
-function drawAddRoot(random: Random, map: MindMap): TreeOp {
-  return randomAddRoot(random, map, random.chance());
-}
-
-const drawOp = {
-  add_children: drawAddChildren,
-  add_root: drawAddRoot,
-  update_node: randomUpdate,
-  delete_node: randomDelete,
-} satisfies Record<string, (random: Random, map: MindMap) => TreeOp>;
-
-type OpKind = keyof typeof drawOp;
-const OP_KINDS = Object.keys(drawOp) as OpKind[];
-
-function caseFor(seed: number, kind: OpKind): { map: MindMap; op: TreeOp } {
-  const random = createRandom(seed);
-  const map = randomMap(random);
-  return { map, op: drawOp[kind](random, map) };
-}
-
-function checkRoundTrip(seed: number, kind: OpKind): void {
-  const { map, op } = caseFor(seed, kind);
-  try {
-    applyAndUndo(map, op);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`round-trip failed for seed ${String(seed)} (${kind}): ${detail}`, {
-      cause: error,
-    });
-  }
-}
-
-describe('applyOp — apply then inverse restores the map (seeded property)', () => {
-  it.each(OP_KINDS)('%s over 200 seeded canonical maps', (kind) => {
-    SEEDS.forEach((seed) => {
-      checkRoundTrip(seed, kind);
-    });
-  });
-
-  it('the generator reaches nested, non-last, floating-root and primary targets and null clears', () => {
-    const deletes = SEEDS.map((seed) => {
-      const { map, op } = caseFor(seed, 'delete_node');
-      return entriesOf(map).find((entry) => op.op === 'delete_node' && entry.node.id === op.id);
-    });
-    const updates = SEEDS.map((seed) => caseFor(seed, 'update_node').op);
-
-    expect(deletes.some((entry) => entry !== undefined && entry.depth >= 2)).toBe(true);
-    expect(deletes.some((entry) => entry?.parentId === null)).toBe(true);
-    expect(deletes.some((entry) => entry !== undefined && entry.node.children.length > 0)).toBe(
-      true,
-    );
-    expect(
-      deletes.some((entry) => entry !== undefined && entry.index < entry.siblingCount - 1),
-    ).toBe(true);
-    expect(updates).toContainEqual(expect.objectContaining({ id: 'root' }));
-    expect(updates).toContainEqual(expect.objectContaining({ note: null }));
-    expect(updates).toContainEqual(expect.objectContaining({ color: null }));
-    expect(updates).toContainEqual(expect.objectContaining({ collapsed: false }));
   });
 });

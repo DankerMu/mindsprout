@@ -127,3 +127,11 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Error handling / rollback / partial outputs — selected: rejections must throw the exact `TreeOpError.code` and leave the input untouched; evidence = rejection tests per code on frozen maps + snapshot comparison after each rejection; unsupported ops throw `invalid-op`.
 - Concurrency / shared state / ordering — selected: purity and inverse ordering (reverse-order deletes, original indices) are what make undo correct; evidence = "Input map is untouched" on deep-frozen fixtures + seeded round-trip property.
 - Config; File IO; Auth; Resource limits; Legacy compatibility; Release / packaging; Documentation — not selected: no config, IO, auth, size limits, legacy consumers or new dependencies; docs are the fixture itself.
+
+## Risk packs — issue #5 (task 1.3)
+
+- Schema / columns / units / field names — selected: move/attach/detach and replace_children change which nodes carry `position` and which ids exist in the persisted map; evidence = scenario tests asserting exact node shapes (no position after attach, copied position after detach) + seven-op round-trip property in design "Fixture — issue #5".
+- Public API / CLI / script entry — selected: move_node index semantics and inverse shapes are what drag (#24/#25), the menu (#27) and History (#6/#7) consume; evidence = exact-inverse `toStrictEqual` assertions per variant, typecheck, knip.
+- Error handling / rollback / partial outputs — selected: cycle, primary-root-protected and invalid-target must throw the exact code with the input untouched; evidence = rejection tests per code on frozen maps + snapshot comparison.
+- Concurrency / shared state / ordering — selected: final-index semantics and LIFO inverse application decide whether undo restores sibling order; evidence = same-parent reorder test + round-trip property with explicit indices.
+- Config; File IO; Auth; Resource limits; Legacy compatibility; Release / packaging; Documentation — not selected: no config, IO, auth, size limits, legacy consumers or new dependencies (tests/support/ is test code only); docs are the fixture itself.
