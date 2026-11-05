@@ -308,3 +308,36 @@ Required evidence (vitest):
 Non-goals: History (#6/#7); UI, drag hit-testing, layout; validating non-canonical persisted maps (noted on #11); performance (#26)
 Review focus: final-index semantics on reparent/attach/detach and their inverses (same-parent reorder is the trap); cycle check covers attach of a floating root; position dropped on attach and copied on detach/set_root_position; replace_children reuse boundary (P's descendants only, not P); #4 behaviour unchanged after the test split; no helper duplicated between test files or between production modules
 ```
+
+## Fixture — issue #6 (task 2.1)
+
+```text
+Change surface: new src/contexts/map/application/history/history.ts (+ paired history.test.ts); imports only ../../domain (applyOp, TreeOp, MindMap); no store, no React, no persistence
+Must preserve: applyOp contract (#4/#5) untouched; history is in-memory only (never serialised, no persistence import); application/ never imports infrastructure/
+Must add (exports, exact names):
+  - interface HistoryEntry { readonly ops: readonly TreeOp[]; readonly inverses: readonly (readonly TreeOp[])[]; readonly label: string } — plain data; inverses[i] is the inverse list applyOp returned for ops[i]; History stores entries as given and never mutates them
+  - HISTORY_LIMIT = 200
+  - class HistoryError extends Error { code: HistoryErrorCode } with HistoryErrorCode = 'invalid-entry' (issue #7 extends the union with 'group-open' | 'no-group')
+  - class History: push(entry): void; undo(map: MindMap): MindMap; redo(map: MindMap): MindMap; get canUndo(): boolean; get canRedo(): boolean
+Behaviour:
+  - push: rejects an entry with zero ops or ops.length !== inverses.length → HistoryError('invalid-entry'), stacks unchanged; otherwise appends to past, clears future, drops the oldest past entry beyond HISTORY_LIMIT
+  - undo: applies inverses[n-1] … inverses[0], each inner list in its own order, via applyOp, then moves the entry from past to future; redo: re-applies ops in order via applyOp, then moves the entry back to past (the stored entry is reused — its inverses stay valid because redo starts from a map deep-equal to the one the ops were first applied to)
+  - atomic: the new map is computed before any stack changes; if applyOp throws (stale or foreign map), the TreeOpError propagates and past/future are unchanged
+  - empty stack: undo with !canUndo / redo with !canRedo returns the same map object unchanged (Cmd+Z on an empty history is a normal user action, not an error)
+  - canUndo = past non-empty; canRedo = future non-empty
+Governing invariant: for any sequence of applyOp results pushed as entries, undo k times then redo k times returns maps deep-equal to the corresponding earlier states, and a failed undo/redo never changes the stacks
+Sibling surfaces: #7 groups (adds begin/end/cancelGroup and group-open guards to this class); #12 editor store (holds one History, mirrors canUndo/canRedo into state); #23 toolbar buttons (bind to canUndo/canRedo)
+Seams under test: History public API over real applyOp and maps from createMindMap (no mocked reducer)
+Required evidence (vitest, history.test.ts):
+  - spec map-undo-history "Undo a rename" (update_node A→B pushed; undo → text "A", canRedo true, canUndo false); "Redo after undo" (→ text "B", canRedo false, canUndo true); "Undo a multi-child add" (one add_children of two nodes; one undo → both gone, canRedo true); "Branching history" (undo then push a different op → canRedo false); "Cap at 200" (201 single-op pushes → exactly 200 undos change the map, the 201st returns the same object, and the map after 200 undos equals the state after the first op)
+  - canUndo/canRedo asserted after every push/undo/redo in those tests
+  - outer order: a multi-op entry whose second op depends on the first (a = add_children X under P, b = update_node X text), built from the real applyOp results and pushed directly: one undo restores the pre-a map (a forward outer order would throw unknown-node), one redo restores the post-b map
+  - inner order: a hand-built entry whose single inverse list is order-sensitive (ops [add_children Y], inverses [[update_node Y …, delete_node Y]] — applying the inner list reversed throws unknown-node), proving each inner list runs in its own order
+  - entries are never mutated: the pushed entries are deep-frozen and the same entry goes undo → redo → undo with identical results (catches in-place .reverse())
+  - empty stacks: fresh History undo/redo return the identical map object (toBe), flags false
+  - atomicity: undo against a map that lacks the entry's node → TreeOpError('unknown-node') propagates, canUndo/canRedo unchanged and a subsequent undo on the correct map still works; same for redo
+  - push invalid entries (zero ops; ops/inverses length mismatch) → HistoryError code 'invalid-entry', flags unchanged
+  - gates: pnpm test:unit ≥90% line/branch/function on history.ts; boundaries, typecheck, lint, dead-code, fmt:check exit 0
+Non-goals: groups and group errors (#7); store wiring (#12); UI (#23); label semantics beyond storage
+Review focus: inverse application order (outer reverse, inner forward); atomicity on reducer failure; cap drops oldest not newest; push clears future; no persistence or infrastructure import
+```

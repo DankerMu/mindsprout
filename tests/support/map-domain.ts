@@ -12,7 +12,7 @@ export const UPDATED_AT = '2026-11-05T10:00:00.000Z';
 
 export const ORIGIN = { x: 0, y: 0 };
 
-function deepFreeze(value: unknown): void {
+export function deepFreeze(value: unknown): void {
   if (typeof value !== 'object' || value === null) return;
   Object.freeze(value);
   const children: unknown[] = Object.values(value);
