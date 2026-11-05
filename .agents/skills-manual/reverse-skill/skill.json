@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "name": "reverse-skill",
+  "displayName": "Reverse Skill Router",
+  "description": "Routes reverse engineering, APK analysis, JavaScript signature analysis, binary analysis, CTF, firmware, mobile, malware, API security, and penetration testing tasks to specialized sub-skills and tool workflows.",
+  "version": "0.1.0",
+  "maturity": "experimental",
+  "categories": [
+    "security"
+  ],
+  "tags": [
+    "reverse-engineering",
+    "security",
+    "ctf",
+    "pentest",
+    "user-invoked"
+  ],
+  "authors": [
+    {
+      "name": "danker"
+    }
+  ],
+  "license": "MIT",
+  "entrypoints": {
+    "skillDoc": "SKILL.md",
+    "changelog": "CHANGELOG.md"
+  }
+}

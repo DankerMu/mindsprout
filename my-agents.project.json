@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "description": "Bootstrap manifest for MindSprout: engineering methodology (stellarlink) and issue-driven delivery workflow (agentic-issue-delivery).",
+  "platforms": ["claude", "codex"],
+  "packs": ["stellarlink", "agentic-issue-delivery"],
+  "skills": [],
+  "agents": []
+}
