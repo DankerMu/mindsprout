@@ -3,6 +3,7 @@ import {
   apply,
   deepFreeze,
   entryIn,
+  errorFrom,
   idsOf,
   mapOf,
   node,
@@ -55,15 +56,6 @@ function expectFlags(history: History, canUndo: boolean, canRedo: boolean): void
     canUndo,
     canRedo,
   });
-}
-
-function errorFrom(fn: () => unknown): unknown {
-  try {
-    fn();
-  } catch (error) {
-    return error;
-  }
-  throw new Error('expected the call to throw');
 }
 
 // Shares no node id with the test maps, so every recorded inverse misses on it.

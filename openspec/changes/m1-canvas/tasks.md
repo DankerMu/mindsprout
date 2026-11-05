@@ -150,3 +150,11 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Concurrency / shared state / ordering — selected: group revert order and LIFO undo of interacting multi-op groups decide whether a group restores exactly; evidence = "Multi-select delete is one step", group-drag and detach+attach group tests.
 - Error handling / rollback / partial outputs — selected: rejected dispatch and cancelGroup must leave no partial group, no entry and an untouched redo stack; evidence = "Rejected op cancels the group", "Cancelled group leaves no entry", atomic cancel on a foreign map.
 - Schema; Config; File IO; Auth; Resource limits (cap unchanged, covered by #6); Legacy compatibility; Release / packaging; Documentation — not selected: in-memory module, no persisted shape, config, IO, auth, legacy consumers or dependencies.
+
+## Risk packs — issue #12 (task 5.1a)
+
+- Public API / CLI / script entry — selected: `createEditorStore`, `EditorState` actions and `EditorStoreError` are the surface 5.2, 6.x, 7.x, 8.x, 9.x and #35 call; evidence = names fixed in design "Fixture — issue #12", typecheck, knip.
+- Concurrency / shared state / ordering — selected: the store is the shared editor state; flags must mirror History in the same update and every load starts a fresh History; evidence = load-reset, flag-mirroring and runGrouped tests.
+- Error handling / rollback / partial outputs — selected: rejected ops (ungrouped and grouped), a throwing runGrouped fn and a swallowed rejection must leave state consistent and surface the TreeOpError; evidence = the rejection, runGrouped and swallowed-rejection tests.
+- Release / packaging / dependency compatibility — selected: adds `zustand` as a runtime dependency (MIT, 5.x, lockfile via pnpm); evidence = `pnpm install --frozen-lockfile` in CI, knip (used), import inventory (design "Fixture — issue #12"; grep for react / bare zustand imports in application/ = 0). `nanoid` deferred to #35.
+- Schema; Config; File IO; Auth; Resource limits; Legacy compatibility; Documentation — not selected: no persisted shape change, config, IO, auth, size limits or legacy consumers; docs are the fixture itself.

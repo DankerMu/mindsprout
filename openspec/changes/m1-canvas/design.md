@@ -377,3 +377,50 @@ Required evidence (vitest):
 Non-goals: runGrouped and createNode (#12/#35); store and UI; async/streaming groups (M3 decides auto-close)
 Review focus: group-open check ordering vs empty-stack return; cancel/rejection never clears future; endGroup pushes fresh arrays; revert order (outer reverse, inner forward); GroupCancelledError carries restored + cause and ungrouped rejections are not wrapped; atomic cancel on a foreign map
 ```
+
+## Fixture — issue #12 (task 5.1a)
+
+```text
+Change surface: new src/contexts/map/application/editor-store/editor-store.ts (+ paired editor-store.test.ts); package.json + pnpm-lock.yaml gain `zustand` (runtime dependency, MIT, current 5.x release older than Renovate's 3-day minimum age); imports only ../../domain, ../history and `zustand/vanilla`
+Must preserve: applyOp / History contracts (#4–#7) untouched; decision 0003 (tree state changes only through History.dispatch → applyOp; metadata only through rename); application/ imports no React, Next or infrastructure — the React binding (`useStore` from `zustand`) belongs to src/components in 6.x
+Scope deviations from the issue text (recorded; posted on #35 and in the PR): `nanoid` is NOT added here — nothing in 5.1a generates ids, knip fails on an unused dependency, and tasks.md says a dependency is added by the task that first uses it; #35 (createNode) adds it, overriding its own "no new dependencies" PR-boundary line. The acceptance clause "a rejected op leaves … selection … deep-equal" moves to #35, which introduces the selection/editing slice (selection and editing state after a rejection inside the creation group)
+Must add (exports, exact names):
+  - interface Viewport { x: number; y: number; zoom: number }; DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 }
+  - type EditorStoreErrorCode = 'no-map'; class EditorStoreError extends Error { code }
+  - interface EditorState { map: MindMap | null; canUndo: boolean; canRedo: boolean; groupOpen: boolean; viewport: Viewport; notice: string | null; load(map); dispatch(op); undo(); redo(); beginGroup(label); endGroup(); cancelGroup(); runGrouped(label, fn: () => void); rename(title); setViewport(viewport); showNotice(message); clearNotice() }
+  - createEditorStore(options?: { now?: () => Date }): StoreApi<EditorState> (zustand/vanilla createStore); `now` defaults to () => new Date() and is injected so tests are deterministic
+Behaviour:
+  - one History per load: load(map) creates a NEW History, sets map, canUndo/canRedo/groupOpen false, viewport DEFAULT_VIEWPORT, notice null (opening another map never inherits undo steps)
+  - canUndo / canRedo / groupOpen are mirrors of the private History, refreshed in the same set() as every map change — never tracked independently
+  - dispatch(op): map = history.dispatch(map, op). Ungrouped TreeOpError → rethrown as-is, state unchanged. GroupCancelledError → set map = error.restored and refreshed flags, then rethrow error.cause (the caller sees the TreeOpError, never GroupCancelledError)
+  - undo() / redo(): map = history.undo/redo(map); HistoryError('group-open') propagates with state unchanged; empty stack leaves state unchanged
+  - beginGroup / endGroup delegate and refresh flags; cancelGroup() reverts with the current map and sets the restored map; HistoryError (group-open / no-group) propagates with state unchanged
+  - runGrouped(label, fn): beginGroup runs OUTSIDE the try (a group already open → HistoryError('group-open') propagates, fn never runs, the outer group stays open and untouched); then fn() → endGroup; if fn or endGroup throws: cancelGroup only while history.groupOpen is still true, then rethrow the original error (a rejected dispatch has already closed the group; cancelling again would throw no-group and mask the TreeOpError). fn is synchronous
+  - rename(title): map = { ...map, title, updatedAt: now().toISOString() }; no History entry; canUndo/canRedo unchanged; later undo/redo keep the renamed title (reducer never touches metadata)
+  - setViewport(v) stores v as given (clamping 25–200% is the canvas's job, 6.1); showNotice(message) / clearNotice() set / null `notice`
+  - before load (map === null): dispatch / undo / redo / beginGroup / endGroup / cancelGroup / runGrouped / rename → EditorStoreError('no-map'), state unchanged; setViewport / showNotice / clearNotice work without a map
+  - state is only ever replaced through set(); no action mutates the previous map or state object
+Governing invariant: store.map always equals the result of applying, through History, exactly the ops History records (plus metadata from load/rename), and canUndo/canRedo/groupOpen always equal History's own values
+Sibling surfaces: History (#6/#7); #35 (adds selection/editing slice, createNode/commitTitle/cancelEdit via beginGroup/dispatch/endGroup/cancelGroup, reads groupOpen, adds nanoid); #13 autosave (subscribes to map changes, stamps updatedAt before put, writes notice "保存失败"); 6.2 route (createEditorStore + load); 6.3 banner/toast (reads notice); 7.4 ("主根不能删除" via showNotice); 7.5 toolbar (canUndo/canRedo); 8.x drag and 9.x menu (dispatch / runGrouped)
+Seams under test: createEditorStore public API in the node environment with real History + applyOp (no mocks, no DOM)
+Required evidence (vitest, editor-store.test.ts):
+  - load: map set; canUndo/canRedo/groupOpen false; viewport default; notice null; load of a second map after edits resets canUndo/canRedo false and undo no-ops on the new map (new History)
+  - dispatch applies and records exactly one entry (canUndo true; one undo restores the pre-op map deep-equal; redo restores)
+  - history intact (AC "history deep-equal", spec "Cancelled group leaves no entry … canRedo is unchanged"): each of the following starts from a state with canUndo AND canRedo true (dispatch a, dispatch b, undo) and, after its assertions, proves one redo and one undo yield maps deep-equal to the no-rejection path:
+    - ungrouped rejection: the TreeOpError instance (exact code) reaches the caller; map, flags, viewport, notice deep-equal to before
+    - runGrouped rejection (below) and explicit cancelGroup (below)
+  - spec "Grouped ops undo together" via runGrouped: three ops → exactly one entry; one undo restores the pre-group map
+  - spec "Rejected op cancels the group" via runGrouped: two ops then a rejected one → caller receives the TreeOpError (instanceof TreeOpError, not GroupCancelledError, exact code); map deep-equal pre-group; canUndo/canRedo unchanged; groupOpen false
+  - runGrouped where fn throws a plain Error after two dispatches → group cancelled (map deep-equal pre-group, no entry), the same Error rethrown
+  - swallowed rejection (from the #12 issue note): fn catches the rejection and dispatches again → runGrouped throws HistoryError('no-group'); afterwards map = pre-group map + the second op, canUndo true, one undo restores the pre-group map (state and History consistent)
+  - explicit beginGroup / dispatch / endGroup and beginGroup / dispatch / cancelGroup through the store; groupOpen mirrored at each step; undo while open → HistoryError('group-open'), state unchanged
+  - rename: title and updatedAt (= injected now in ISO) change, canUndo/canRedo unchanged; a following undo of an earlier op keeps the new title
+  - viewport and notice: setViewport / showNotice / clearNotice round-trip through getState() with no React
+  - no-map: dispatch, undo, redo, beginGroup, endGroup, cancelGroup, runGrouped, rename each throw EditorStoreError('no-map') before load with getState() deep-equal before/after; setViewport, showNotice, clearNotice succeed before load
+  - runGrouped while a group is already open (the #35 creation group case): throws HistoryError('group-open'), fn is not called, groupOpen stays true, map unchanged, and the outer group can still endGroup normally
+  - previous state objects are not mutated (snapshot of getState() before an action is deep-equal after it)
+  - import inventory (pnpm boundaries cannot prove this — #37, and doNotFollow hides what a bare `zustand` import pulls in): the PR lists editor-store.ts imports; only `zustand/vanilla`, `../../domain/*` and `../history/history` are allowed, and `grep -rnE "from '(react|zustand)'" src/contexts/map/application/` returns 0 matches
+  - gates: pnpm test:unit ≥90% on editor-store.ts; boundaries, typecheck, lint, dead-code (zustand used; no unused deps), duplicate-code, fmt:check exit 0; lockfile updated by pnpm (never hand-edited)
+Non-goals: selection/editing slice, createNode, topmostSelected, nanoid (#35); autosave/flush/storage flags (#13); React components and hooks (6.x); keyboard (7.3); drag planning (8.x)
+Review focus: GroupCancelledError unwrap and runGrouped's groupOpen gate; flags always mirrored from History in the same set(); new History on every load; no direct map writes besides history results and rename; zustand/vanilla only (no react import in application/); dependency version, licence and lockfile
+```
