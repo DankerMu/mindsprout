@@ -10,26 +10,32 @@
 - **逐节点生长**：选中任意节点，让 AI 继续展开、补充或精简
 - **文本导入**：粘贴文章 / 会议纪要 / 笔记，自动提炼为导图
 - **自由编辑**：拖拽、重排、改色，AI 生成的内容随时可手动修改
-- **导出分享**：PNG / SVG / Markdown / OPML / FreeMind
+- **对话改图**：侧边栏和 AI 对话，实时增删改节点
+- **模型自由**：内置 Claude 与 OpenAI 兼容接口，也可以填自己的 Key 或连本地 Ollama
+- **导出分享**：PNG / SVG / Markdown / OPML
 
-## 规划中的技术栈
+## 技术栈
 
-| 层 | 选型（待定） |
+| 层 | 选型 |
 |---|---|
-| 前端 | React + TypeScript + Vite |
-| 画布 | React Flow 或 Markmap |
-| AI | Claude API（结构化输出生成节点树） |
-| 状态 | Zustand |
-| 后端 | 轻量 API 代理（隐藏 Key、做限流） |
+| 框架 | Next.js 15 + TypeScript |
+| 画布 | React Flow + d3-hierarchy |
+| 状态 | Zustand + Immer + undo/redo |
+| AI | 提供方抽象层：Claude、OpenAI 及兼容接口、本地开源模型（Ollama 等） |
+| 数据 / 认证 | Supabase（Postgres + Auth + RLS）+ Drizzle |
+| 部署 | Vercel |
+
+详见 [docs/PRD.md](docs/PRD.md) 与 [docs/TECH.md](docs/TECH.md)。
 
 ## 路线图
 
-- [ ] 项目脚手架与基础画布
-- [ ] 主题 → 导图的 AI 生成
-- [ ] 节点级 AI 展开
-- [ ] 文本导入
-- [ ] 导出格式
-- [ ] 本地保存 / 云端同步
+- [ ] M1 画布：手动建树、拖拽、布局、本地保存
+- [ ] M2 账号与云存储
+- [ ] M3 主题生成（Claude / OpenAI 兼容）
+- [ ] M3.5 开源模型与自定义提供方
+- [ ] M4 节点级生长
+- [ ] M5 文本导入与对话式
+- [ ] M6 导出与打磨
 
 ## 开发
 
