@@ -102,3 +102,14 @@ Blast radius: a group that leaks a partial op set, clears redo on cancel, or let
 Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs
 Evidence floor: pnpm test:unit (eight spec scenarios + guards + atomicity, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code; pnpm fmt:check
 ```
+
+## Fixture triage — issue #12 (task 5.1a)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (override — the store is the shared-state entrypoint every later UI issue (5.2, 6.x, 7.x, 8.x, 9.x, #35) dispatches through, and it adds a runtime dependency)
+Blast radius: a store that mutates state outside applyOp, desynchronises map and History, or swallows group rejections corrupts every edit and undo in the editor
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; Release / packaging / dependency compatibility
+Evidence floor: pnpm test:unit (node env; dispatch/undo/groups/runGrouped/rename/viewport/notice, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code (knip: zustand used, no unused deps); pnpm duplicate-code; pnpm fmt:check; pnpm install --frozen-lockfile consistency
+```

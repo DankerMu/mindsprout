@@ -139,3 +139,13 @@ export function rejection(map: MindMap, op: unknown): TreeOpError {
 export function expectRejected(map: MindMap, op: unknown, code: TreeOpErrorCode): void {
   expect(rejection(map, op).code).toBe(code);
 }
+
+// The value a call throws, for assertions on its class and fields; fails when nothing is thrown.
+export function errorFrom(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('expected the call to throw');
+}
