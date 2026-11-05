@@ -8,7 +8,7 @@ Direct manipulation of a map on the editor canvas: creating, editing, selecting,
 
 ### Requirement: Create child and sibling nodes
 
-The user SHALL be able to add a child to the selected node (Tab, context menu) and a sibling after it (Enter, context menu). On any root — the primary root or a floating root — Enter SHALL add a child instead, because a root has no sibling list; the menu item 添加兄弟节点 SHALL be disabled on every root. A new node SHALL be created with empty text and enter inline editing immediately; creation and naming SHALL be one undo step (design D3). When the parent is collapsed, creation SHALL first expand it (`update_node { collapsed: false }`) inside the same undo group, so the new child is visible and editable, and one undo SHALL remove the child and re-collapse the parent; a cancelled creation SHALL re-collapse it too.
+The user SHALL be able to add a child to the selected node (Tab, context menu) and a sibling after it (Enter, context menu). A new node SHALL be created with empty text and enter inline editing immediately; creation and naming SHALL be one undo step (design D3).
 
 #### Scenario: Tab adds a child
 
@@ -34,6 +34,24 @@ The user SHALL be able to add a child to the selected node (Tab, context menu) a
 
 - **WHEN** a node created with Tab is titled "想法" and committed with Enter, and the user presses Cmd/Ctrl+Z once
 - **THEN** the node is gone (creation and naming were one undo step)
+
+### Requirement: Creation on roots adds a child
+
+On any root — the primary root or a floating root — Enter SHALL add a child instead of a sibling, because a root has no sibling list; the menu item 添加兄弟节点 SHALL be disabled on every root.
+
+#### Scenario: Enter on a floating root
+
+- **WHEN** a floating root is selected and the user presses Enter
+- **THEN** a new child of that floating root is created and 添加兄弟节点 is disabled in its context menu
+
+### Requirement: Creation under a collapsed parent expands it
+
+When the parent is collapsed, creation SHALL first expand it (`update_node { collapsed: false }`) inside the same undo group so the new child is visible and editable; one undo SHALL remove the child and re-collapse the parent, and a cancelled creation SHALL re-collapse it too.
+
+#### Scenario: Tab on a collapsed node
+
+- **WHEN** node N is collapsed and selected and the user presses Tab, names the child and commits
+- **THEN** N is expanded, the child is visible, and one undo removes the child and collapses N again
 
 ### Requirement: Inline title editing
 
@@ -133,7 +151,7 @@ Cmd/Ctrl+Z SHALL undo and Cmd/Ctrl+Shift+Z SHALL redo the editor history; the to
 
 ### Requirement: Drag to reparent, detach and reposition
 
-Dragging one or more selected nodes and dropping on another node SHALL move them (with subtrees) under that node as one undo step; dropping on empty canvas SHALL detach a tree node into a floating root at the drop point, or reposition a floating root. The dragged set SHALL be the selection normalised to its top-most nodes (descendants of a dragged node move with it). A drop SHALL be refused — the nodes snap back, nothing is dispatched, no undo step is added — when it would create a cycle, when the primary root is in the dragged set, or when the target is a dragged node or a descendant of one. A group drop on empty canvas SHALL detach each top-most tree node as its own floating root, each offset from the drop point by its laid-out offset from the grabbed node, and reposition floating members by the same delta, all as one undo step.
+Dragging one or more selected nodes and dropping on another node SHALL move them (with subtrees) under that node as one undo step; dropping on empty canvas SHALL detach a tree node into a floating root at the drop point, or reposition a floating root. The dragged set SHALL be the selection normalised to its top-most nodes (descendants of a dragged node move with it).
 
 #### Scenario: Reparent by drop
 
@@ -170,9 +188,27 @@ Dragging one or more selected nodes and dropping on another node SHALL move them
 - **WHEN** nodes A and B (A laid out 80 px above B) are selected, grabbed by A, and dropped on empty canvas at (400, 300)
 - **THEN** A is a floating root at (400, 300), B is a floating root at (400, 380), and one undo restores both
 
+### Requirement: Drop refusals
+
+A drop SHALL be refused — the nodes snap back, nothing is dispatched, no undo step is added — when it would create a cycle, when the primary root is in the dragged set, or when the target is a dragged node or a descendant of one.
+
+#### Scenario: Primary root in the dragged set
+
+- **WHEN** the selection includes the primary root and the user drags it onto a floating root
+- **THEN** every node snaps back to its laid-out position, nothing is dispatched and no undo step is added
+
+### Requirement: Group drop on empty canvas
+
+A group drop on empty canvas SHALL detach each top-most tree node as its own floating root, each offset from the drop point by its laid-out offset from the grabbed node, and reposition floating members by the same delta, all as one undo step.
+
+#### Scenario: Two tree nodes dropped on canvas
+
+- **WHEN** nodes A and B (siblings) are selected and dragged by A onto empty canvas at (400, 300)
+- **THEN** A becomes a floating root at (400, 300), B becomes a floating root offset by its laid-out offset from A, and one undo restores both under their parent
+
 ### Requirement: Context menu
 
-Right-click on a node SHALL open a menu with: 添加子节点, 添加兄弟节点, 重命名, 删除, 折叠/展开, 设置颜色 (six tokens plus 无颜色), 编辑备注, 脱离为浮动节点. 添加兄弟节点 and 脱离为浮动节点 SHALL be disabled on every root (primary or floating); 删除 SHALL be disabled on the primary root only. 重命名, 折叠/展开 and 编辑备注 SHALL act on the right-clicked node only, regardless of the selection; 删除 and 设置颜色 SHALL act on the whole selection when the target is selected. 脱离为浮动节点 SHALL act on the right-clicked node only, regardless of the selection: it SHALL dispatch one `move_node { id: target, newParentId: null, position }` where `position` is the target's current laid-out canvas position, so the node stays where it is with its subtree and only its parent link is cut; one undo SHALL restore it under its previous parent at its previous index. The menu SHALL be built from a registry so later features can add items.
+Right-click on a node SHALL open a menu with: 添加子节点, 添加兄弟节点, 重命名, 删除, 折叠/展开, 设置颜色 (six tokens plus 无颜色), 编辑备注, 脱离为浮动节点. 添加兄弟节点 and 脱离为浮动节点 SHALL be disabled on every root (primary or floating); 删除 SHALL be disabled on the primary root only. The menu SHALL be built from a registry so later features can add items.
 
 #### Scenario: Menu on the primary root
 
@@ -203,6 +239,24 @@ Right-click on a node SHALL open a menu with: 添加子节点, 添加兄弟节�
 
 - **WHEN** three nodes with children are selected and the user right-clicks one of them and chooses 折叠
 - **THEN** only the right-clicked node is collapsed, the other two remain expanded, and one undo step was added
+
+### Requirement: Context menu item scope
+
+重命名, 折叠/展开 and 编辑备注 SHALL act on the right-clicked node only, regardless of the selection; 删除 and 设置颜色 SHALL act on the whole selection when the target is selected, and on the target alone when it is not selected.
+
+#### Scenario: Rename with a multi-selection
+
+- **WHEN** three nodes are selected and the user right-clicks one of them and chooses 重命名
+- **THEN** only the right-clicked node enters inline editing
+
+### Requirement: Detach item keeps the node in place
+
+脱离为浮动节点 SHALL act on the right-clicked node only: it SHALL dispatch one `move_node { id: target, newParentId: null, position }` where `position` is the target's current laid-out canvas position, so the node stays where it is with its subtree and only its parent link is cut; one undo SHALL restore it under its previous parent at its previous index.
+
+#### Scenario: Detach from the menu
+
+- **WHEN** the user right-clicks child C (laid out at (320, 140)) and chooses 脱离为浮动节点
+- **THEN** C is a floating root at (320, 140) with its subtree, and one undo restores it under its previous parent at its previous index
 
 ### Requirement: Color tokens
 

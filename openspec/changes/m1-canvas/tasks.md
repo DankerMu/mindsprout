@@ -104,3 +104,10 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 ## Workflow follow-up
 
 - Archive the change after every task group's PR has merged and `pnpm check` is green on `main`.
+
+## Risk packs — issue #2 (task 1.0)
+
+- Config / project setup — selected: the change is four rule mirrors + the rule itself; evidence = `pnpm boundaries` on the two probes (zod passes, react fails on domain-is-pure) + `pnpm test:guardrails`.
+- Documentation / migration notes — selected: decision 0005, AGENTS.md, constraints.yaml and architecture-discipline.md wording; evidence = `pnpm decisions:check`, `pnpm docs:check`.
+- Release / packaging / dependency compatibility — selected: the allowance depends on pnpm's node_modules layout and zod subpaths (zod/v4, zod/mini); evidence = the regex check in design "Fixture — issue #2" Required evidence (both layouts and subpaths match, lookalikes do not).
+- Public API / CLI / script entry; File IO; Schema; Auth; Concurrency; Resource limits; Legacy compatibility; Error handling — not selected: no `src/` behaviour or runtime code changes.
