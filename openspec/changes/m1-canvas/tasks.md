@@ -14,8 +14,8 @@ Minimal mergeable slice: 1.0 - the gate amendment plus decision record is a comp
 
 ## 2. Undo history
 
-- [ ] 2.1 Implement `History` (push / undo / redo / redo-clear / 200-entry cap / `canUndo` / `canRedo`) over `{ ops, inverses: TreeOp[][] }` entries in `src/contexts/map/application/history`; verify (unit) tests cover spec map-undo-history "Undo a rename", "Redo after undo", "Undo a multi-child add", "Branching history", "Cap at 200".
-- [ ] 2.2 Add `beginGroup` / `endGroup` / `cancelGroup` with the atomicity rules of design D3 (nested `beginGroup` throws `group-open`, rejected dispatch cancels the group and rethrows, empty group pushes nothing, `undo`/`redo` while open throw); verify (unit) tests cover "Multi-select delete is one step", "Empty group leaves no entry", "Nested beginGroup is rejected", "Rejected op cancels the group", "Cancelled group leaves no entry", "Undo while a group is open", "Undo a detach", "Undo deleting a floating root".
+- [x] 2.1 Implement `History` (push / undo / redo / redo-clear / 200-entry cap / `canUndo` / `canRedo`) over `{ ops, inverses: TreeOp[][] }` entries in `src/contexts/map/application/history`; verify (unit) tests cover spec map-undo-history "Undo a rename", "Redo after undo", "Undo a multi-child add", "Branching history", "Cap at 200".
+- [x] 2.2 Add `beginGroup` / `endGroup` / `cancelGroup` with the atomicity rules of design D3 (nested `beginGroup` throws `group-open`, rejected dispatch cancels the group and rethrows, empty group pushes nothing, `undo`/`redo` while open throw); verify (unit) tests cover "Multi-select delete is one step", "Empty group leaves no entry", "Nested beginGroup is rejected", "Rejected op cancels the group", "Cancelled group leaves no entry", "Undo while a group is open", "Undo a detach", "Undo deleting a floating root".
 
 Suggested fixture level: compact - pure application module, no shared entrypoint or persisted shape.
 Minimal mergeable slice: 2.1 - the ungrouped history is complete and green by itself; groups are additive.
@@ -143,3 +143,10 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Error handling / rollback / partial outputs — selected: a reducer failure during undo/redo must leave the stacks unchanged; malformed entries fail loud; evidence = atomicity and invalid-entry tests.
 - Resource limits / large input / discovery — selected: history is capped at 200, oldest dropped; evidence = "Cap at 200" test.
 - Schema; Config; File IO; Auth; Legacy compatibility; Release / packaging; Documentation — not selected: in-memory only, no persisted shape, no config, IO, auth, legacy consumers or dependencies.
+
+## Risk packs — issue #7 (task 2.2)
+
+- Public API / CLI / script entry — selected: `dispatch`, `beginGroup`/`endGroup`/`cancelGroup`, `GroupCancelledError` and the new error codes are what #12/#35 build `runGrouped` and the creation group on; evidence = names fixed in design "Fixture — issue #7", typecheck, knip.
+- Concurrency / shared state / ordering — selected: group revert order and LIFO undo of interacting multi-op groups decide whether a group restores exactly; evidence = "Multi-select delete is one step", group-drag and detach+attach group tests.
+- Error handling / rollback / partial outputs — selected: rejected dispatch and cancelGroup must leave no partial group, no entry and an untouched redo stack; evidence = "Rejected op cancels the group", "Cancelled group leaves no entry", atomic cancel on a foreign map.
+- Schema; Config; File IO; Auth; Resource limits (cap unchanged, covered by #6); Legacy compatibility; Release / packaging; Documentation — not selected: in-memory module, no persisted shape, config, IO, auth, legacy consumers or dependencies.

@@ -91,3 +91,14 @@ Blast radius: a wrong undo order or a half-applied undo leaves the editor showin
 Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; Resource limits / large input / discovery
 Evidence floor: pnpm test:unit (five spec scenarios + atomicity + cap, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code; pnpm fmt:check
 ```
+
+## Fixture triage — issue #7 (task 2.2)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (override — extends the cross-issue History public API consumed by #12/#35/#23, and owns group atomicity: a half-applied group would leave a tree no undo step can restore)
+Blast radius: a group that leaks a partial op set, clears redo on cancel, or lets undo run mid-group corrupts the user's history; every multi-select action and every M3 AI session rides on this
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs
+Evidence floor: pnpm test:unit (eight spec scenarios + guards + atomicity, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code; pnpm fmt:check
+```

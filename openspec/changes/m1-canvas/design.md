@@ -113,10 +113,10 @@ Alternative: immutable snapshot history (zundo) — rejected: snapshots of a 500
 **Groups.** `beginGroup(label)` opens a group; every `dispatch` until `endGroup()` is applied immediately but recorded into the open group; `endGroup()` pushes one entry holding all of them (and clears `future`). Rules, each with a scenario in spec map-undo-history:
 
 - `beginGroup` while a group is open throws `group-open`; `endGroup`/`cancelGroup` with no open group throw `no-group`.
-- A `dispatch` whose op is rejected by the reducer inside a group **cancels the group**: the inverses of the ops already applied in that group are applied in reverse, no entry is pushed, and the `TreeOpError` is rethrown. Groups are atomic — "one AI session is one undo unit" (CONTEXT.md) only holds if a half-applied session can never be left behind. The M1 UI never relies on this path: it filters the primary root and normalises the selection (D5) before dispatching.
+- A `dispatch` whose op is rejected by the reducer inside a group **cancels the group**: the inverses of the ops already applied in that group are applied in reverse, no entry is pushed, and the `TreeOpError` is rethrown. Because the reverted map is a value the caller must keep, `History.dispatch` delivers it on the error: it throws `GroupCancelledError` (a `HistoryError` with code `group-cancelled`, `restored` = the reverted map, `cause` = the `TreeOpError`); the editor store sets its map to `restored` and rethrows `cause`, so the `TreeOpError` is what reaches the store's caller. The atomicity rule lives in `History` (its owner), not in each caller; `History.groupOpen` lets `runGrouped` cancel only a group that is still open. Groups are atomic — "one AI session is one undo unit" (CONTEXT.md) only holds if a half-applied session can never be left behind. The M1 UI never relies on this path: it filters the primary root and normalises the selection (D5) before dispatching.
 - `cancelGroup()` does the same revert on request and pushes nothing.
 - `endGroup()` after zero applied ops pushes nothing.
-- `undo()` / `redo()` while a group is open throw `group-open`; M1 groups are synchronous so the UI never hits this, and M3 decides whether streaming sessions auto-close.
+- `undo()` / `redo()` while a group is open throw `group-open`. Multi-select groups (`runGrouped`) are synchronous, but the creation group (below) stays open for the whole inline edit, so the editor closes it (commit on blur / Esc) before any undo, and `canUndo`/`canRedo` stay the stack flags while a group is open; M3 decides whether streaming sessions auto-close.
 
 Multi-select delete / group reparent / color use groups through one store helper `runGrouped(label, fn)` (begin, run, end; cancel on throw) (grill Q9); M3 AI sessions reuse the primitives.
 
@@ -340,4 +340,40 @@ Required evidence (vitest, history.test.ts):
   - gates: pnpm test:unit ≥90% line/branch/function on history.ts; boundaries, typecheck, lint, dead-code, fmt:check exit 0
 Non-goals: groups and group errors (#7); store wiring (#12); UI (#23); label semantics beyond storage
 Review focus: inverse application order (outer reverse, inner forward); atomicity on reducer failure; cap drops oldest not newest; push clears future; no persistence or infrastructure import
+```
+
+## Fixture — issue #7 (task 2.2)
+
+```text
+Change surface: src/contexts/map/application/history/history.ts (+ history.test.ts; a sibling test file only if history.test.ts would pass 700 lines); imports only ../../domain
+Must preserve: every #6 contract and test — push / undo / redo / canUndo / canRedo semantics, atomic undo/redo, empty-stack identity return, invalid-entry, HISTORY_LIMIT; entries stored as given
+Must add (exports, exact names):
+  - HistoryErrorCode = 'invalid-entry' | 'group-open' | 'no-group' | 'group-cancelled'
+  - class GroupCancelledError extends HistoryError — code 'group-cancelled', readonly restored: MindMap, cause: TreeOpError (Error `cause` option)
+  - History.dispatch(map: MindMap, op: TreeOp): MindMap — the only place History calls applyOp for new ops
+  - History.beginGroup(label: string): void; History.endGroup(): void; History.cancelGroup(map: MindMap): MindMap
+  - get groupOpen(): boolean — true between beginGroup and endGroup / cancelGroup / a rejected dispatch; lets the store's runGrouped (cancel on throw) skip cancelGroup when a rejected dispatch already closed the group
+Behaviour:
+  - dispatch outside a group: applyOp; on success push { ops: [op], inverses: [inverse], label: op.op } (ungrouped label = the op name) and return the new map; a TreeOpError propagates unchanged with stacks unchanged
+  - dispatch inside a group: applyOp; on success record op + inverse into the open group (future is NOT cleared, nothing pushed) and return the new map; on a TreeOpError: revert = apply the group's recorded inverse lists last-first (each in its own order) to the `map` argument, close the group, push nothing, leave past/future unchanged, throw GroupCancelledError { restored: reverted map, cause: the TreeOpError }. If the revert itself throws (the caller passed a map that is not the group's current map), that TreeOpError propagates and the group stays open unchanged
+  - beginGroup while open → HistoryError('group-open'), the open group (label, recorded ops) unaffected
+  - endGroup: no open group → 'no-group'; zero recorded ops → close, push nothing, future unchanged; otherwise close and push one entry built from FRESH arrays ({ ops: [...], inverses: [...], label }) through push (so future clears and the cap applies)
+  - cancelGroup(map): no open group → 'no-group'; otherwise compute the reverted map first, then close the group, push nothing, future unchanged, return the reverted map; if the revert throws, the TreeOpError propagates and the group stays open (atomic, retryable)
+  - undo / redo / push while a group is open → HistoryError('group-open'), checked BEFORE the empty-stack early return, nothing changes
+  - canUndo / canRedo while a group is open keep meaning "past / future non-empty" (group ops are not counted until endGroup)
+Governing invariant: a group is all-or-nothing — after endGroup exactly one entry restores the pre-group map in one undo; after cancelGroup or a rejected dispatch the map is deep-equal to the pre-group map and past/future are exactly as before beginGroup
+Sibling surfaces: #12 store (dispatch → History.dispatch; runGrouped = begin/run/end, cancelling only while groupOpen; on GroupCancelledError sets map = restored and rethrows cause, so its caller sees the TreeOpError); #35 createNode creation group (begin → add_children (+ update_node expand) → update_node title → end, or cancel; the group is open during inline editing, so commit/cancel closes it before any undo — 7.3/7.5 shortcuts are inert while editing); M3 AI sessions; spec map-undo-history group scenarios
+Seams under test: History public API over real applyOp and maps from createMindMap / tests/support helpers (no mocked reducer)
+Required evidence (vitest):
+  - spec scenarios: "Multi-select delete is one step" (three deletes in one group across two parents incl. two siblings of the same parent → one undo restores all three at original parents and indices, deep-equal pre-group map; canUndo gained exactly one step); "Empty group leaves no entry" (begin+end → canUndo/canRedo unchanged, with a non-empty future preserved); "Nested beginGroup is rejected" (code 'group-open', then endGroup still pushes the original group's ops — one undo restores pre-group); "Rejected op cancels the group" (two ops applied, third rejected → GroupCancelledError, restored deep-equal pre-group map, cause is the TreeOpError with its exact code, no entry added, canUndo/canRedo unchanged, a later beginGroup works); "Cancelled group leaves no entry" (add_children + update_node then cancelGroup → returned map deep-equal pre-group, canRedo unchanged with a non-empty future); "Undo while a group is open" (undo and redo throw 'group-open' — including with empty past/future — and nothing changes); "Undo a detach" (dispatch move_node null → undo → C back under original parent at original index, no position key); "Undo deleting a floating root" (roots index 2, (300,200), with children → undo restores index 2, position, subtree)
+  - group drag (from the #7 issue note): one group moving siblings A (index 0) and B (index 2) of the same parent to Q, then detach + attach in one group; each undone in one step deep-equal to the pre-group map, and redo restores the post-group map
+  - groupOpen: false initially; true after beginGroup; false after endGroup, after cancelGroup, after a rejected dispatch (GroupCancelledError), and still true after a failed revert / failed cancel / nested beginGroup; canUndo/canRedo during an open group equal their pre-group values after dispatches
+  - guards: endGroup / cancelGroup without a group → 'no-group'; push while open → 'group-open' (History exposes no entry getter, so the ungrouped label = op name is a stored value only; tests assert behaviour, not labels)
+  - atomicity: cancelGroup with a foreign map → TreeOpError, group still open, a retry with the right map succeeds; rejected dispatch with a revert that cannot apply → TreeOpError (not GroupCancelledError), group still open
+  - fresh arrays: after endGroup, further group activity (begin / dispatch / cancel) does not change the pushed entry (undo of the earlier entry still restores correctly)
+  - ungrouped dispatch: success pushes one entry and clears future; rejection leaves stacks unchanged and rethrows the TreeOpError as-is (not wrapped)
+  - carried from PR #43 review: reword the history.test.ts header comment so it no longer claims every map handed to History is deep-frozen (or freeze them)
+  - gates: pnpm test:unit ≥90% line/branch/function on history.ts; boundaries, typecheck, lint, dead-code, fmt:check exit 0
+Non-goals: runGrouped and createNode (#12/#35); store and UI; async/streaming groups (M3 decides auto-close)
+Review focus: group-open check ordering vs empty-stack return; cancel/rejection never clears future; endGroup pushes fresh arrays; revert order (outer reverse, inner forward); GroupCancelledError carries restored + cause and ungrouped rejections are not wrapped; atomic cancel on a foreign map
 ```
