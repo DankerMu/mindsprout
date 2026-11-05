@@ -124,3 +124,14 @@ Blast radius: a creation group left open or half-cancelled, a selection pointing
 Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; Release / packaging / dependency compatibility
 Evidence floor: pnpm test:unit (node env; selection, topmostSelected, creation group, rename editing, pruning, rejection, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code (nanoid used); pnpm duplicate-code; pnpm fmt:check; pnpm install --frozen-lockfile; import inventory (no react / bare zustand in application/)
 ```
+
+## Fixture triage — issue #10 (task 4.1)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (persisted state; the port and its contract suite are what 4.2 IndexedDB, 5.2 autosave, 6.2/6.3 provider and fallback, and 10.x library consume)
+Blast radius: a port or contract that allows stamping, shares mutable state with callers, orders the library wrongly, or leaks extra fields into MapSummary silently corrupts saved maps or the library list once 4.2/5.2 build on it; the in-memory adapter is also the real session fallback when IndexedDB is unavailable (D7), not only a test double
+Selected risk packs: Public API / CLI / script entry; Schema / columns / units / field names; Concurrency / shared state / ordering; Error handling / rollback / partial outputs
+Evidence floor: pnpm test:unit (contract suite against InMemoryMapRepository, error classes, type assertions, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code; pnpm duplicate-code; pnpm fmt:check; import inventory (domain files import only ./types; adapter imports only ../../domain/*)
+```

@@ -18,3 +18,29 @@ export class TreeOpError extends Error {
     }
   }
 }
+
+// The backing store cannot be opened (design D7). Error contract: MapRepository in map-repository.ts.
+// An adapter attaches the underlying failure as `cause`. `public`: the constructor narrows Error's
+// optional message to a required one, which no-useless-constructor accepts only when marked public.
+export class StorageUnavailableError extends Error {
+  override readonly name = 'StorageUnavailableError';
+
+  public constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+  }
+}
+
+// A stored record was written by a newer schema than this adapter reads (design D7, D8).
+export class UnsupportedSchemaVersionError extends Error {
+  override readonly name = 'UnsupportedSchemaVersionError';
+  readonly found: number;
+  readonly supported: number;
+
+  constructor(found: number, supported: number) {
+    super(
+      `stored schemaVersion ${String(found)} is newer than supported version ${String(supported)}`,
+    );
+    this.found = found;
+    this.supported = supported;
+  }
+}

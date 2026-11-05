@@ -470,3 +470,48 @@ Required evidence (vitest):
 Non-goals: keyboard mapping and the isEditing gate itself (7.3); rubber-band hit-testing (7.3 computes ids, then calls a selection action); arrow navigation (7.3); delete-selection action and "主根不能删除" (7.4); drag planning (8.x); React components; autosave (#13); the blur-then-撤销 click double effect (7.2 / 7.5)
 Review focus: selection snapshot restore on cancel/rejection; pruning in the same set() as map changes (no stale ids, primary fallback); created vs rename paths in commitTitle/cancelEdit; already-editing / not-editing guards; topmostSelected order and visibility; nanoid injection, version and licence
 ```
+
+## Fixture — issue #10 (task 4.1)
+
+```text
+Change surface:
+  - src/contexts/map/domain/map-repository.ts (new, type-only): MapSummary, MapRepository — paired map-repository.test.ts with expectTypeOf assertions (same pattern as types.ts / types.test.ts)
+  - src/contexts/map/domain/errors.ts (extended in place; one home for domain errors): StorageUnavailableError, UnsupportedSchemaVersionError — tests added to errors.test.ts
+  - src/contexts/map/infrastructure/persistence/in-memory-map-repository.ts (new) + in-memory-map-repository.test.ts (runs the contract suite); delete infrastructure/.gitkeep once the directory has a real file
+  - tests/support/map-repository-contract.ts (new, outside src/ so 4.2 imports it unchanged; not under the per-file coverage or pairing gates; no dependency-cruiser rule governs an infrastructure test importing tests/support). It reuses deepFreeze / node / mapOf from tests/support/map-domain.ts instead of copying them (jscpd scans only src/)
+  - No new dependency; no browser API (node env)
+Must preserve: TreeOpError and every existing errors.test.ts case unchanged; domain purity (domain imports only itself, src/shared and zod); MindMap type unchanged
+Must add (exact names and shapes):
+  - type MapSummary = { id: string; title: string; updatedAt: string } (exactly these three keys)
+  - interface MapRepository { list(): Promise<MapSummary[]>; get(id: string): Promise<MindMap | undefined>; put(map: MindMap): Promise<void>; delete(id: string): Promise<void> } — ids typed as MindMap['id']
+  - class StorageUnavailableError extends Error: `override readonly name = 'StorageUnavailableError'` (TreeOpError pattern); constructor(message: string, options?: ErrorOptions) so an adapter can attach the underlying failure as `cause`
+  - class UnsupportedSchemaVersionError extends Error: `override readonly name = 'UnsupportedSchemaVersionError'`; readonly found: number; readonly supported: number; constructor(found, supported) with a message naming both numbers
+  - Error contract of the port (doc comment on MapRepository in map-repository.ts):
+    - StorageUnavailableError means exactly "the backing store cannot be opened". Any method MAY reject with it, because an adapter may open lazily on first use. Callers (5.2 autosave, 6.2/6.3 provider) treat it as "storage unavailable" and switch to the in-memory fallback / banner. Every other storage failure (e.g. a quota error on put) rejects with the underlying error, never with StorageUnavailableError, and callers surface it as the "保存失败" notice (spec "Write failure is visible").
+    - UnsupportedSchemaVersionError is thrown only by get(id) when the stored record's schemaVersion is newer than the adapter supports. list() never rejects because of one record's version: a newer-version record is listed from its id/title/updatedAt when they are readable, so the library still shows it and opening it reports the version (D8, 6.2). put and delete never throw it.
+    - Adapter-specific behaviour is tested by the adapter. 4.2 tests the open failure, the newer-version get, and list over a newer-version record. The in-memory adapter can produce neither error: it is always open and holds only current-version maps.
+  - class InMemoryMapRepository implements MapRepository (no constructor arguments; starts empty)
+  - describeMapRepositoryContract(label: string, createRepository: () => MapRepository | Promise<MapRepository>): registers a vitest describe block; every case calls the factory for a fresh, empty repository and assumes nothing about the adapter beyond the port
+Contract (what every adapter must satisfy — the suite asserts each, deep equality only, never object identity, so a structured-cloning store passes):
+  - empty repository: list() → []; get(any id) → undefined
+  - list() ordered by updatedAt descending, ties broken by id ascending using plain code-unit comparison (`<`, not localeCompare); updatedAt compared as strings (the app writes ISO-8601 UTC via toISOString, which sorts lexicographically). Concrete case: put a@2026-11-05T10:00:00.000Z, c@…11:00…, b@…11:00… in that order → list ids ['b','c','a']; tie case with ids 'a' and 'B' at the same updatedAt → ['B','a'] (code units, where localeCompare would give ['a','B']). Note for 4.2: an IndexedDB 'prev' cursor on an updatedAt index returns ties in descending key order, so the adapter sorts in JavaScript
+  - list() entries are exactly { id, title, updatedAt } of each stored map (toStrictEqual against a literal { id, title, updatedAt }, and the sorted Object.keys = ['id','title','updatedAt'], so key order is not asserted; no roots, createdAt or other keys)
+  - get(unknown id) → undefined, also when other maps are stored
+  - put stores the map as given: get(id) toStrictEqual the input for a rich map (floating root with position, collapsed child with note and color, nested children) with a deliberately old updatedAt — title, createdAt and updatedAt unchanged (no stamping)
+  - put of an existing id replaces it: get returns the second map, list holds one entry for that id with the second title/updatedAt
+  - delete(id) removes it: get → undefined, list excludes it, other maps untouched; delete of an unknown id resolves and changes nothing
+  - isolation: mutating the object passed to put after put resolves, or the object returned by get, does not change what a later get / list returns; put accepts a deep-frozen map (it never mutates its input)
+In-memory adapter: holds structuredClone copies (put clones in, get clones out, list builds fresh summaries) so it behaves like IndexedDB's structured clone — it is the real session fallback (D7), so callers must not be able to alias its state
+Governing invariant: a repository returns exactly what was last put under an id (deep-equal, never stamped, never aliased) and its list is a three-field summary of the stored maps in updatedAt-desc, id-asc order
+Sibling surfaces: 4.2 IndexedDbMapRepository runs the same suite unchanged (schemaVersion envelope and both errors are 4.2's tests); 5.2 autosave (stamps updatedAt before put — this suite proves the adapter does not); 6.2/6.3 provider and fallback (constructs InMemoryMapRepository); 10.1 library list order; account (M2) implements the same port
+Seams under test: the MapRepository port through describeMapRepositoryContract; error classes via errors.test.ts; types via expectTypeOf
+Required evidence (vitest, node env):
+  - every contract bullet above as its own `it`, run against InMemoryMapRepository (the factory signature is async-capable; 4.2 passes a fresh `new IDBFactory()` or a unique DB name per case, because there is no teardown hook)
+  - errors: StorageUnavailableError — instanceof Error and itself, name, message, cause passed through (and absent when not given); UnsupportedSchemaVersionError — instanceof, name, found/supported fields, message contains both numbers
+  - type assertions: MapSummary is exactly the three string fields; MapRepository method signatures
+  - red run before implementation; bite checks: (i) list sorted ascending → ordering case fails; (ii) put without structuredClone (stores the reference) → isolation case fails; (iii) list returns whole maps → shape case fails; (iv) get returns the stored reference → isolation case fails; (v) tie-break with localeCompare → tie case fails
+  - import inventory: map-repository.ts imports only ./types; in-memory-map-repository.ts imports only ../../domain/*
+  - gates: pnpm test:unit ≥90% per file; boundaries, typecheck, lint, dead-code, duplicate-code, fmt:check exit 0
+Non-goals: IndexedDB adapter, idb / fake-indexeddb, schemaVersion envelope and its error-path tests (4.2, against the error contract above); updatedAt stamping and autosave (5.2); provider and fallback wiring (6.2/6.3); validating stored maps; concurrent writers (single JS thread; the port is async only for IndexedDB)
+Review focus: no stamping and no aliasing in the adapter; summary exactness and ordering including ties; the contract suite is adapter-agnostic (no in-memory internals, fresh repository per case, deep equality only) so 4.2 can reuse it; error class shapes match D7
+```
