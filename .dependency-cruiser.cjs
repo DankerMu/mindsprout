@@ -25,7 +25,8 @@ module.exports = {
       name: 'domain-is-pure',
       severity: 'error',
       comment: 'domain/ depends on nothing but itself, src/shared and zod (decision 0005)',
-      from: { path: '^src/contexts/[^/]+/domain/' },
+      // Test files are not domain code: they may import the test runner (decision 0006).
+      from: { path: '^src/contexts/[^/]+/domain/', pathNot: ['\\.test\\.tsx?$'] },
       to: {
         pathNot: [
           '^src/contexts/[^/]+/domain/',
