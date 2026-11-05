@@ -69,10 +69,14 @@ export function entriesOf(map: MindMap): Entry[] {
   return entries;
 }
 
-export function nodeIn(map: MindMap, id: NodeId): MindNode {
+export function entryIn(map: MindMap, id: NodeId): Entry {
   const found = entriesOf(map).find((entry) => entry.node.id === id);
   if (found === undefined) throw new Error(`node ${id} is not in the map`);
-  return found.node;
+  return found;
+}
+
+export function nodeIn(map: MindMap, id: NodeId): MindNode {
+  return entryIn(map, id).node;
 }
 
 export function idsOf(nodes: readonly { id: NodeId }[]): NodeId[] {

@@ -96,6 +96,23 @@ describe('applyOp — move_node reparent', () => {
     expectRejected(forest(), op, 'invalid-target');
   });
 
+  it.each([
+    ['a later sibling', moving('p', 'q', 1), 'q', ['q1', 'p', 'q2']],
+    ['a later sibling’s descendant', moving('p', 'q2', 0), 'q2', ['p']],
+  ] as const)(
+    'reparents under %s whose path shifts when the node is removed',
+    (_label, op, destination, expected) => {
+      const { map: next, inverse } = applyAndUndo(forest(), op);
+
+      expect(idsOf(nodeIn(next, 'r').children)).toStrictEqual(['q']);
+      expect(idsOf(nodeIn(next, destination).children)).toStrictEqual(expected);
+      expect(nodeIn(next, 'p')).toStrictEqual(
+        node('p', [node('a', [node('a1')]), node('b'), node('c')]),
+      );
+      expect(inverse).toStrictEqual([{ op: 'move_node', id: 'p', newParentId: 'r', index: 0 }]);
+    },
+  );
+
   it('accepts index == children.length of another parent (append)', () => {
     const { map: next } = applyAndUndo(forest(), moving('a', 'q', 2));
 
@@ -157,6 +174,18 @@ describe('applyOp — move_node attach', () => {
     ]);
   });
 
+  it('attaches an earlier floating root under a later one whose roots index shifts', () => {
+    const { map: next, inverse } = applyAndUndo(forest(), moving('f1', 'f2', 0));
+
+    expect(idsOf(next.roots)).toStrictEqual(['r', 'f2']);
+    expect(next.roots[1]).toStrictEqual(
+      node('f2', [node('f1', [node('fc', [node('fcc')])])], { position: { x: 30, y: 40 } }),
+    );
+    expect(inverse).toStrictEqual([
+      { op: 'move_node', id: 'f1', newParentId: null, position: { x: 10, y: 20 }, index: 1 },
+    ]);
+  });
+
   it('copies the old position into the inverse instead of aliasing the input map', () => {
     const map = forest();
 
@@ -215,6 +244,30 @@ describe('applyOp — move_node detach', () => {
     ['index beyond roots.length', 4],
   ])('rejects detach at %s with invalid-target', (_label, index) => {
     expectRejected(forest(), detaching('a', index), 'invalid-target');
+  });
+
+  it('detaches a child of a floating root to a lower roots index; undo re-attaches it', () => {
+    const { map: next, inverse } = applyAndUndo(forest(), detaching('fcc', 1));
+
+    expect(idsOf(next.roots)).toStrictEqual(['r', 'fcc', 'f1', 'f2']);
+    expect(next.roots[1]).toStrictEqual(node('fcc', [], { position: { x: 300, y: 200 } }));
+    expect(next.roots[2]).toStrictEqual(node('f1', [node('fc')], { position: { x: 10, y: 20 } }));
+    expect(inverse).toStrictEqual([{ op: 'move_node', id: 'fcc', newParentId: 'fc', index: 0 }]);
+  });
+
+  it('detaches in a primary-only map: roots index 1 is the only slot', () => {
+    const primaryOnly = (): MindMap => mapOf(node('r', [node('a', [node('a1')]), node('b')]));
+
+    const { map: next, inverse } = applyAndUndo(primaryOnly(), detaching('a'));
+
+    expect(next.roots).toStrictEqual([
+      node('r', [node('b')]),
+      node('a', [node('a1')], { position: { x: 300, y: 200 } }),
+    ]);
+    expect(inverse).toStrictEqual([{ op: 'move_node', id: 'a', newParentId: 'r', index: 0 }]);
+    const { map: explicit } = applyAndUndo(primaryOnly(), detaching('a', 1));
+    expect(explicit).toStrictEqual(next);
+    expectRejected(primaryOnly(), detaching('a', 2), 'invalid-target');
   });
 
   it('Detach a node that is already floating', () => {
@@ -309,16 +362,11 @@ describe('applyOp — replace_children', () => {
       node('f', [node('fx')], { position: { x: 7, y: 8 } }),
     );
   // The exact inverse of any replace_children on P: P's previous children as NewNodes.
-  const RESTORE_P = [
-    {
-      op: 'replace_children',
-      parentId: 'p',
-      children: [
-        { id: 'a', text: 'A', children: [{ id: 'a1', text: 'A1', children: [] }] },
-        { id: 'b', text: 'B', color: 'red', children: [{ id: 'b1', text: 'B1', children: [] }] },
-      ],
-    },
+  const OLD_P_CHILDREN = [
+    { id: 'a', text: 'A', children: [{ id: 'a1', text: 'A1', children: [] }] },
+    { id: 'b', text: 'B', color: 'red', children: [{ id: 'b1', text: 'B1', children: [] }] },
   ];
+  const RESTORE_P = [{ op: 'replace_children', parentId: 'p', children: OLD_P_CHILDREN }];
 
   it('Reuse of replaced ids is accepted', () => {
     const { map: next, inverse } = applyAndUndo(
@@ -421,11 +469,23 @@ describe('applyOp — replace_children', () => {
       text: 'R',
       children: [{ id: 'a1', text: 'X', children: [] }],
     });
-    expect(inverse).toHaveLength(1);
+    expect(inverse).toStrictEqual([
+      {
+        op: 'replace_children',
+        parentId: 'r',
+        children: [
+          { id: 'p', text: 'P', children: OLD_P_CHILDREN },
+          { id: 's', text: 'S', children: [] },
+        ],
+      },
+    ]);
   });
 
   it('replaces the children of a floating root and keeps its position', () => {
-    const { map: next } = applyAndUndo(replaceable(), replacing('f', [{ id: 'fx', text: 'FX2' }]));
+    const { map: next, inverse } = applyAndUndo(
+      replaceable(),
+      replacing('f', [{ id: 'fx', text: 'FX2' }]),
+    );
 
     expect(next.roots[1]).toStrictEqual({
       id: 'f',
@@ -433,6 +493,9 @@ describe('applyOp — replace_children', () => {
       position: { x: 7, y: 8 },
       children: [{ id: 'fx', text: 'FX2', children: [] }],
     });
+    expect(inverse).toStrictEqual([
+      { op: 'replace_children', parentId: 'f', children: [{ id: 'fx', text: 'FX', children: [] }] },
+    ]);
   });
 
   it('rejects an unknown parentId with unknown-node', () => {

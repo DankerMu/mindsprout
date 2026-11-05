@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyAndUndo,
   entriesOf,
+  entryIn,
   UPDATED_AT,
   type Entry,
 } from '../../../../tests/support/map-domain';
@@ -258,22 +259,26 @@ function caseFor(seed: number, kind: OpKind): { map: MindMap; op: TreeOp } {
   return { map, op: drawOp[kind](random, map) };
 }
 
+// Forward oracle for move_node: round-trip + D1 cannot see a node landing under the wrong parent,
+// so the moved node must sit exactly where the op asked (parent, final index, position on detach).
+function expectPlaced(next: MindMap, op: TreeOp): void {
+  if (op.op !== 'move_node') return;
+  const entry = entryIn(next, op.id);
+  expect(entry.parentId).toBe(op.newParentId);
+  expect(entry.index).toBe(op.index);
+  if (op.newParentId === null) expect(entry.node.position).toStrictEqual(op.position);
+}
+
 function checkRoundTrip(seed: number, kind: OpKind): void {
   const { map, op } = caseFor(seed, kind);
   try {
-    applyAndUndo(map, op);
+    expectPlaced(applyAndUndo(map, op).map, op);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`round-trip failed for seed ${String(seed)} (${kind}): ${detail}`, {
       cause: error,
     });
   }
-}
-
-function entryOf(map: MindMap, id: NodeId): Entry {
-  const found = entriesOf(map).find((entry) => entry.node.id === id);
-  if (found === undefined) throw new Error(`node ${id} is not in the generated map`);
-  return found;
 }
 
 interface PayloadEntry {
@@ -324,7 +329,7 @@ describe('applyOp — Applying then applying the inverse restores the map (seede
     const moves = SEEDS.map((seed) => {
       const { map, op } = caseFor(seed, 'move_node');
       if (op.op !== 'move_node') throw new Error('expected a move_node');
-      const entry = entryOf(map, op.id);
+      const entry = entryIn(map, op.id);
       return { map, op, entry, variant: moveVariant(entry, op.newParentId) };
     });
     const hit = (variant: MoveVariant) => moves.filter((move) => move.variant === variant);
@@ -339,12 +344,12 @@ describe('applyOp — Applying then applying the inverse restores the map (seede
   it('the generator reaches every floating root and replace target kind, reuse and []', () => {
     const positions = SEEDS.map((seed) => {
       const { map, op } = caseFor(seed, 'set_root_position');
-      return op.op === 'set_root_position' ? entryOf(map, op.id) : undefined;
+      return op.op === 'set_root_position' ? entryIn(map, op.id) : undefined;
     });
     const replaces = SEEDS.map((seed) => {
       const { map, op } = caseFor(seed, 'replace_children');
       if (op.op !== 'replace_children') throw new Error('expected a replace_children');
-      const target = entryOf(map, op.parentId);
+      const target = entryIn(map, op.parentId);
       const old = new Map(entriesOf(map).map((entry) => [entry.node.id, entry.depth]));
       const reused = payloadEntries(op.children).filter(({ id }) => old.has(id));
       return { target, op, reused, old };
