@@ -232,7 +232,8 @@ describe('parseTreeOp — rejects malformed payloads with invalid-op', () => {
   it('reports the offending path in the error message', () => {
     const error = rejectionOf({ op: 'delete_node' });
 
-    expect(error.message).toContain('id');
+    // "<path>: <message>" summary entry; the "Invalid TreeOp" prefix alone must not satisfy this.
+    expect(error.message).toMatch(/— id: /);
   });
 
   it('validates the op alone — its only input is the payload, never a map', () => {
