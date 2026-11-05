@@ -1,0 +1,13 @@
+# .semgrepignore — SAST scope for CI layer8 (semgrep). Default excludes (node_modules, .git) stay.
+# Runtime projections installed by `my-agents project sync` are third-party skill/agent assets
+# maintained in github.com/DankerMu/my-agents; they are not MindSprout product code.
+.agents/
+.claude/skills/
+.codex/
+node_modules/
+.next/
+coverage/
+reports/
+playwright-report/
+test-results/
+pnpm-lock.yaml
