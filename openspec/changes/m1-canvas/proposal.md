@@ -69,3 +69,14 @@ Blast radius: a wrong reducer or inverse corrupts every saved map and makes undo
 Selected risk packs: Schema / columns / units / field names; Public API / CLI / script entry; Error handling / rollback / partial outputs; Concurrency / shared state / ordering
 Evidence floor: pnpm test:unit (scenario + rejection + untouched-input + seeded round-trip property, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code; pnpm duplicate-code; pnpm fmt:check
 ```
+
+## Fixture triage — issue #5 (task 1.3)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree — completes the persisted data shape and provider protocol; shared-state trigger)
+Blast radius: a wrong move/attach/detach or replace inverse corrupts saved maps, creates cycles, or makes undo restore a different forest
+Selected risk packs: Schema / columns / units / field names; Public API / CLI / script entry; Error handling / rollback / partial outputs; Concurrency / shared state / ordering
+Evidence floor: pnpm test:unit (scenarios + rejections + untouched input + seven-op seeded round-trip property, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code; pnpm duplicate-code; pnpm fmt:check
+```
