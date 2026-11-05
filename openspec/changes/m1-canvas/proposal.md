@@ -80,3 +80,14 @@ Blast radius: a wrong move/attach/detach or replace inverse corrupts saved maps,
 Selected risk packs: Schema / columns / units / field names; Public API / CLI / script entry; Error handling / rollback / partial outputs; Concurrency / shared state / ordering
 Evidence floor: pnpm test:unit (scenarios + rejections + untouched input + seven-op seeded round-trip property, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code; pnpm duplicate-code; pnpm fmt:check
 ```
+
+## Fixture triage — issue #6 (task 2.1)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (override — History, HistoryEntry, HistoryError are a cross-issue public API consumed by #7, #12 and #23; public API is an expanded trigger)
+Blast radius: a wrong undo order or a half-applied undo leaves the editor showing a tree the user never had; #7 groups and the #12 store build on this API
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; Resource limits / large input / discovery
+Evidence floor: pnpm test:unit (five spec scenarios + atomicity + cap, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code; pnpm fmt:check
+```

@@ -135,3 +135,11 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Error handling / rollback / partial outputs — selected: cycle, primary-root-protected and invalid-target must throw the exact code with the input untouched; evidence = rejection tests per code on frozen maps + snapshot comparison.
 - Concurrency / shared state / ordering — selected: final-index semantics and LIFO inverse application decide whether undo restores sibling order; evidence = same-parent reorder test + round-trip property with explicit indices.
 - Config; File IO; Auth; Resource limits; Legacy compatibility; Release / packaging; Documentation — not selected: no config, IO, auth, size limits, legacy consumers or new dependencies (tests/support/ is test code only); docs are the fixture itself.
+
+## Risk packs — issue #6 (task 2.1)
+
+- Public API / CLI / script entry — selected: `History`, `HistoryEntry`, `HistoryError`, `HISTORY_LIMIT` are what #7, #12 and #23 build on; evidence = names fixed in design "Fixture — issue #6", typecheck, knip.
+- Concurrency / shared state / ordering — selected: undo applies inverse lists last-first with each list in order; evidence = outer-order test (dependent ops a→b), inner-order test (order-sensitive inverse list), frozen entry undo → redo → undo test, plus "Undo a multi-child add".
+- Error handling / rollback / partial outputs — selected: a reducer failure during undo/redo must leave the stacks unchanged; malformed entries fail loud; evidence = atomicity and invalid-entry tests.
+- Resource limits / large input / discovery — selected: history is capped at 200, oldest dropped; evidence = "Cap at 200" test.
+- Schema; Config; File IO; Auth; Legacy compatibility; Release / packaging; Documentation — not selected: in-memory only, no persisted shape, no config, IO, auth, legacy consumers or dependencies.
