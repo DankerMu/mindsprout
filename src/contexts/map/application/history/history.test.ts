@@ -1,15 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import { apply, deepFreeze, nodeIn } from '../../../../../tests/support/map-domain';
+import {
+  apply,
+  deepFreeze,
+  entryIn,
+  idsOf,
+  mapOf,
+  node,
+  nodeIn,
+  rejection,
+  // Applies any op list in order through the checked apply helper — the expected-map oracle here.
+  undo as applied,
+} from '../../../../../tests/support/map-domain';
 import { applyOp } from '../../domain/apply-op';
 import { createMindMap } from '../../domain/create-mind-map';
-import { TreeOpError } from '../../domain/errors';
+import { TreeOpError, type TreeOpErrorCode } from '../../domain/errors';
 import type { TreeOp } from '../../domain/tree-op';
 import type { MindMap } from '../../domain/types';
-import { History, HISTORY_LIMIT, HistoryError, type HistoryEntry } from './history';
+import {
+  GroupCancelledError,
+  History,
+  HISTORY_LIMIT,
+  HistoryError,
+  type HistoryEntry,
+  type HistoryErrorCode,
+} from './history';
 
-// Spec map-undo-history (task 2.1) and design "Fixture — issue #6": the History public API over the
-// real applyOp and maps from createMindMap — no mocked reducer. Every map passes through the shared
-// apply helper, which deep-freezes it, so History can never write into a map it is handed.
+// Spec map-undo-history (tasks 2.1, 2.2) and design "Fixture — issue #6" / "#7": the History public
+// API over the real applyOp and maps from createMindMap / mapOf — no mocked reducer. Deep-frozen (so
+// a write throws): groupMap(), every map handed to the shared apply helper as input, and every map
+// dispatchAll returns. Not frozen: seed() output, undo/redo and single-dispatch results, foreign
+// maps. Results are asserted by value; expected maps come from the apply helper, never History.
 
 // r("root") ─ n("A")
 function seed(): MindMap {
@@ -46,6 +66,11 @@ function errorFrom(fn: () => unknown): unknown {
   throw new Error('expected the call to throw');
 }
 
+// Shares no node id with the test maps, so every recorded inverse misses on it.
+function foreignMap(): MindMap {
+  return createMindMap({ id: 'm2', rootId: 'q', title: 't', rootText: 'q' });
+}
+
 const RENAME: TreeOp = { op: 'update_node', id: 'n', text: 'B' };
 
 // Seed → push the rename → undo it, asserting the flags after each step.
@@ -56,6 +81,87 @@ function renameThenUndo(history: History): { renamed: MindMap; undone: MindMap }
   const undone = history.undo(renamed.map);
   expectFlags(history, false, true);
   return { renamed: renamed.map, undone };
+}
+
+// r ─ p ─ (a, m, b)        f1 @ (10, 20) ─ fc        f2 @ (300, 200) ─ (g1, g2)
+//   └ q ─ c
+function groupMap(): MindMap {
+  const map = mapOf(
+    node('r', [node('p', [node('a'), node('m'), node('b')]), node('q', [node('c')])]),
+    node('f1', [node('fc')], { position: { x: 10, y: 20 } }),
+    node('f2', [node('g1'), node('g2')], { position: { x: 300, y: 200 } }),
+  );
+  deepFreeze(map);
+  return map;
+}
+
+// Dispatches every op into the open group and returns the resulting (deep-frozen) map.
+function dispatchAll(history: History, map: MindMap, ops: readonly TreeOp[]): MindMap {
+  return ops.reduce((current, op) => {
+    const next = history.dispatch(current, op);
+    deepFreeze(next);
+    return next;
+  }, map);
+}
+
+function runGroup(history: History, map: MindMap, label: string, ops: readonly TreeOp[]): MindMap {
+  history.beginGroup(label);
+  const after = dispatchAll(history, map, ops);
+  history.endGroup();
+  return after;
+}
+
+function expectState(history: History, canUndo: boolean, canRedo: boolean, groupOpen: boolean) {
+  expectFlags(history, canUndo, canRedo);
+  expect(history.groupOpen).toBe(groupOpen);
+}
+
+function expectHistoryError(fn: () => unknown, code: HistoryErrorCode): void {
+  const error = errorFrom(fn);
+  expect(error).toBeInstanceOf(HistoryError);
+  expect((error as HistoryError).code).toBe(code);
+}
+
+function expectTreeOpError(fn: () => unknown, code: TreeOpErrorCode): void {
+  const error = errorFrom(fn);
+  expect(error).toBeInstanceOf(TreeOpError);
+  expect(error).not.toBeInstanceOf(HistoryError);
+  expect((error as TreeOpError).code).toBe(code);
+}
+
+const EARLIER: TreeOp = { op: 'update_node', id: 'a', text: 'A1' };
+const UNDONE: TreeOp = { op: 'update_node', id: 'a', color: 'red' };
+const ADD_X: TreeOp = { op: 'add_children', parentId: 'p', children: [{ id: 'x', text: '' }] };
+const NAME_X: TreeOp = { op: 'update_node', id: 'x', text: '想法' };
+const DELETE_PRIMARY: TreeOp = { op: 'delete_node', id: 'r' };
+
+interface Stacked {
+  history: History;
+  base: MindMap;
+  current: MindMap;
+  redone: MindMap;
+}
+
+// past = [EARLIER], future = [UNDONE]; `current` is the map after EARLIER.
+function stacked(): Stacked {
+  const history = new History();
+  const base = groupMap();
+  const current = applied(base, [EARLIER]);
+  const redone = applied(current, [UNDONE]);
+  expect(history.dispatch(base, EARLIER)).toStrictEqual(current);
+  expect(history.dispatch(current, UNDONE)).toStrictEqual(redone);
+  expect(history.undo(redone)).toStrictEqual(current);
+  expectState(history, true, true, false);
+  return { history, base, current, redone };
+}
+
+// past is still exactly [EARLIER] and future exactly [UNDONE]: nothing was pushed, cleared or lost.
+function expectStacksAsBefore({ history, base, current, redone }: Stacked): void {
+  expectState(history, true, true, false);
+  expect(history.redo(current)).toStrictEqual(redone);
+  expect(history.undo(redone)).toStrictEqual(current);
+  expect(history.undo(current)).toStrictEqual(base);
+  expectState(history, false, true, false);
 }
 
 describe('History', () => {
@@ -278,7 +384,7 @@ describe('History', () => {
       const before = seed();
       const renamed = record(before, RENAME);
       history.push(renamed.entry);
-      const foreign = createMindMap({ id: 'm2', rootId: 'q', title: 't', rootText: 'q' });
+      const foreign = foreignMap();
 
       const error = errorFrom(() => history.undo(foreign));
       expect(error).toBeInstanceOf(TreeOpError);
@@ -292,7 +398,7 @@ describe('History', () => {
     it('redo against a map lacking the node throws unknown-node and keeps the stacks', () => {
       const history = new History();
       const { renamed, undone } = renameThenUndo(history);
-      const foreign = createMindMap({ id: 'm2', rootId: 'q', title: 't', rootText: 'q' });
+      const foreign = foreignMap();
 
       const error = errorFrom(() => history.redo(foreign));
       expect(error).toBeInstanceOf(TreeOpError);
@@ -327,6 +433,338 @@ describe('History', () => {
 
       expect(history.redo(undone)).toStrictEqual(renamed);
       expectFlags(history, true, false);
+    });
+  });
+});
+
+describe('History groups', () => {
+  it('Multi-select delete is one step: one undo restores all three at original parents and indices', () => {
+    const { history, base, current } = stacked();
+    const deletes: TreeOp[] = ['a', 'b', 'c'].map((id) => ({ op: 'delete_node', id }));
+
+    const after = runGroup(history, current, 'delete selection', deletes);
+    expect(after).toStrictEqual(applied(current, deletes));
+    expect(idsOf(nodeIn(after, 'p').children)).toStrictEqual(['m']);
+    expect(nodeIn(after, 'q').children).toStrictEqual([]);
+    expectState(history, true, false, false);
+
+    const undone = history.undo(after);
+    expect(undone).toStrictEqual(current);
+    expect(entryIn(undone, 'a')).toMatchObject({ parentId: 'p', index: 0 });
+    expect(entryIn(undone, 'b')).toMatchObject({ parentId: 'p', index: 2 });
+    expect(entryIn(undone, 'c')).toMatchObject({ parentId: 'q', index: 0 });
+    expectState(history, true, true, false);
+
+    // Exactly one step was gained: the next undo reverts EARLIER, the entry before the group.
+    expect(history.undo(undone)).toStrictEqual(base);
+    expectState(history, false, true, false);
+  });
+
+  it('Empty group leaves no entry: canUndo and canRedo unchanged, the redo stack kept', () => {
+    const ctx = stacked();
+    ctx.history.beginGroup('empty');
+    expectState(ctx.history, true, true, true);
+    ctx.history.endGroup();
+    expectStacksAsBefore(ctx);
+  });
+
+  it('Nested beginGroup is rejected with group-open and the open group is unaffected', () => {
+    const { history, base, current } = stacked();
+    const toQ: TreeOp[] = [
+      { op: 'move_node', id: 'a', newParentId: 'q' },
+      { op: 'move_node', id: 'b', newParentId: 'q' },
+    ];
+    history.beginGroup('drag');
+    const first = dispatchAll(history, current, toQ.slice(0, 1));
+
+    expectHistoryError(() => {
+      history.beginGroup('other');
+    }, 'group-open');
+    expectState(history, true, true, true);
+
+    const after = dispatchAll(history, first, toQ.slice(1));
+    history.endGroup();
+    expect(after).toStrictEqual(applied(current, toQ));
+    expectState(history, true, false, false);
+
+    expect(history.undo(after)).toStrictEqual(current);
+    expect(history.undo(current)).toStrictEqual(base);
+    expectState(history, false, true, false);
+  });
+
+  it('Rejected op cancels the group: GroupCancelledError carries the pre-group map and the TreeOpError', () => {
+    const ctx = stacked();
+    const { history, base } = ctx;
+    history.beginGroup('add node');
+    const named = dispatchAll(history, ctx.current, [ADD_X, NAME_X]);
+
+    const error = errorFrom(() => history.dispatch(named, DELETE_PRIMARY));
+    expect(error).toBeInstanceOf(GroupCancelledError);
+    expect(error).toBeInstanceOf(HistoryError);
+    const cancelled = error as GroupCancelledError;
+    expect(cancelled.name).toBe('GroupCancelledError');
+    expect(cancelled.code).toBe('group-cancelled');
+    expect(cancelled.restored).toStrictEqual(ctx.current);
+    expect(cancelled.cause).toBeInstanceOf(TreeOpError);
+    expect(cancelled.cause.code).toBe('primary-root-protected');
+    expect(cancelled.cause.message).toBe(rejection(named, DELETE_PRIMARY).message);
+    expectStacksAsBefore(ctx);
+
+    // A later group works normally and, being non-empty, clears the redo stack.
+    const after = runGroup(history, base, 'retry', [EARLIER]);
+    expect(after).toStrictEqual(ctx.current);
+    expectState(history, true, false, false);
+  });
+
+  it('Cancelled group leaves no entry: cancelGroup returns the pre-group map, canRedo unchanged', () => {
+    const ctx = stacked();
+    ctx.history.beginGroup('add node');
+    const named = dispatchAll(ctx.history, ctx.current, [ADD_X, NAME_X]);
+    expect(nodeIn(named, 'x').text).toBe('想法');
+    expectState(ctx.history, true, true, true);
+
+    expect(ctx.history.cancelGroup(named)).toStrictEqual(ctx.current);
+    expectStacksAsBefore(ctx);
+  });
+
+  it('Undo while a group is open: undo and redo throw group-open on empty stacks, nothing changes', () => {
+    const history = new History();
+    const map = seed();
+    history.beginGroup('edit');
+
+    expectHistoryError(() => history.undo(map), 'group-open');
+    expectHistoryError(() => history.redo(map), 'group-open');
+    expectState(history, false, false, true);
+
+    history.endGroup();
+    expect(history.undo(map)).toBe(map);
+    expect(history.redo(map)).toBe(map);
+    expectState(history, false, false, false);
+  });
+
+  it('Undo while a group is open: undo, redo and push throw group-open on non-empty stacks', () => {
+    const { history, current } = stacked();
+    history.beginGroup('edit');
+    const renamed = dispatchAll(history, current, [{ op: 'update_node', id: 'b', text: 'B2' }]);
+
+    expectHistoryError(() => history.undo(renamed), 'group-open');
+    expectHistoryError(() => history.redo(renamed), 'group-open');
+    expectHistoryError(() => {
+      history.push(record(renamed, { op: 'update_node', id: 'b', text: 'B3' }).entry);
+    }, 'group-open');
+    expectState(history, true, true, true);
+
+    history.endGroup();
+    expect(history.undo(renamed)).toStrictEqual(current);
+    expectState(history, true, true, false);
+  });
+
+  it('Undo a detach: the node returns under its original parent at its original index, unpositioned', () => {
+    const history = new History();
+    const base = groupMap();
+    const detach: TreeOp = {
+      op: 'move_node',
+      id: 'm',
+      newParentId: null,
+      position: { x: 50, y: 60 },
+    };
+
+    const detached = history.dispatch(base, detach);
+    expect(detached).toStrictEqual(applied(base, [detach]));
+    expect(entryIn(detached, 'm')).toMatchObject({ parentId: null, index: 3 });
+    expectState(history, true, false, false);
+
+    const undone = history.undo(detached);
+    expect(entryIn(undone, 'm')).toMatchObject({ parentId: 'p', index: 1 });
+    expect(nodeIn(undone, 'm')).not.toHaveProperty('position');
+    expect(undone).toStrictEqual(base);
+    expectState(history, false, true, false);
+  });
+
+  it('Undo deleting a floating root: it returns at roots index 2 with its position and subtree', () => {
+    const history = new History();
+    const base = groupMap();
+
+    const deleted = history.dispatch(base, { op: 'delete_node', id: 'f2' });
+    expect(idsOf(deleted.roots)).toStrictEqual(['r', 'f1']);
+
+    const undone = history.undo(deleted);
+    expect(idsOf(undone.roots)).toStrictEqual(['r', 'f1', 'f2']);
+    expect(undone.roots[2]).toStrictEqual(
+      node('f2', [node('g1'), node('g2')], { position: { x: 300, y: 200 } }),
+    );
+    expect(undone).toStrictEqual(base);
+    expectState(history, false, true, false);
+  });
+
+  // Ops in one group interact through indices: B's recorded inverse index shifts once A has left.
+  it.each<[string, TreeOp[], (after: MindMap) => void]>([
+    [
+      'a group drag of siblings at indices 0 and 2 to another parent',
+      [
+        { op: 'move_node', id: 'a', newParentId: 'q' },
+        { op: 'move_node', id: 'b', newParentId: 'q' },
+      ],
+      (after) => {
+        expect(idsOf(nodeIn(after, 'p').children)).toStrictEqual(['m']);
+        expect(idsOf(nodeIn(after, 'q').children)).toStrictEqual(['c', 'a', 'b']);
+      },
+    ],
+    [
+      'a detach followed by an attach',
+      [
+        { op: 'move_node', id: 'm', newParentId: null, position: { x: 50, y: 60 } },
+        { op: 'move_node', id: 'f1', newParentId: 'm', index: 0 },
+      ],
+      (after) => {
+        expect(idsOf(after.roots)).toStrictEqual(['r', 'f2', 'm']);
+        expect(idsOf(nodeIn(after, 'm').children)).toStrictEqual(['f1']);
+      },
+    ],
+  ])('undoes %s in one step and redoes it to the post-group map', (_, ops, check) => {
+    const history = new History();
+    const base = groupMap();
+
+    const after = runGroup(history, base, 'drag', ops);
+    expect(after).toStrictEqual(applied(base, ops));
+    check(after);
+    expectState(history, true, false, false);
+
+    const undone = history.undo(after);
+    expect(undone).toStrictEqual(base);
+    expectState(history, false, true, false);
+    expect(history.redo(undone)).toStrictEqual(after);
+    expectState(history, true, false, false);
+  });
+
+  it('groupOpen is false initially and after endGroup, cancelGroup and a rejected dispatch', () => {
+    const history = new History();
+    const map = groupMap();
+    expectState(history, false, false, false);
+
+    history.beginGroup('one');
+    expectState(history, false, false, true);
+    history.endGroup();
+    expectState(history, false, false, false);
+
+    history.beginGroup('two');
+    const added = dispatchAll(history, map, [ADD_X]);
+    expectState(history, false, false, true);
+    expect(history.cancelGroup(added)).toStrictEqual(map);
+    expectState(history, false, false, false);
+
+    history.beginGroup('three');
+    expect(errorFrom(() => history.dispatch(map, DELETE_PRIMARY))).toBeInstanceOf(
+      GroupCancelledError,
+    );
+    expectState(history, false, false, false);
+  });
+
+  it('endGroup and cancelGroup without an open group throw no-group and change nothing', () => {
+    const ctx = stacked();
+    const { history, current } = ctx;
+
+    expectHistoryError(() => {
+      history.endGroup();
+    }, 'no-group');
+    expectHistoryError(() => history.cancelGroup(current), 'no-group');
+
+    history.beginGroup('closed');
+    history.endGroup();
+    expectHistoryError(() => {
+      history.endGroup();
+    }, 'no-group');
+    expectHistoryError(() => history.cancelGroup(current), 'no-group');
+    expectStacksAsBefore(ctx);
+  });
+
+  describe('atomicity', () => {
+    it('cancelGroup on a foreign map throws its TreeOpError, keeps the group open, and a retry succeeds', () => {
+      const ctx = stacked();
+      ctx.history.beginGroup('add node');
+      const added = dispatchAll(ctx.history, ctx.current, [ADD_X]);
+
+      expectTreeOpError(() => ctx.history.cancelGroup(foreignMap()), 'unknown-node');
+      expectState(ctx.history, true, true, true);
+
+      expect(ctx.history.cancelGroup(added)).toStrictEqual(ctx.current);
+      expectStacksAsBefore(ctx);
+    });
+
+    it('a rejected dispatch whose revert cannot apply throws the revert TreeOpError, group still open', () => {
+      const { history, current } = stacked();
+      history.beginGroup('add node');
+      const added = dispatchAll(history, current, [ADD_X]);
+
+      // The op itself is rejected as primary-root-protected; reverting ADD_X on the foreign map
+      // then fails with unknown-node, and that error is what surfaces — unwrapped.
+      expectTreeOpError(
+        () => history.dispatch(foreignMap(), { op: 'delete_node', id: 'q' }),
+        'unknown-node',
+      );
+      expectState(history, true, true, true);
+
+      const named = dispatchAll(history, added, [NAME_X]);
+      history.endGroup();
+      expect(history.undo(named)).toStrictEqual(current);
+    });
+
+    it('an error that is not a TreeOpError propagates as-is and leaves the group open', () => {
+      const { history, current } = stacked();
+      history.beginGroup('add node');
+      const added = dispatchAll(history, current, [ADD_X]);
+      const broken = { ...added, roots: null } as unknown as MindMap;
+
+      expect(errorFrom(() => history.dispatch(broken, NAME_X))).toBeInstanceOf(TypeError);
+      expectState(history, true, true, true);
+      expect(history.cancelGroup(added)).toStrictEqual(current);
+    });
+  });
+
+  it('later group activity never changes an entry already pushed by endGroup', () => {
+    const history = new History();
+    const base = groupMap();
+    const named = runGroup(history, base, 'add node', [ADD_X, NAME_X]);
+
+    history.beginGroup('second');
+    const trimmed = dispatchAll(history, named, [{ op: 'delete_node', id: 'a' }]);
+    expect(history.cancelGroup(trimmed)).toStrictEqual(named);
+    history.beginGroup('third');
+    const removed = dispatchAll(history, named, [{ op: 'delete_node', id: 'x' }]);
+    expect(errorFrom(() => history.dispatch(removed, DELETE_PRIMARY))).toBeInstanceOf(
+      GroupCancelledError,
+    );
+    history.beginGroup('fourth');
+    history.endGroup();
+
+    const undone = history.undo(named);
+    expect(undone).toStrictEqual(base);
+    expectState(history, false, true, false);
+    expect(history.redo(undone)).toStrictEqual(applied(base, [ADD_X, NAME_X]));
+  });
+
+  describe('ungrouped dispatch', () => {
+    it('pushes one entry per op and clears the redo stack', () => {
+      const { history, base, current } = stacked();
+      const rename: TreeOp = { op: 'update_node', id: 'm', text: 'M2' };
+
+      const next = history.dispatch(current, rename);
+      expect(next).toStrictEqual(applied(current, [rename]));
+      expectState(history, true, false, false);
+      expect(history.redo(next)).toBe(next);
+
+      expect(history.undo(next)).toStrictEqual(current);
+      expect(history.undo(current)).toStrictEqual(base);
+      expectState(history, false, true, false);
+    });
+
+    it('rethrows a rejected op as the unwrapped TreeOpError and leaves both stacks unchanged', () => {
+      const ctx = stacked();
+      expectTreeOpError(
+        () => ctx.history.dispatch(ctx.current, { op: 'move_node', id: 'p', newParentId: 'a' }),
+        'cycle',
+      );
+      expectStacksAsBefore(ctx);
     });
   });
 });
