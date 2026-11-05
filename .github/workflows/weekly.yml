@@ -1,0 +1,71 @@
+name: Weekly harness checks
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Monday 06:00 UTC
+  pull_request:
+    paths: [AGENTS.md, package.json, scripts/**, .git-hooks/**, .husky/**]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guardrail-self-test:
+    name: Guardrail self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:guardrails
+
+  agents-md-liveness:
+    name: AGENTS.md command table vs package.json scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Diff documented pnpm commands against actual scripts
+        run: |
+          jq -r '.scripts | keys[]' package.json | sort -u > /tmp/targets.txt
+          grep -oE 'pnpm [a-z][a-z0-9:-]*' AGENTS.md | awk '{print $2}' \
+            | grep -vxE 'install|exec|dlx|add|remove|update|why|store' | sort -u > /tmp/documented.txt
+          missing="$(comm -13 /tmp/targets.txt /tmp/documented.txt || true)"
+          if [ -n "$missing" ]; then
+            echo "::error::AGENTS.md documents pnpm scripts that do not exist in package.json:"
+            echo "$missing"
+            exit 1
+          fi
+          undocumented="$(comm -23 /tmp/targets.txt /tmp/documented.txt || true)"
+          if [ -n "$undocumented" ]; then
+            echo "::warning::package.json scripts not documented in AGENTS.md (add or intentionally omit):"
+            echo "$undocumented"
+          fi
+
+  mutation:
+    name: Mutation testing (stryker, advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm mutation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          if-no-files-found: ignore

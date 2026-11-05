@@ -2,7 +2,7 @@
 
 **AI 驱动的思维导图生成器** — 输入一句话或一段文字，让想法自动生长成结构化的思维导图。
 
-> 名字来自 *mind* + *sprout*（发芽）：你给出一颗种子想法，AI 帮它长出枝叶。
+> 名字来自 _mind_ + _sprout_（发芽）：你给出一颗种子想法，AI 帮它长出枝叶。
 
 ## 愿景
 
@@ -16,14 +16,14 @@
 
 ## 技术栈
 
-| 层 | 选型 |
-|---|---|
-| 框架 | Next.js 15 + TypeScript |
-| 画布 | React Flow + d3-hierarchy |
-| 状态 | Zustand + Immer + undo/redo |
-| AI | 提供方抽象层：Claude、OpenAI 及兼容接口、本地开源模型（Ollama 等） |
-| 数据 / 认证 | Supabase（Postgres + Auth + RLS）+ Drizzle |
-| 部署 | Vercel |
+| 层          | 选型                                                               |
+| ----------- | ------------------------------------------------------------------ |
+| 框架        | Next.js 15 + TypeScript                                            |
+| 画布        | React Flow + d3-hierarchy                                          |
+| 状态        | Zustand + Immer + undo/redo                                        |
+| AI          | 提供方抽象层：Claude、OpenAI 及兼容接口、本地开源模型（Ollama 等） |
+| 数据 / 认证 | Supabase（Postgres + Auth + RLS）+ Drizzle                         |
+| 部署        | Vercel                                                             |
 
 详见 [docs/PRD.md](docs/PRD.md) 与 [docs/TECH.md](docs/TECH.md)。
 

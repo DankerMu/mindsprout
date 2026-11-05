@@ -1,0 +1,33 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "next.config.ts",
+    "src/instrumentation.ts",
+    "src/app/**/{page,layout,loading,error,not-found,route,template,global-error}.{ts,tsx}",
+    "src/**/*.{test,spec}.{ts,tsx}",
+    "tests/**/*.{test,spec}.{ts,tsx}",
+    "e2e/**/*.spec.ts",
+    "scripts/*.mjs",
+    "playwright.config.ts",
+    "vitest.config.ts",
+    "vitest.integration.config.ts",
+    "vitest.contract.config.ts",
+    "stryker.config.mjs",
+    ".dependency-cruiser.cjs",
+    "commitlint.config.cjs"
+  ],
+  "project": ["src/**/*.{ts,tsx}", "tests/**/*.ts", "e2e/**/*.ts", "scripts/**/*.mjs"],
+  "ignore": [".next/**", "coverage/**", "dist/**", "node_modules/**", "playwright-report/**"],
+  "ignoreDependencies": [
+    "@types/*",
+    "@changesets/cli",
+    "@commitlint/cli",
+    "@commitlint/config-conventional",
+    "@stryker-mutator/vitest-runner",
+    "husky",
+    "lint-staged",
+    "prettier",
+    "@vitest/coverage-v8"
+  ],
+  "ignoreBinaries": ["tail", "hurl"]
+}

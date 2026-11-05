@@ -1,0 +1,15 @@
+node_modules/
+.next/
+coverage/
+dist/
+reports/
+.run/
+playwright-report/
+test-results/
+pnpm-lock.yaml
+.stryker-tmp/
+.claude/skills/
+.agents/
+.codex/
+.my-agents/
+CHANGELOG.md

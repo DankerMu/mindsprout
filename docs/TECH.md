@@ -21,30 +21,30 @@ Supabase (Postgres + Auth + RLS)
 
 ## 2. 技术选型
 
-| 层 | 选型 | 理由 |
-|---|---|---|
-| 框架 | Next.js 15 (App Router) + TypeScript | 全栈一体，Vercel 零配置部署，SSE 流式支持好 |
-| 画布 | React Flow (@xyflow/react) + d3-hierarchy | 节点是 React 组件，交互全自定义；d3 做树形布局 |
-| 状态 | Zustand + Immer + zundo (undo/redo) | 树操作频繁，不可变更新省心，撤销重做开箱即用 |
-| 样式 | Tailwind CSS + shadcn/ui | 快速出 UI，组件可控 |
-| 数据库 | Supabase Postgres + Drizzle ORM | 托管、免费额度够、RLS 做行级隔离，Drizzle 类型安全 |
-| 认证 | Supabase Auth | 邮箱 / GitHub / Google 一站式，和数据库同一个服务 |
-| AI | Vercel AI SDK (`ai`) 做提供方抽象；Claude 走 `@anthropic-ai/sdk` 直连以用全特性 | 一套接口接 Claude、OpenAI、任意 OpenAI 兼容端点和 Ollama |
-| 导出 | html-to-image (PNG/SVG)，自写 Markdown/OPML 序列化 | 树到文本是纯函数，容易测 |
-| 部署 | Vercel + Supabase 云 | 零运维 |
-| 测试 | Vitest (单元) + Playwright (端到端) | 树操作和序列化用单元测试覆盖 |
+| 层     | 选型                                                                            | 理由                                                     |
+| ------ | ------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| 框架   | Next.js 15 (App Router) + TypeScript                                            | 全栈一体，Vercel 零配置部署，SSE 流式支持好              |
+| 画布   | React Flow (@xyflow/react) + d3-hierarchy                                       | 节点是 React 组件，交互全自定义；d3 做树形布局           |
+| 状态   | Zustand + Immer + zundo (undo/redo)                                             | 树操作频繁，不可变更新省心，撤销重做开箱即用             |
+| 样式   | Tailwind CSS + shadcn/ui                                                        | 快速出 UI，组件可控                                      |
+| 数据库 | Supabase Postgres + Drizzle ORM                                                 | 托管、免费额度够、RLS 做行级隔离，Drizzle 类型安全       |
+| 认证   | Supabase Auth                                                                   | 邮箱 / GitHub / Google 一站式，和数据库同一个服务        |
+| AI     | Vercel AI SDK (`ai`) 做提供方抽象；Claude 走 `@anthropic-ai/sdk` 直连以用全特性 | 一套接口接 Claude、OpenAI、任意 OpenAI 兼容端点和 Ollama |
+| 导出   | html-to-image (PNG/SVG)，自写 Markdown/OPML 序列化                              | 树到文本是纯函数，容易测                                 |
+| 部署   | Vercel + Supabase 云                                                            | 零运维                                                   |
+| 测试   | Vitest (单元) + Playwright (端到端)                                             | 树操作和序列化用单元测试覆盖                             |
 
 ## 3. 数据模型
 
 导图的真相是一棵 JSON 树，画布只是它的视图。
 
 ```ts
-type NodeId = string;           // nanoid
+type NodeId = string; // nanoid
 
 interface MindNode {
   id: NodeId;
-  text: string;                 // 节点标题，约束 ≤ 40 字
-  note?: string;                // 备注，Markdown
+  text: string; // 节点标题，约束 ≤ 40 字
+  note?: string; // 备注，Markdown
   color?: string;
   collapsed?: boolean;
   children: MindNode[];
@@ -76,13 +76,14 @@ RLS 策略：`owner_id = auth.uid()`，所有表统一。
 ```ts
 type TreeOp =
   | { op: 'add_children'; parentId: NodeId; children: { text: string; note?: string }[] }
-  | { op: 'update_node';  id: NodeId; text?: string; note?: string }
-  | { op: 'delete_node';  id: NodeId }
-  | { op: 'move_node';    id: NodeId; newParentId: NodeId; index?: number }
-  | { op: 'replace_children'; parentId: NodeId; children: MindNode[] }  // 精简/重排用
+  | { op: 'update_node'; id: NodeId; text?: string; note?: string }
+  | { op: 'delete_node'; id: NodeId }
+  | { op: 'move_node'; id: NodeId; newParentId: NodeId; index?: number }
+  | { op: 'replace_children'; parentId: NodeId; children: MindNode[] }; // 精简/重排用
 ```
 
 好处：
+
 - AI 的每一步都是一个可撤销的 op，用户随时回退
 - 流式时 op 逐个到达，节点逐个出现
 - 手动编辑和 AI 编辑走同一条路，不会有两套状态
@@ -93,21 +94,22 @@ type TreeOp =
 
 AI 层对上只暴露一个接口：给定上下文和意图，流式返回 `TreeOp`。对下接三类提供方：
 
-| 提供方 | 接入方式 | 典型模型 | 说明 |
-|---|---|---|---|
-| Claude | `@anthropic-ai/sdk` 直连 | `claude-opus-5-5`（默认）、`claude-haiku-5-5` | 用工具调用 + `strict: true`，`eager_input_streaming` 边生成边到达 |
-| OpenAI 及兼容接口 | Vercel AI SDK `@ai-sdk/openai` / `@ai-sdk/openai-compatible` | GPT 系列、DeepSeek、Qwen、Moonshot 等 | 只要是 `/v1/chat/completions` 协议都能接，base URL 可配 |
-| 本地开源模型 | Ollama / vLLM / LM Studio 的 OpenAI 兼容端点 | Llama、Qwen、Gemma 等 | 走同一个 openai-compatible 适配器，base URL 指向本地或自托管 |
+| 提供方            | 接入方式                                                     | 典型模型                                      | 说明                                                              |
+| ----------------- | ------------------------------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------- |
+| Claude            | `@anthropic-ai/sdk` 直连                                     | `claude-opus-5-5`（默认）、`claude-haiku-5-5` | 用工具调用 + `strict: true`，`eager_input_streaming` 边生成边到达 |
+| OpenAI 及兼容接口 | Vercel AI SDK `@ai-sdk/openai` / `@ai-sdk/openai-compatible` | GPT 系列、DeepSeek、Qwen、Moonshot 等         | 只要是 `/v1/chat/completions` 协议都能接，base URL 可配           |
+| 本地开源模型      | Ollama / vLLM / LM Studio 的 OpenAI 兼容端点                 | Llama、Qwen、Gemma 等                         | 走同一个 openai-compatible 适配器，base URL 指向本地或自托管      |
 
 ```ts
 interface AIProvider {
-  id: string;                    // 'anthropic' | 'openai' | 'openai-compatible' | 'ollama'
+  id: string; // 'anthropic' | 'openai' | 'openai-compatible' | 'ollama'
   listModels(): Promise<string[]>;
   streamOps(req: AIRequest): AsyncIterable<TreeOp>;
 }
 ```
 
 关键设计：
+
 - **输出协议统一**：所有提供方都必须产出 `TreeOp`，画布不关心背后是谁
 - **两条输出通道**：支持工具调用的模型走工具调用（结构最稳）；不支持或工具调用不可靠的开源模型走"JSON 模式"，要求模型按固定 schema 输出，服务端用 Zod 校验，失败自动重试一次
 - **能力探测**：每个提供方声明 `supportsToolCalling`、`supportsStreaming`、`supportsJsonMode`，路由层据此选通道
@@ -133,6 +135,7 @@ interface AIProvider {
 ### 5.4 上下文策略
 
 每次请求只带：
+
 1. 导图标题
 2. 从根到当前节点的路径（文本）
 3. 当前节点的兄弟节点和已有子节点（避免重复）
@@ -195,15 +198,15 @@ docs/                  PRD、技术文档
 
 ## 9. 里程碑与技术任务
 
-| 阶段 | 主要技术任务 |
-|---|---|
-| M1 | Next.js 脚手架、React Flow 画布、树 reducer、d3 布局、快捷键、IndexedDB 临时存储、undo/redo |
-| M2 | Supabase 接入、Drizzle schema、登录、maps CRUD、自动保存、本地数据迁移到云 |
-| M3 | 提供方抽象层、Claude 与 OpenAI 兼容适配器、SSE、主题生成 Prompt、入场动画 |
-| M3.5 | Ollama 本地模型适配、JSON 模式通道、用户自定义提供方设置页 |
-| M4 | 四种节点动作、上下文裁剪、每日配额 |
-| M5 | 文本导入（分块提炼）、对话面板、对话历史 |
-| M6 | 四种导出、版本历史、空状态引导、Playwright 回归 |
+| 阶段 | 主要技术任务                                                                                |
+| ---- | ------------------------------------------------------------------------------------------- |
+| M1   | Next.js 脚手架、React Flow 画布、树 reducer、d3 布局、快捷键、IndexedDB 临时存储、undo/redo |
+| M2   | Supabase 接入、Drizzle schema、登录、maps CRUD、自动保存、本地数据迁移到云                  |
+| M3   | 提供方抽象层、Claude 与 OpenAI 兼容适配器、SSE、主题生成 Prompt、入场动画                   |
+| M3.5 | Ollama 本地模型适配、JSON 模式通道、用户自定义提供方设置页                                  |
+| M4   | 四种节点动作、上下文裁剪、每日配额                                                          |
+| M5   | 文本导入（分块提炼）、对话面板、对话历史                                                    |
+| M6   | 四种导出、版本历史、空状态引导、Playwright 回归                                             |
 
 ## 10. 待决策
 

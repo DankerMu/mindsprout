@@ -1,0 +1,13 @@
+# husky v9: plain script, no husky.sh sourcing line.
+
+# Code canonicality — naming and scratchpad guard (AGENTS.md § Code Canonicality)
+bash .git-hooks/check-naming.sh
+
+# Secrets never reach a commit (AGENTS.md § Secrets handling)
+bash scripts/check-secrets.sh
+
+# TDD required: new production files ship with their test (AGENTS.md § Architecture Discipline)
+bash scripts/check-test-pairing.sh
+
+# Lint + format on changed files
+pnpm exec lint-staged

@@ -1,0 +1,245 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  layer1-fast-checks:
+    name: Fast checks (fmt + lint + typecheck + boundaries)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm fmt:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm boundaries
+
+  layer2-unit-tests:
+    name: Unit + contract tests (per-file coverage gate)
+    needs: layer1-fast-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: coverage-gate
+        run: pnpm test:unit
+      - run: pnpm test:contract
+
+  layer3-integration-tests:
+    name: Integration tests + API smoke
+    needs: layer2-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: app_test
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d app_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://app:app@localhost:5432/app_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:integration
+      - name: Install hurl
+        run: |
+          curl -fsSL --retry 3 -o /tmp/hurl.deb \
+            https://github.com/Orange-OpenSource/hurl/releases/download/7.0.0/hurl_7.0.0_amd64.deb
+          sudo dpkg -i /tmp/hurl.deb
+      - name: API smoke
+        run: |
+          pnpm dev:bg
+          pnpm smoke
+          pnpm dev:stop
+
+  layer4-anti-drift:
+    name: Anti-drift (duplicate + dead code + docs + decisions)
+    needs: layer1-fast-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify constraints.yaml is the naming-guard regex source
+        run: grep -q 'constraints\.yaml' .git-hooks/check-naming.sh
+      - name: Duplicate code
+        run: pnpm duplicate-code
+      - name: Dead code
+        run: pnpm dead-code
+      - name: Documentation gate
+        run: pnpm docs:check
+      - name: Decision-record gate
+        run: pnpm decisions:check
+
+  layer5-secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # L3/L4 only: constraints.yaml size_limits.max_pr_diff_lines severity = block.
+  # Outside the aggregator because it runs only on pull_request events.
+  layer6-diff-size-guard:
+    name: PR diff size guard
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Enforce max PR diff lines
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'diff-limit-exempt') }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          MAX_DIFF_LINES=$(python3 - <<'PY'
+          import pathlib
+          import re
+
+          text = pathlib.Path("constraints.yaml").read_text()
+          match = re.search(r"(?ms)^  max_pr_diff_lines:\n    value: (\d+)\n", text)
+          if not match:
+              raise SystemExit("Could not read size_limits.max_pr_diff_lines from constraints.yaml")
+          print(match.group(1))
+          PY
+          )
+          LINES=$(git diff --diff-filter=ACMR --ignore-all-space "$BASE_SHA"...HEAD -- . \
+            ':(exclude)*.lock' ':(exclude)**/pnpm-lock.yaml' ':(exclude)**/__snapshots__/**' \
+            ':(exclude)**/*.snapshot' ':(exclude).changeset/**' ':(exclude)decisions/**' | grep -c '^[+-][^+-]' || true)
+          echo "Changed lines (excluding lockfiles/snapshots/records): $LINES (limit: $MAX_DIFF_LINES)"
+          if [ "$LINES" -gt "$MAX_DIFF_LINES" ]; then
+            echo "::error::PR exceeds the ${MAX_DIFF_LINES}-line diff limit. Split it, or add the 'diff-limit-exempt' label with a justification in the PR description."
+            exit 1
+          fi
+
+  layer7-e2e:
+    name: E2E (Playwright)
+    needs: layer2-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: e2e
+        run: pnpm e2e
+      - name: Assert zero skipped e2e tests
+        run: |
+          pnpm exec playwright test --list --reporter=list | grep -c 'renders without console errors' | xargs test 0 -lt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-evidence
+          path: .run/ui-evidence/
+          if-no-files-found: ignore
+
+  layer8-sast:
+    name: SAST (semgrep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - run: semgrep scan --config p/default --config p/typescript --error --metrics=off
+
+  # Standalone: needs its own full-depth checkout; runs only on pull_request events.
+  lockfile-consistency:
+    name: Lockfile–manifest consistency
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check lockfile–manifest pairs
+        if: "!contains(github.event.pull_request.labels.*.name, 'lockfile-refresh')"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
+          if echo "$changed" | grep -qx "pnpm-lock.yaml" && ! echo "$changed" | grep -qx "package.json"; then
+            echo "::error::pnpm-lock.yaml changed but package.json did not. Lockfile-only changes are unreviewed dependency-resolution drift. Revert the lockfile, or add the 'lockfile-refresh' label with a justification."
+            exit 1
+          fi
+
+  # Branch protection requires ONLY this check. GitHub treats a skipped required
+  # check as PASSING, so `if: always()` is load-bearing: this job always runs and
+  # fails on any failed, cancelled, or skipped required job.
+  all-checks-passed:
+    name: All checks passed
+    if: always()
+    needs:
+      - layer1-fast-checks
+      - layer2-unit-tests
+      - layer3-integration-tests
+      - layer4-anti-drift
+      - layer5-secret-scan
+      - layer7-e2e
+      - layer8-sast
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Fail on any failed, cancelled, or skipped required job
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS"
+          if echo "$NEEDS" | grep -Eq '"result": "(failure|cancelled|skipped)"'; then
+            echo "::error::A required job failed, was cancelled, or was skipped. Skipped counts as failure here because GitHub counts a skipped required check as passing."
+            exit 1
+          fi

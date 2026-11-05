@@ -1,0 +1,13 @@
+# <type>(<scope>): <subject>
+#
+# Allowed types: feat, fix, refactor, chore, docs, test, ci, build, perf
+# Scope: context or module name (map, ai, account, export, app, shared, ci, docs)
+# Subject: <72 chars, sentence case, no trailing period
+#
+# Body (optional, wrap at 72): WHY this change, not what.
+# Reference issues with: Refs #123, Fixes #456.
+#
+# Breaking change marker: prefix a line with "BREAKING CHANGE:"
+#
+# Agent co-authorship:
+# Co-authored-by: Agent Name <agent@example.org>

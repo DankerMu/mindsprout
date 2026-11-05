@@ -1,0 +1,37 @@
+openapi: 3.1.0
+info:
+  title: "MindSprout API"
+  version: "0.1.0"
+paths:
+  /api/healthz:
+    get:
+      summary: Liveness and dependency probe
+      responses:
+        "200":
+          description: Process is up and dependencies are reachable or not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: A dependency probe failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status, checks]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        checks:
+          type: object
+          required: [db]
+          properties:
+            db:
+              type: string
+              enum: [ok, fail, not-configured]

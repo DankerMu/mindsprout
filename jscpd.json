@@ -1,0 +1,15 @@
+{
+  "threshold": 2,
+  "reporters": ["console", "json"],
+  "output": "./reports/jscpd",
+  "ignore": [
+    "**/node_modules/**",
+    "**/.next/**",
+    "**/dist/**",
+    "**/__snapshots__/**",
+    "**/*.test.*",
+    "**/*.spec.*"
+  ],
+  "absolute": true,
+  "gitignore": true
+}
