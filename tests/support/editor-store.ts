@@ -212,8 +212,8 @@ export interface Intact {
 }
 
 // load → dispatch a → dispatch b → undo: the map is "after a" and both canUndo and canRedo are true.
-export function intact(): Intact {
-  const base = sampleMap();
+// `base` must contain node a and node p (sampleMap and collapsedMap both do).
+export function intact(base: MindMap = sampleMap()): Intact {
   const afterA = applied(base, [RENAME_A]);
   const afterB = applied(afterA, [ADD_C]);
   const store = loaded(base);
@@ -256,24 +256,31 @@ function existingOracle(map: MindMap): Set<NodeId> {
   return ids;
 }
 
+// Primary and editing / menu references (part of the issue #35 invariant below).
+function referenceViolations(state: EditorState, existing: Set<NodeId>): string[] {
+  const { selectedIds, primaryId, editing, menuTargetId, groupOpen } = state;
+  const checks: [boolean, string][] = [
+    [primaryId !== null && !selectedIds.includes(primaryId), `primary ${String(primaryId)}`],
+    [primaryId === null && selectedIds.length > 0, 'primary null with a selection'],
+    [editing !== null && !existing.has(editing.id), `editing ${String(editing?.id)}`],
+    [editing?.created === true && !groupOpen, 'creation edit without a group'],
+    [menuTargetId !== null && !existing.has(menuTargetId), `menu ${String(menuTargetId)}`],
+  ];
+  return checks.filter(([broken]) => broken).map(([, message]) => message);
+}
+
 // Governing invariant of issue #35, checked on EVERY state the store publishes (so a pruning done
 // in a later set() than the map change shows up as a violation): selection ids exist and are
-// visible, primary is one of them, editing and menu target reference existing nodes.
+// visible, primary is one of them, editing and menu target reference existing nodes, and a
+// creation edit always has its creation group open.
 function violationsOf(state: EditorState): string[] {
-  const { map, selectedIds, primaryId, editing, menuTargetId } = state;
+  const { map, selectedIds } = state;
   if (map === null) return [];
   const visible = visibleOracle(map);
-  const existing = existingOracle(map);
-  const violations = selectedIds
-    .filter((id) => !visible.has(id))
-    .map((id) => `selected ${id} not visible`);
-  if (primaryId !== null && !selectedIds.includes(primaryId))
-    violations.push(`primary ${primaryId}`);
-  if (primaryId === null && selectedIds.length > 0)
-    violations.push('primary null with a selection');
-  if (editing !== null && !existing.has(editing.id)) violations.push(`editing ${editing.id}`);
-  if (menuTargetId !== null && !existing.has(menuTargetId)) violations.push(`menu ${menuTargetId}`);
-  return violations;
+  return [
+    ...selectedIds.filter((id) => !visible.has(id)).map((id) => `selected ${id} not visible`),
+    ...referenceViolations(state, existingOracle(map)),
+  ];
 }
 
 // Subscribes and records every published state's violations plus the number of publications.

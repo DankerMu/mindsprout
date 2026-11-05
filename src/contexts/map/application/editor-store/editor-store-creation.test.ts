@@ -31,6 +31,7 @@ import {
 } from '../../../../../tests/support/map-domain';
 import type { TreeOpErrorCode } from '../../domain/errors';
 import type { TreeOp } from '../../domain/tree-op';
+import type { MindMap } from '../../domain/types';
 import {
   createEditorStore,
   EditorStoreError,
@@ -144,7 +145,9 @@ describe('spec map-undo-history: Creating a node is one undo step', () => {
       primaryId: 'n1',
     });
     expectFlags(store, true, false);
+    store.getState().setSelection(['b', 'n1']);
     expectStep(store, 'undo', afterA, true, true);
+    expect(selectionOf(store)).toStrictEqual({ selectedIds: ['b'], primaryId: 'b' });
     expectStep(store, 'redo', named, true, false);
     expectStep(store, 'undo', afterA, true, true);
     expectStep(store, 'undo', setup.base, false, true);
@@ -194,71 +197,90 @@ describe('createNode on a collapsed parent', () => {
   });
 
   it('cancelEdit collapses the parent again and leaves no entry', () => {
-    const store = loaded(collapsedMap());
+    const setup = intact(collapsedMap());
+    const { store, afterA } = setup;
     store.getState().createNode('p');
     store.getState().cancelEdit();
-    expect(mapOfStore(store)).toStrictEqual(collapsedMap());
-    expectFlags(store, false, false);
-  });
-});
-
-describe('createNode: rejected ops leave everything as before', () => {
-  const rejected: [string, () => Store, string, number | undefined, TreeOpErrorCode][] = [
-    ['unknown parent', loaded, 'zz', undefined, 'unknown-node'],
-    ['index out of range', loaded, 'p', 3, 'invalid-target'],
-    [
-      'index out of range on a collapsed parent',
-      () => loaded(collapsedMap()),
-      'p',
-      9,
-      'invalid-target',
-    ],
-  ];
-
-  it.each(rejected)(
-    '%s → TreeOpError, state deep-equal, group closed',
-    (_n, make, parent, index, code) => {
-      const store = make();
-      store.getState().select('fc');
-      store.getState().openMenu('fc');
-      const error = expectRestored(store, (state) => {
-        if (index === undefined) state.createNode(parent);
-        else state.createNode(parent, index);
-      });
-      expectTreeOpError(error, code);
-      expect(store.getState().groupOpen).toBe(false);
-    },
-  );
-
-  it('a rejected op dispatched during the edit reverts the creation and restores the selection', () => {
-    const setup = intact();
-    const { store } = setup;
-    withSelection(store);
-    const before = dataOf(store.getState());
-    store.getState().createNode('p');
-    store.getState().dispatch(COLOR_B);
-    const watcher = watch(store);
-    let error: unknown;
-    try {
-      store.getState().dispatch(DELETE_PRIMARY);
-    } catch (caught) {
-      error = caught;
-    }
-    expectTreeOpError(error, 'primary-root-protected');
-    expect(dataOf(store.getState())).toStrictEqual(before);
-    expect(watcher.publications()).toBe(1);
-    expect(watcher.violations).toStrictEqual([]);
-    expectStoreError(
-      expectUnchanged(store, (state) => {
-        state.commitTitle('x');
-      }),
-      'not-editing',
-    );
+    expect(mapOfStore(store)).toStrictEqual(afterA);
+    expect(nodeIn(currentMap(store), 'p').collapsed).toBe(true);
+    expectFlags(store, true, true);
     expectHistoryIntact(setup);
   });
 });
 
+describe('createNode: rejected ops leave everything as before', () => {
+  const rejected: [string, () => MindMap, string, number | undefined, TreeOpErrorCode][] = [
+    ['unknown parent', sampleMap, 'zz', undefined, 'unknown-node'],
+    ['index out of range', sampleMap, 'p', 3, 'invalid-target'],
+    ['index out of range on a collapsed parent', collapsedMap, 'p', 9, 'invalid-target'],
+  ];
+
+  it.each(rejected)(
+    '%s → TreeOpError, state deep-equal, group closed, history intact',
+    (_n, map, parent, index, code) => {
+      const setup = intact(map());
+      setup.store.getState().select('fc');
+      setup.store.getState().openMenu('fc');
+      const error = expectRestored(setup.store, (state) => {
+        if (index === undefined) state.createNode(parent);
+        else state.createNode(parent, index);
+      });
+      expectTreeOpError(error, code);
+      expect(setup.store.getState().groupOpen).toBe(false);
+      expectHistoryIntact(setup);
+    },
+  );
+});
+
 describe('the creation group belongs to the edit', () => {
+  // Every tree change but the creation's own ops is refused while the new node is being named.
+  const dispatched: [string, TreeOp][] = [
+    ['delete_node of the new node', { op: 'delete_node', id: 'n1' }],
+    ['delete_node of its parent', { op: 'delete_node', id: 'p' }],
+    [
+      'replace_children on the parent',
+      { op: 'replace_children', parentId: 'p', children: [{ id: 'a', text: 'A' }] },
+    ],
+    ['update_node collapsing the parent', { op: 'update_node', id: 'p', collapsed: true }],
+    ['an unrelated colour update', COLOR_B],
+    ['an op the reducer would reject', DELETE_PRIMARY],
+  ];
+
+  // intact() + a selection → createNode('p') → the refused dispatch, watched for invariant breaks.
+  function refusedDuringCreation(op: TreeOp) {
+    const setup = intact();
+    withSelection(setup.store);
+    const before = dataOf(setup.store.getState());
+    setup.store.getState().createNode('p');
+    const watcher = watch(setup.store);
+    const error = expectUnchanged(setup.store, (state) => {
+      state.dispatch(op);
+    });
+    expectStoreError(error, 'already-editing');
+    return { setup, before, watcher };
+  }
+
+  it.each(dispatched)('dispatch of %s → already-editing; naming is one step', (_n, op) => {
+    const { setup, watcher } = refusedDuringCreation(op);
+    const { store, afterA, base } = setup;
+    store.getState().commitTitle('x');
+    expect(mapOfStore(store)).toStrictEqual(
+      applied(afterA, [ADD_N1, { op: 'update_node', id: 'n1', text: 'x' }]),
+    );
+    expectFlags(store, true, false);
+    expectStep(store, 'undo', afterA, true, true);
+    expectStep(store, 'undo', base, false, true);
+    expect(watcher.violations).toStrictEqual([]);
+  });
+
+  it.each(dispatched)('dispatch of %s → already-editing; cancelling leaves it intact', (_n, op) => {
+    const { setup, before, watcher } = refusedDuringCreation(op);
+    setup.store.getState().cancelEdit();
+    expect(dataOf(setup.store.getState())).toStrictEqual(before);
+    expectHistoryIntact(setup);
+    expect(watcher.violations).toStrictEqual([]);
+  });
+
   it.each(GROUP_ACTIONS)(
     '%s while creating → already-editing; commit still records one step',
     (_n, act) => {
@@ -336,6 +358,19 @@ describe('editing guards', () => {
 });
 
 describe('rename editing (startEdit on an existing node)', () => {
+  it('dispatch stays allowed and deleting the edited node prunes the edit', () => {
+    const base = sampleMap();
+    const store = loaded(base);
+    store.getState().startEdit('a');
+    const watcher = watch(store);
+    store.getState().dispatch({ op: 'delete_node', id: 'a' });
+    expect(mapOfStore(store)).toStrictEqual(applied(base, [{ op: 'delete_node', id: 'a' }]));
+    expect(store.getState().editing).toBeNull();
+    expect(watcher.publications()).toBe(1);
+    expect(watcher.violations).toStrictEqual([]);
+    expectStep(store, 'undo', base, false, true);
+  });
+
   it('startEdit leaves the selection alone and opens no group', () => {
     const store = loaded();
     withSelection(store);

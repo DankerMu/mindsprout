@@ -95,7 +95,7 @@ export function createEditorStore(
   // Replaced on every load: History entries address nodes by id, so another map must never
   // inherit undo steps (issue #12 note from PR #43).
   let history = new History();
-  // The selection createNode replaced; restored when the creation is abandoned or rejected.
+  // The selection createNode replaced; restored when the creation is abandoned.
   let beforeCreation: SelectionSnapshot = EMPTY_SLICE;
 
   return createStore<EditorState>()((set, get) => {
@@ -124,7 +124,8 @@ export function createEditorStore(
       return editing;
     };
 
-    // The creation group belongs to the inline edit: only commitTitle / cancelEdit / load close it.
+    // The creation group belongs to the inline edit: no other tree change enters it, and only
+    // commitTitle / cancelEdit / load close it.
     const requireNoCreation = (action: string): void => {
       const { editing } = get();
       if (editing?.created === true) {
@@ -161,9 +162,11 @@ export function createEditorStore(
     };
 
     // An ungrouped TreeOpError propagates with state untouched. Inside a group, History has
-    // already reverted and closed the group: keep its restored map (and, for a creation, the
-    // selection createNode replaced), then rethrow the reducer's TreeOpError so the caller never
-    // sees GroupCancelledError (design D3).
+    // already reverted and closed the group: keep its restored map, then rethrow the reducer's
+    // TreeOpError so the caller never sees GroupCancelledError (design D3). No creation rollback
+    // is needed here: createNode's own rejection happens before the selection changes, dispatch is
+    // refused during a creation edit, and commitTitle's update_node on the existing new node
+    // cannot be rejected.
     const apply = (
       map: MindMap,
       mutate: (current: MindMap) => MindMap,
@@ -173,8 +176,7 @@ export function createEditorStore(
         commit(mutate(map), changes);
       } catch (error) {
         if (!(error instanceof GroupCancelledError)) throw error;
-        const creating = get().editing?.created === true;
-        commit(error.restored, creating ? { ...beforeCreation, editing: null } : {});
+        commit(error.restored);
         throw error.cause;
       }
     };
@@ -230,8 +232,12 @@ export function createEditorStore(
         });
       },
 
+      // Refused while a new node is being named: the creation entry holds only its own ops, and
+      // the created node cannot disappear under the edit (round-1 review of PR #48).
       dispatch(op) {
-        apply(requireMap('dispatch'), (current) => history.dispatch(current, op));
+        const map = requireMap('dispatch');
+        requireNoCreation('dispatch');
+        apply(map, (current) => history.dispatch(current, op));
       },
 
       undo() {
