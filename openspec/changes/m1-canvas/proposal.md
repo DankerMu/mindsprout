@@ -55,6 +55,6 @@ Issue type: feature
 Fixture level: expanded
 Upstream suggested level: expanded (agree — schema/data-shape trigger; this is the persisted and provider-facing contract)
 Blast radius: a wrong schema either admits malformed ops into the reducer (every later slice) or rejects valid provider output in M3
-Selected risk packs: Schema / columns / units / field names; Public API / CLI / script entry; Error handling / rollback / partial outputs
-Evidence floor: pnpm test:unit (reject + accept + factory scenarios, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code
+Selected risk packs: Schema / columns / units / field names; Public API / CLI / script entry; Error handling / rollback / partial outputs; Config / project setup (amendment: test-file exemption on domain-is-pure, decision 0006)
+Evidence floor: pnpm test:unit (reject + accept + factory scenarios, ≥90% per file); pnpm boundaries; pnpm test:guardrails; pnpm decisions:check; pnpm typecheck; pnpm lint; pnpm dead-code
 ```
