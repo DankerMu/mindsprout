@@ -1118,3 +1118,30 @@ Implementation order: keyboard tracer red→green; controlled pointer selection 
 Rollback: revert this slice; persisted maps are unchanged because selection is session-only.
 Review focus: exact store/render identity; click order and duplicate events; focus/IME gating; React Flow defaults; normalized viewport coordinates for rubber band; no edits or autosave from selection.
 ```
+
+## Fixture — issue #19 (task 7.1)
+
+```text
+Change surface: canvas node title/input, canvas event wiring and controlled editor props; EditorView integration; paired tests, e2e scenarios, changeset and minimal decision consequence update.
+Must preserve: static map rendering, measurement/no-blink and handle coordinates, map.title header independent of node text, #21 selection and pan/focus guards, store/history/autosave/adapter contracts and all prior browser scenarios.
+Must add: double-click existing node opens that node's single-line input; F2 while canvas owns focus opens only primaryId; no selection is an F2 no-op. F2 retains selectedIds/primaryId, and double-click never applies a group rename.
+Governing invariant: only the store's editing.id can commit; one changed nonempty title produces exactly one ungrouped update_node/history entry, Escape produces none, and focus transitions cannot commit the same edit twice.
+Integration: use existing startEdit/commitTitle/cancelEdit via the controlled canvas seam, never direct reducer or Zustand state writes. editing !== null is isEditing; no duplicate boolean. Static consumers remain usable without EditorSession.
+Input: autofocus/select existing text; local draft changes do not mutate map; Enter commits, Escape cancels, blur commits. Enter/Escape followed by blur/unmount is idempotent. Empty/whitespace or unchanged existing titles follow existing store no-op semantics. Nonempty text is stored verbatim, no maxlength/truncation.
+Focus/IME: composing Enter/Escape must not terminate editing; input shortcuts remain native except the editor's terminal Enter/Escape. No canvas select-all/arrows/F2 or Space-pan side effect while typing. Restore canvas focus after Enter/Escape, but a blur commit must not steal focus from its destination.
+Lifecycle: if a rename node is removed or becomes hidden, close/cancel its edit without a late blur commit; #35's hidden-rename handoff is handled in UI, not by changing store pruning. No creation lifecycle is implemented here.
+Sibling surfaces: EditorSession and EditorView; selection-input and rubber-band gates; MindNodeView and measured handles; #20 creation uses the input next; #23 undo UI; #17 save notices; #35 editing actions; existing IndexedDB autosave and pagehide flush.
+Seams under test: DOM interaction through real EditorSession/store and real canvas; public browser interactions on /maps/[id] with existing seedRecords/envelopeOf/readRecord. No browser global store exposure, injected test-only routes or mock persistence.
+Required DOM evidence: double-click and F2 target correctly; three selected nodes F2 changes only primary and keeps selection; Enter and blur each dispatch one update_node, a real undo restores exactly the old title and clears canUndo, redo restores it; Escape and Escape→blur leave map/history unchanged; Enter→blur never doubles.
+Required DOM evidence: editing state set/cleared, empty/unchanged titles no-op, 200-character text retained, composition Enter ignored until end, native field keys do not select/navigate; hidden/deleted node closes editing and late blur cannot rename another node.
+History evidence split: Playwright exercises the named visible rename scenarios; exact one/no undo-entry behavior is asserted at the real-store DOM boundary. Do not add #23 undo shortcuts/buttons or omit history proof.
+Required browser evidence: spec Commit a rename, Escape discards, Long title, Rename with three nodes selected (real click/Shift-click then F2); blur commit; assert changed node text and untouched peers/header; zero warning/error/pageerror and screenshots under .run/ui-evidence/.
+Required persistence evidence: rename first node, wait 600 ms, rename second, initiate reload within 100 ms of second commit, assert first rename after reload through real IndexedDB. Preserve literal timing and measure it in the browser; use a same-page terminal key event plus immediate reload scheduling if protocol latency would otherwise violate 100 ms. No fake timers or in-memory shortcut. Second rename may survive or be lost; do not overconstrain it.
+Required rendering evidence: long rename updates measured node geometry and connected edge endpoints, no hidden-node blink across committed rename; reuse existing geometry conventions rather than comparing transforms as raw strings.
+Test chronology: vertical real red→green cycles saved to .workplans/19/review before each behavior fix, including duplicate-terminal-event and target-selection boundaries; no retrospective substitute.
+Risk-pack commands: pnpm test:unit, pnpm typecheck, pnpm boundaries, pnpm lint (local installed .omp caveat #74), pnpm fmt:check, pnpm docs:check, pnpm decisions:check, pnpm e2e.
+Non-goals: creation, new selection mechanics, delete/undo/menu shortcuts, note editor, fallback, schema/config changes or canonicalising persisted data.
+Implementation order: Enter tracer; cancellation/blur/idempotence; F2/multi-selection/IME; lifecycle cancellation; real-browser persistence/rendering evidence; parent verification/review.
+Rollback: revert UI slice; stored renamed text remains valid under the unchanged schema.
+Review focus: single commit under terminal-event races, targeting and selection retention, native text focus/IME, hidden-input cleanup, real autosave timing, measured edges/no-blink.
+```

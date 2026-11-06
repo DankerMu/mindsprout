@@ -265,3 +265,13 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: static map rendering, measurement, fit, zoom and #16 routes remain intact. Evidence: unchanged existing assertions except the deliberately obsolete read-only selection expectation; full e2e and owning component coverage.
 - Documentation / migration notes — selected: changeset plus decision ownership record/consequence. Evidence: docs:check and decisions:check.
 - Config; File IO; Schema; Auth; Resource limits; Error handling; Release / packaging — not selected: no config, stored shape, credentials, dependencies, IO operation, new recovery state or resource limit changes. Browser seed/readback exercises existing persistence only to prove selection writes nothing.
+
+## Risk packs — issue #19 (task 7.1)
+
+- Public API / CLI / script entry — selected: double-click/F2 and input commit/cancel are user entrypoints. Evidence: named DOM and browser rename scenarios, exact target and text.
+- Concurrency / shared state / ordering — selected: Enter/Escape/blur ordering, editing identity, composition and focus. Evidence: terminal-event idempotence, multi-selection, IME and removed/hidden edit tests.
+- Error handling / rollback / partial outputs — selected: cancelled drafts never mutate map/history and hidden input cannot retain a stuck edit. Evidence: Escape, hidden/deleted target, empty/unchanged cases against the real store.
+- File IO / path safety / overwrite — selected: first UI edit persists through autosave without changing the envelope. Evidence: real IndexedDB 600 ms / under-100 ms reload scenario and unchanged peer/header assertions.
+- Legacy compatibility / examples — selected: selection, native text behavior, map-prop rendering, fit/zoom/pan and measurement stay intact. Evidence: full browser regression, real-store field-key gates, measured-edge/no-blink assertions.
+- Documentation / migration notes — selected: changeset and ownership consequence. Evidence: docs:check and decisions:check.
+- Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, envelope, credentials, dependency or resource-limit change. Long-title acceptance is behavior, not a new cap.
