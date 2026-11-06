@@ -184,3 +184,9 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Release / packaging / dependency compatibility — selected: adds idb (ISC) and dev fake-indexeddb (Apache-2.0); evidence = install --frozen-lockfile, knip, licence check.
 - Legacy compatibility / examples — selected: the 4.1 contract suite and port must stay unchanged; evidence = contract run unchanged, git diff shows no change under tests/support or domain/.
 - Config; Auth; Concurrency; Resource limits; Documentation — not selected: no config, auth, multi-writer coordination (single tab, no upgrades in M1), size limits, or doc surface beyond the fixture.
+
+## Risk packs — issue #8 (task 3.1)
+
+- Public API / CLI / script entry — selected: layoutForest, estimateNodeSize and the coordinate convention are what 3.2, 6.1 and 8.x read; evidence = names, the returned sizes and the convention fixed in design "Fixture — issue #8", typecheck, knip, root-at-origin and sizes cases.
+- Release / packaging / dependency compatibility — selected: adds d3-hierarchy (ISC, resolved 3.1.2) and dev @types/d3-hierarchy (MIT); evidence = install --frozen-lockfile, lockfile resolves d3-hierarchy 3.1.2, knip (d3-hierarchy used), typecheck (@types used), licence review.
+- Schema; Config; File IO; Auth; Concurrency; Resource limits; Error handling; Legacy compatibility; Documentation — not selected: pure in-memory function with no persisted shape, config, IO, auth, shared state, size limits (500 nodes is 8.3's profiling), error paths (inputs are typed; invalid sizes fall back), legacy consumers or doc surface.
