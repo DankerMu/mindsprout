@@ -268,3 +268,16 @@ Evidence floor: genuine red→green real-store DOM integration, ≥90% per-file 
 Scope: existing-node title editing only; existing canvas-editing Inline title editing and map-persistence Autosave deltas remain the oracle.
 Queue deviation: selection issue #21 landed first to make the three-selected-node scenario executable through real public UI.
 ```
+
+## Fixture triage — issue #30 (task 10.1)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (override: shared home entrypoint creates persisted maps and navigates only after a successful write).
+Blast radius: duplicate maps from repeated create, navigation before persistence, unreadable library mistaken for empty, stale async list replacing newer state.
+Selected risk packs: Public API / CLI / script entry; File IO / path safety / overwrite; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: genuine red→green component behavior tests with real repository where possible, ≥90% per-file coverage, real IndexedDB create/ordering browser scenarios and unchanged home smoke, zero browser noise/screenshots, typecheck/lint/boundaries/docs/decisions/format.
+Scope: home list, empty state, create/open. Existing map-library Create/List delta is the oracle; rename/delete and unavailable-home banner remain separate tasks.
+Queue deviation: #30 precedes #17 so the latter can create a fallback-session map through public UI before its private-mode inline rename.
+```

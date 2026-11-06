@@ -1145,3 +1145,25 @@ Implementation order: Enter tracer; cancellation/blur/idempotence; F2/multi-sele
 Rollback: revert UI slice; stored renamed text remains valid under the unchanged schema.
 Review focus: single commit under terminal-event races, targeting and selection retention, native text focus/IME, hidden-input cleanup, real autosave timing, measured edges/no-blink.
 ```
+
+## Fixture — issue #30 (task 10.1)
+
+```text
+Change surface: src/app/page.tsx Server Component shell; client composition for provider/router; shared library list/create components with paired tests; browser scenarios, changeset and decision consequence.
+Must preserve: data-testid=app-ready on / in every load state; existing MapRepositoryProvider singleton; no components import src/app/infrastructure; editor header/ready testids, existing seed helpers and all prior UI behavior.
+Must add: list every repository MapSummary with title and last-updated time in repository-provided recency/id-tie order; true empty list displays empty message and 新建导图 action; clicking entry opens /maps/<encoded id> through client navigation.
+Must add: 新建导图 calls existing createMindMap with independent unique map/root IDs, title/rootText 新导图 and one clock value; await repository.put before navigating to editor. No TreeOp creates primary root; no new map factory or schema.
+Governing invariant: create opens exactly the map successfully saved to the same session repository, and a failed/unfinished write never navigates; list read failure never appears as a successful empty library.
+Async state: render loading while provider opens/list pending; provider failure/list rejection shows explicit error (not empty); cancellation ignores late results after unmount/repository change. Render no accidental console rejection.
+Create state: disable/guard repeated activation while one creation write is pending; success navigates once; rejection shows 保存失败, retains library and permits another explicit attempt; no automatic retry or fallback. Creation timestamps come from factory, no adapter stamping.
+Composition: app owns provider/router access, components accept repository and navigation callback. Reuse nanoid and createMindMap; list ordering belongs to repository, no second comparator implementation.
+Sibling surfaces: /maps/[id] shared repository/load/title; #17 fallback uses this create path without a library banner; #31 rename/delete; #32 unavailable-home banner/session flows; repository list ordering and autosave unmount flush.
+Required DOM evidence: ordered summary rows including equal-time tie from real repository, visible semantic time, true-empty message with create action; provider/list loading/error outcomes distinct; late list result ignored.
+Required DOM evidence: deferred put prevents navigation, repeated activation creates/saves once, success passes saved id with factory shape/title/root/timestamps, rejected put shows 保存失败 and does not navigate or claim success; explicit retry after failure works.
+Required browser evidence: spec Create from the empty state through real 新建导图 -> dynamic editor URL, single root 新导图, editor-title 新导图; raw IndexedDB record exists and matches those fields.
+Required browser evidence: seed A10:00 and B11:00 through real seedRecords; / shows B before A with last-updated times; click A opens correct title; existing / smoke and stale-link return stay green.
+Required evidence hygiene: zero warning/error/pageerror for new scenarios, screenshots .run/ui-evidence/, genuine vertical red→green logs .workplans/30/review; no production test-only hooks/routes or mocked browser storage.
+Risk-pack commands: pnpm test:unit, pnpm typecheck, pnpm lint (local .omp caveat #74), pnpm boundaries, pnpm fmt:check, pnpm docs:check, pnpm decisions:check, pnpm e2e.
+Non-goals: rename/delete, unavailable-home banner, fallback implementation, new APIs, account/sync, pagination/search, automatic retries, schema/dependency/config changes.
+Rollback: revert UI slice; created maps remain valid persisted records. Review focus: save-before-navigation, single pending creation, read error versus empty, same repository identity, timestamp/order fidelity and unchanged editor behavior.
+```

@@ -275,3 +275,13 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: selection, native text behavior, map-prop rendering, fit/zoom/pan and measurement stay intact. Evidence: full browser regression, real-store field-key gates, measured-edge/no-blink assertions.
 - Documentation / migration notes — selected: changeset and ownership consequence. Evidence: docs:check and decisions:check.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, envelope, credentials, dependency or resource-limit change. Long-title acceptance is behavior, not a new cap.
+
+## Risk packs — issue #30 (task 10.1)
+
+- Public API / CLI / script entry — selected: / changes from placeholder to list/create/open. Evidence: Create from empty, Ordering, list-entry navigation and home smoke.
+- File IO / path safety / overwrite — selected: new maps saved before navigation; unique IDs and factory shape. Evidence: deferred/rejected put DOM cases and real IndexedDB readback.
+- Concurrency / shared state / ordering — selected: list races and repeated creation share session repository. Evidence: stale result guard, pending-create single write, recency/tie order.
+- Error handling / rollback / partial outputs — selected: read errors never empty; write failure never navigates and preserves usable library. Evidence: separate failures and explicit retry, no automatic retry.
+- Legacy compatibility / examples — selected: shared provider, editor and app-ready contracts unchanged. Evidence: full existing browser scenarios plus home/stale-link smoke.
+- Documentation / migration notes — selected: changeset and ownership consequence. Evidence: docs:check and decisions:check.
+- Config; Schema; Auth; Resource limits; Release / packaging — not selected: no configuration, schema, credentials, resource cap or dependency change.
