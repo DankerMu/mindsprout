@@ -6,16 +6,19 @@ import type { MindMap, MindNode, NodeId, Position } from '../../domain/types';
 //
 // Coordinate convention (shared with 3.2, 6.1 and 8.x):
 // - a position is the top-left corner of the node's box in canvas pixels (React Flow's position);
-// - the primary root's top-left is exactly (0, 0); columns and rows are computed per tree from
-//   that tree's visible nodes only, so an edit in one tree never moves another;
+// - the primary root's top-left is exactly (0, 0) and each floating root's top-left is exactly its
+//   stored position: every tree is laid out by the same routine with its root at (0, 0), then
+//   translated by its anchor; columns and rows are computed per tree from that tree's visible
+//   nodes only, so an edit in one tree never moves another (trees may overlap each other);
 // - columns: a node at depth d has x = Σ_{k<d} (widest visible node at depth k + gap), so nodes
 //   at different depths never overlap horizontally;
 // - rows: d3 tree() with nodeSize([1, 1]) and separation (height(a) + height(b)) / 2 + gap gives
 //   each vertical centre in pixels; adjacent same-depth nodes are at least that far apart, so
 //   same-depth boxes never overlap, and a parent is centred on its first and last child.
 //
-// Scope in 3.1: only roots[0] is laid out; floating roots get no positions and no edges (3.2).
-// A collapsed node is positioned, its descendants are not.
+// Every root is laid out: positions, sizes and edges list the primary tree first, then each floating
+// tree in roots order, each in pre-order; no edge joins two roots. A collapsed node is positioned,
+// its descendants are not. A floating root without a finite position is a corrupt map and throws.
 
 export interface NodeSize {
   width: number;
@@ -118,9 +121,15 @@ function heightOf({ data }: HierarchyNode<SizedNode>): number {
   return data.size.height;
 }
 
-function layoutTree(primary: MindNode, options: LayoutOptions, out: ForestLayout): void {
+// One tree, root top-left at `anchor`: local coordinates (root at (0, 0)) plus the anchor.
+function layoutTree(
+  treeRoot: MindNode,
+  anchor: Position,
+  options: LayoutOptions,
+  out: ForestLayout,
+): void {
   const gap = gapOf(options.gap);
-  const root = hierarchy(sizedTree(primary, options.nodeSize));
+  const root = hierarchy(sizedTree(treeRoot, options.nodeSize));
   const widest = widestPerDepth(root);
   const rows = tree<SizedNode>()
     .nodeSize([1, 1])
@@ -129,14 +138,57 @@ function layoutTree(primary: MindNode, options: LayoutOptions, out: ForestLayout
   rows.eachBefore((current) => {
     const { id, size } = current.data;
     const x = widest.slice(0, current.depth).reduce((sum, width) => sum + width + gap, 0);
-    out.positions.set(id, { x, y: current.x - size.height / 2 - rootTop });
+    const y = current.x - size.height / 2 - rootTop;
+    out.positions.set(id, { x: x + anchor.x, y: y + anchor.y });
     out.sizes.set(id, size);
     if (current.parent !== null) out.edges.push({ source: current.parent.data.id, target: id });
   });
 }
 
+const ORIGIN: Position = { x: 0, y: 0 };
+
+// A floating root's stored position, its top-left. No TreeOp produces a floating root without a
+// finite one; a hand-edited persisted record can, and it is never laid out at an invented place.
+function anchorOf(floating: MindNode): Position {
+  const { position } = floating;
+  if (position === undefined || !Number.isFinite(position.x) || !Number.isFinite(position.y)) {
+    throw new Error(`layoutForest: floating root ${floating.id} has no finite position`);
+  }
+  return position;
+}
+
 export function layoutForest(map: MindMap, options: LayoutOptions): ForestLayout {
   const out: ForestLayout = { positions: new Map(), sizes: new Map(), edges: [] };
-  for (const primary of map.roots.slice(0, 1)) layoutTree(primary, options, out);
+  for (const [index, treeRoot] of map.roots.entries()) {
+    layoutTree(treeRoot, index === 0 ? ORIGIN : anchorOf(treeRoot), options, out);
+  }
   return out;
+}
+
+export interface ContentBounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+// The union of every laid-out box (all trees), from positions plus the sizes the layout used;
+// undefined when nothing is laid out. A position without a size breaks ForestLayout's contract.
+export function contentBounds(layout: ForestLayout): ContentBounds | undefined {
+  if (layout.positions.size === 0) return undefined;
+  const bounds: ContentBounds = {
+    minX: Number.POSITIVE_INFINITY,
+    minY: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    maxY: Number.NEGATIVE_INFINITY,
+  };
+  for (const [id, { x, y }] of layout.positions) {
+    const size = layout.sizes.get(id);
+    if (size === undefined) throw new Error(`contentBounds: node ${id} has a position but no size`);
+    bounds.minX = Math.min(bounds.minX, x);
+    bounds.minY = Math.min(bounds.minY, y);
+    bounds.maxX = Math.max(bounds.maxX, x + size.width);
+    bounds.maxY = Math.max(bounds.maxY, y + size.height);
+  }
+  return bounds;
 }
