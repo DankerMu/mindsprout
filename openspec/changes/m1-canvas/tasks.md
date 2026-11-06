@@ -166,3 +166,11 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Error handling / rollback / partial outputs — selected: an abandoned or rejected creation must leave map, flags, selection and editing exactly as before createNode; evidence = abandoned-node, collapsed-parent cancel and rejection tests (from a canUndo+canRedo state).
 - Release / packaging / dependency compatibility — selected: adds `nanoid` (MIT, 5.x) via pnpm; evidence = install --frozen-lockfile, knip (used), import inventory.
 - Schema; Config; File IO; Auth; Resource limits; Legacy compatibility; Documentation — not selected: no persisted shape change, config, IO, auth, size limits or legacy consumers; docs are the fixture itself.
+
+## Risk packs — issue #10 (task 4.1)
+
+- Public API / CLI / script entry — selected: the MapRepository port, the two errors and describeMapRepositoryContract are what 4.2, 5.2, 6.x and 10.x consume; evidence = names fixed in design "Fixture — issue #10", type assertions, typecheck, knip.
+- Schema / columns / units / field names — selected: MapSummary is exactly { id, title, updatedAt } and the error fields are { found, supported }; evidence = shape case (Object.keys) and error tests.
+- Concurrency / shared state / ordering — selected: list order (updatedAt desc, id asc) and no aliasing between caller objects and stored state; evidence = ordering/tie case, isolation case, bite checks (i), (ii), (iv), (v).
+- Error handling / rollback / partial outputs — selected: the errors adapters throw are declared here; delete of an unknown id is a no-op; evidence = error tests, unknown-id cases; the port's error contract (which method rejects with which error) is a doc comment checked by review only in 4.1, since the in-memory adapter produces neither error — 4.2 tests the open failure, newer-version get and list over a newer-version record.
+- Config; File IO; Auth; Resource limits; Legacy compatibility; Release / dependency; Documentation — not selected: no config, browser IO (4.2), auth, size limits, legacy consumers or new dependency; CONTEXT.md already lists the port in the map row.
