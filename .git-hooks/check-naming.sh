@@ -11,10 +11,14 @@ set -euo pipefail
 # Regex source: repo-root `constraints.yaml` (preferred) or fallback defaults.
 # - Forbidden suffix patterns: `code_canonicality.forbidden_suffixes.patterns`
 # - Scratchpad directories: `code_canonicality.scratchpad_directories.paths`
+# - Scratchpad exemptions: `code_canonicality.scratchpad_directories.exempt_prefixes`
+#   (literal repo-relative prefixes; scratch segments below a prefix are still rejected —
+#   decision 0007)
 #
 # This hook must run on bare macOS (bash 3.2). Do not add non-default deps (e.g., yq).
 DEFAULT_FORBIDDEN_SUFFIX_RE='(_v[0-9]+|_new|_old|_backup|_temp|_copy|_final|_real|_improved|_refactored|_fixed|_legacy|_deprecated|_archive|_save|V[0-9]+|New|Old|Legacy|Deprecated|Backup)(\.|/|$)'
 DEFAULT_SCRATCH_DIR_RE='(^|/)(tmp|scratch|backup|_old|deprecated|archive|wip)(/|$)'
+DEFAULT_SCRATCH_EXEMPT_PREFIX='openspec/changes/archive/'
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 constraints_file="$repo_root/constraints.yaml"
@@ -32,11 +36,12 @@ yaml_get() {
         | grep -E '^[[:space:]]*-[[:space:]]*' \
         | sed -E "s/^[[:space:]]*-[[:space:]]*//; s/[[:space:]]*$//; s/^[\\\"']//; s/[\\\"']$//"
       ;;
-    code_canonicality.scratchpad_directories.paths)
+    code_canonicality.scratchpad_directories.paths | code_canonicality.scratchpad_directories.exempt_prefixes)
+      local key="${path##*.}"
       sed -n '/^code_canonicality:/,/^size_limits:/p' "$file" \
         | sed -n '/^  scratchpad_directories:/,/^size_limits:/p' \
-        | grep -m 1 -E '^[[:space:]]*paths:' \
-        | sed -E 's/^[[:space:]]*paths:[[:space:]]*//; s/[[:space:]]*$//'
+        | grep -m 1 -E "^[[:space:]]*${key}:" \
+        | sed -E "s/^[[:space:]]*${key}:[[:space:]]*//; s/[[:space:]]*\$//"
       ;;
     *)
       return 1
@@ -44,8 +49,14 @@ yaml_get() {
   esac
 }
 
+# Single-line YAML flow list -> space-separated words (brackets, quotes and commas removed).
+flow_list_words() {
+  printf '%s' "$1" | sed -E "s/^[[:space:]]*\\[//; s/\\][[:space:]]*$//; s/[\\\"']//g; s/,/ /g"
+}
+
 FORBIDDEN_SUFFIX_RE="$DEFAULT_FORBIDDEN_SUFFIX_RE"
 SCRATCH_DIR_RE="$DEFAULT_SCRATCH_DIR_RE"
+SCRATCH_EXEMPT_PREFIXES=("$DEFAULT_SCRATCH_EXEMPT_PREFIX")
 forbidden_source="fallback"
 scratch_source="fallback"
 
@@ -71,7 +82,7 @@ EOF2
 
   scratch_paths_line="$(yaml_get 'code_canonicality.scratchpad_directories.paths' "$constraints_file" 2>/dev/null || true)"
   if [ -n "$scratch_paths_line" ]; then
-    scratch_cleaned="$(printf '%s' "$scratch_paths_line" | sed -E "s/^[[:space:]]*\\[//; s/\\][[:space:]]*$//; s/[\\\"']//g; s/,/ /g")"
+    scratch_cleaned="$(flow_list_words "$scratch_paths_line")"
     scratch_joined=""
     for term in $scratch_cleaned; do
       term="${term#/}"
@@ -88,17 +99,63 @@ EOF2
       scratch_source="constraints.yaml"
     fi
   fi
+
+  # constraints.yaml is the source of truth: present without the key means nothing is exempt.
+  SCRATCH_EXEMPT_PREFIXES=()
+  exempt_cleaned="$(flow_list_words "$(yaml_get 'code_canonicality.scratchpad_directories.exempt_prefixes' "$constraints_file" 2>/dev/null || true)")"
+  set -f # an entry is a literal prefix; never let the split glob-expand it
+  for prefix in $exempt_cleaned; do
+    case "$prefix" in
+      /* | *[!/])
+        echo "check-naming.sh: invalid exempt prefix: $prefix" >&2
+        exit 2
+        ;;
+    esac
+    SCRATCH_EXEMPT_PREFIXES+=("$prefix")
+  done
+  set +f
 fi
 
 echo "check-naming.sh: FORBIDDEN_SUFFIX_RE source: $forbidden_source" >&2
 echo "check-naming.sh: SCRATCH_DIR_RE source:    $scratch_source" >&2
+if [ "${#SCRATCH_EXEMPT_PREFIXES[@]}" -gt 0 ]; then
+  echo "check-naming.sh: scratchpad exempt prefixes: ${SCRATCH_EXEMPT_PREFIXES[*]}" >&2
+else
+  echo "check-naming.sh: scratchpad exempt prefixes: none" >&2
+fi
+
+# check_path <repo-relative path>: appends one entry to `violations` per rule the path breaks.
+# The suffix rule sees the full path; the scratchpad rule sees only what follows a leading
+# exempt prefix (compared literally), so scratch below the prefix is still caught.
+violations=()
+check_path() {
+  local f="$1" scratch_subject="$1" prefix
+  if [[ "$f" =~ $FORBIDDEN_SUFFIX_RE ]]; then
+    violations+=("  forbidden naming suffix: $f")
+  fi
+  # ${arr[@]+...}: bash 3.2 treats an empty array as unbound under `set -u`.
+  for prefix in ${SCRATCH_EXEMPT_PREFIXES[@]+"${SCRATCH_EXEMPT_PREFIXES[@]}"}; do
+    if [[ "$f" == "$prefix"* ]]; then
+      scratch_subject="${f:${#prefix}}"
+      break
+    fi
+  done
+  if [[ "$scratch_subject" =~ $SCRATCH_DIR_RE ]]; then
+    violations+=("  scratchpad directory:    $f")
+  fi
+}
 
 # Path-argument mode (agent write-time check): validate one path directly
-# instead of reading the staged index.
+# instead of reading the staged index. A path inside the repo is made repo-relative
+# first, so it gets the same verdict as the staged check.
 if [ "$#" -gt 0 ]; then
   f="$1"
-  if [[ "$f" =~ $FORBIDDEN_SUFFIX_RE ]] || [[ "$f" =~ $SCRATCH_DIR_RE ]]; then
-    echo "naming violation (write-time): $f — see AGENTS.md § Code Canonicality" >&2
+  if [[ "$f" == "$repo_root/"* ]]; then
+    f="${f:$((${#repo_root} + 1))}"
+  fi
+  check_path "$f"
+  if [ "${#violations[@]}" -gt 0 ]; then
+    echo "naming violation (write-time): $1 — see AGENTS.md § Code Canonicality" >&2
     exit 2
   fi
   exit 0
@@ -106,15 +163,9 @@ fi
 
 # Read added or renamed files (cached).
 # Avoid `mapfile` so the script works on macOS default bash 3.2 as well as bash 4+.
-violations=()
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
-  if [[ "$f" =~ $FORBIDDEN_SUFFIX_RE ]]; then
-    violations+=("  forbidden naming suffix: $f")
-  fi
-  if [[ "$f" =~ $SCRATCH_DIR_RE ]]; then
-    violations+=("  scratchpad directory:    $f")
-  fi
+  check_path "$f"
 done < <(git diff --cached --name-only --diff-filter=AR 2>/dev/null || true)
 
 if [ "${#violations[@]}" -gt 0 ]; then

@@ -16,7 +16,7 @@ Same logic must have exactly one implementation in the repo. Version evolution b
 - No parallel implementations as a transition. Without a written cutover exception, do not ship v2 while v1 still exists; replace atomically.
 - Commented-out code is a lint error, not a safety net. Delete it; git remembers.
 - Unreferenced exports and dead code paths are debt. Wire them up in the same change or delete them.
-- Do not use the repo as a scratchpad. Directories like `tmp/`, `scratch/`, `backup/`, `_old/`, `deprecated/`, `archive/`, `wip/` must not appear in commits.
+- Do not use the repo as a scratchpad. Directories like `tmp/`, `scratch/`, `backup/`, `_old/`, `deprecated/`, `archive/`, `wip/` must not appear in commits. The one exemption is OpenSpec's fixed archive path `openspec/changes/archive/` (scratch directories below it are still rejected; [decision 0007](decisions/implemented/process/0007-openspec-archive-exempt-from-scratchpad-guard.md)).
 
 ### Enforcement
 
