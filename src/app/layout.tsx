@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { MapRepositoryProvider } from './providers/MapRepositoryProvider';
 
 export const metadata = {
   title: 'MindSprout',
@@ -8,7 +9,9 @@ export const metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <MapRepositoryProvider>{children}</MapRepositoryProvider>
+      </body>
     </html>
   );
 }
