@@ -166,6 +166,28 @@ describe('inline title editing through EditorSession', () => {
     },
   );
 
+  it('simulated WebKit composition-end Enter keeps the draft until ordinary Enter commits once', () => {
+    const dispatch = vi.spyOn(History.prototype, 'dispatch');
+    const state = renderEditor();
+    const input = openTitle();
+    fireEvent.compositionStart(input);
+    draft(input, '输入法确认');
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: false, keyCode: 229 });
+    expect(screen.queryByLabelText('节点标题')).toBe(input);
+    expect(input.value).toBe('输入法确认');
+    expect(state().editing).toEqual({ id: 'a', created: false });
+    expect(state().map).toBe(MAP);
+    expect(state().canUndo).toBe(false);
+    expect(state().canRedo).toBe(false);
+    expect(dispatch).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: false, keyCode: 13 });
+    expect(dispatch.mock.calls.map(([, op]) => op)).toEqual([
+      { op: 'update_node', id: 'a', text: '输入法确认' },
+    ]);
+    expectOneRename(state, 'a', '输入法确认');
+  });
+
   it.each(['hidden', 'deleted'])(
     '%s rename target closes without stale blur touching another edit',
     (change) => {

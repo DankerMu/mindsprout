@@ -58,7 +58,14 @@ export function InlineTitleInput({ text, controls }: { text: string; controls: C
         composing.current = false;
       }}
       onKeyDown={(event) => {
-        if (composing.current || event.nativeEvent.isComposing) return;
+        // WebKit can end composition before Enter while retaining the IME keyCode 229.
+        if (
+          composing.current ||
+          event.nativeEvent.isComposing ||
+          // eslint-disable-next-line @typescript-eslint/no-deprecated -- decisions/implemented/bug-fix/0010-webkit-ime-keycode-compatibility.md
+          event.nativeEvent.keyCode === 229
+        )
+          return;
         if (event.key === 'Enter' || event.key === 'Escape') {
           event.preventDefault();
           finish(event.key === 'Escape', true);
