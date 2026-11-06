@@ -56,6 +56,14 @@ Skipping red-first because "the change is small" is exactly when discipline matt
 - Tested: public functions with non-trivial behaviour, every conditional branch, error paths, boundary conditions.
 - Not tested: pure pass-through wiring, generated code (migrations, OpenAPI stubs), trivial getters, test scaffolding.
 
+### Component-test tier
+
+- The extension picks the environment; no docblock is needed. `src/**/*.test.ts` runs in the `node` Vitest project with no setup file. `src/**/*.test.tsx` runs in the `dom` project under jsdom, so a component test opts in by being a `.test.tsx` file (`vitest.config.ts` `test.projects`).
+- Render and query through `@testing-library/react` (`render`, `screen`, `fireEvent`).
+- The `dom` project's setup file `tests/support/dom-shims.ts` installs inert `ResizeObserver`, `matchMedia` and `DOMMatrixReadOnly`/`DOMMatrix` (identity, so React Flow reads zoom 1). Each is installed only when the environment lacks it, and none behaves like a browser. A test that needs real geometry or measurement adds its own per-test setup.
+- The same setup file registers Testing Library `cleanup` after each test. Vitest globals are off, so the library's own auto-cleanup never registers.
+- Coverage applies: every `src/**/*.tsx` source is held to the same 90% per-file gate as `.ts`.
+
 ### Isolation and flakiness
 
 - No shared mutable state between tests; fresh fixtures; parallel by default; a serial test says why in a comment.
