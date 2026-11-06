@@ -525,6 +525,52 @@ if [ "$(git rev-parse HEAD)" != "$diff_base" ] || [ -n "$(git status --porcelain
   fail=$((fail + 1))
 fi
 
+# 9a. Lockfile guard — rejects a PR that changes pnpm-lock.yaml without package.json, honours an
+# exact lockfile-refresh line in PR_LABELS, and fails closed when it cannot list the changed files
+# (#49). Same harness as section 9: the repo root's script runs with the worktree as cwd, fixture
+# commits use plumbing only, and every case restores the worktree to $diff_base.
+lock_guard="$repo_root/scripts/check-lockfile-pairs.sh"
+lock_msg="pnpm-lock.yaml changed but package.json did not."
+
+echo "# lockfile guard fixture" >> pnpm-lock.yaml
+commit_fixture pnpm-lock.yaml
+expect_reject --line "::error::$lock_msg Lockfile-only changes are unreviewed dependency-resolution drift. Revert the lockfile, or add the 'lockfile-refresh' label with a justification." \
+  "lockfile guard (l1: lockfile only, no label)" "lockfile-refresh" \
+  env -u PR_LABELS bash "$lock_guard" "$diff_base"
+expect_accept --what "an exempt lockfile-only PR" "lockfile guard (l2: lockfile only, lockfile-refresh label)" \
+  env PR_LABELS=$'bug\nlockfile-refresh' bash "$lock_guard" "$diff_base"
+expect_reject "lockfile guard (l3: lockfile only, near-miss label)" "$lock_msg" \
+  env PR_LABELS=$'bug\nnot-lockfile-refresh' bash "$lock_guard" "$diff_base"
+# A resolvable base with no merge base makes git diff itself fail; LC_ALL=C pins git's message.
+expect_reject --absent "label present" "lockfile guard (l8: git diff fails: no merge base)" "no merge base" \
+  env -u PR_LABELS LC_ALL=C bash "$lock_guard" "$unrelated_base"
+restore_fixture
+
+echo "# lockfile guard fixture" >> pnpm-lock.yaml
+echo "" >> package.json
+commit_fixture pnpm-lock.yaml package.json
+expect_accept --what "a lockfile change with its manifest" "lockfile guard (l4: lockfile + package.json)" \
+  env -u PR_LABELS bash "$lock_guard" "$diff_base"
+restore_fixture
+
+echo "lockfile guard fixture" > lockfile-guard-fixture.txt
+commit_fixture lockfile-guard-fixture.txt
+expect_accept --what "a PR touching neither file" "lockfile guard (l5: neither changed)" \
+  env -u PR_LABELS bash "$lock_guard" "$diff_base"
+restore_fixture
+
+expect_reject "lockfile guard (l6: unresolvable base)" "base ref '$missing_base'" \
+  env -u PR_LABELS bash "$lock_guard" "$missing_base"
+
+expect_reject "lockfile guard (l7: no base argument)" "usage: check-lockfile-pairs.sh <base-ref>" \
+  env -u PR_LABELS bash "$lock_guard"
+
+if [ "$(git rev-parse HEAD)" != "$diff_base" ] || [ -n "$(git status --porcelain)" ]; then
+  echo "FAIL  lockfile guard fixtures left the worktree off $diff_base or dirty:"
+  git status --short | sed 's/^/        /'
+  fail=$((fail + 1))
+fi
+
 # 10. Residue — reap every recorded fixture group, then sweep for anything that still names the root.
 reap_fixtures
 strays=$(fixture_strays)
