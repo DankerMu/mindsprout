@@ -1,22 +1,34 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { StorageUnavailableError } from '../../contexts/map/domain/errors';
 import type { MapRepository } from '../../contexts/map/domain/map-repository';
 import { openIndexedDbMapRepository } from '../../contexts/map/infrastructure/persistence/indexed-db-map-repository';
+import { InMemoryMapRepository } from '../../contexts/map/infrastructure/persistence/in-memory-map-repository';
 
-// The session's MapRepository (design D7, "Fixture — issue #16"), mounted by the root layout so
-// the library and the editor share one instance across client-side navigations. In 6.2 a failed
-// open is the `failed` state; the in-memory fallback and its banner are 6.3 (#17).
+interface ReadyRepository {
+  repository: MapRepository;
+  storageUnavailable: boolean;
+}
 
 export type RepositoryState =
-  { status: 'opening' } | { status: 'ready'; repository: MapRepository } | { status: 'failed' };
+  { status: 'opening' } | ({ status: 'ready' } & ReadyRepository) | { status: 'failed' };
 
-let session: Promise<MapRepository> | undefined;
+let session: Promise<ReadyRepository> | undefined;
 
-// One open per browser session; a rejected open stays rejected. Called from an effect only: SSR
-// evaluates this module too, and there indexedDB is undefined (#11 handoff).
-export function openSessionRepository(): Promise<MapRepository> {
-  session ??= openIndexedDbMapRepository();
+async function openRepository(open: () => Promise<MapRepository>): Promise<ReadyRepository> {
+  try {
+    return { repository: await open(), storageUnavailable: false };
+  } catch (error) {
+    if (!(error instanceof StorageUnavailableError)) throw error;
+    return { repository: new InMemoryMapRepository(), storageUnavailable: true };
+  }
+}
+
+// Effect-only open: SSR never touches IndexedDB. The chosen repository (or failure) lasts
+// for this document session, including provider remounts and client-side navigation.
+export function openSessionRepository(): Promise<ReadyRepository> {
+  session ??= openRepository(openIndexedDbMapRepository);
   return session;
 }
 
@@ -24,7 +36,7 @@ const RepositoryContext = createContext<RepositoryState | null>(null);
 
 export function MapRepositoryProvider({
   children,
-  open = openSessionRepository,
+  open,
 }: {
   children: ReactNode;
   open?: () => Promise<MapRepository>;
@@ -32,9 +44,10 @@ export function MapRepositoryProvider({
   const [state, setState] = useState<RepositoryState>({ status: 'opening' });
   useEffect(() => {
     let cancelled = false;
-    open().then(
-      (repository) => {
-        if (!cancelled) setState({ status: 'ready', repository });
+    const opening = open === undefined ? openSessionRepository() : openRepository(open);
+    opening.then(
+      (ready) => {
+        if (!cancelled) setState({ status: 'ready', ...ready });
       },
       () => {
         if (!cancelled) setState({ status: 'failed' });

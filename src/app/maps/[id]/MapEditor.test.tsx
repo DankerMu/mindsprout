@@ -123,6 +123,7 @@ describe('MapEditor', () => {
     expect(screen.getByText(FUTURE_VERSION)).toBeTruthy();
     expect(screen.queryByText(NOT_FOUND)).toBeNull();
     expect(repository.puts).toStrictEqual([]);
+    expect(screen.queryByText('未保存到浏览器')).toBeNull();
   });
 
   it.each([
@@ -135,14 +136,28 @@ describe('MapEditor', () => {
     expect(screen.queryByText(NOT_FOUND)).toBeNull();
     expect(screen.queryByTestId('map-editor-ready')).toBeNull();
     expect(repository.puts).toStrictEqual([]);
+    expect(screen.queryByText('未保存到浏览器') !== null).toBe(
+      error instanceof StorageUnavailableError,
+    );
+    expect(screen.getByRole('link', { name: '返回导图列表' }).getAttribute('href')).toBe('/');
   });
 
   it('shows the error state when the repository failed to open', async () => {
-    editorOver(() => Promise.reject(new StorageUnavailableError('blocked')), 'm1');
+    editorOver(() => Promise.reject(new Error('unexpected open failure')), 'm1');
     await settled();
 
     expect(screen.getByText(UNREADABLE)).toBeTruthy();
     expect(screen.queryByText(NOT_FOUND)).toBeNull();
+    expect(screen.queryByText('未保存到浏览器')).toBeNull();
+  });
+
+  it('shows not-found and the persistent banner for an unknown fallback id', async () => {
+    editorOver(() => Promise.reject(new StorageUnavailableError('blocked')), 'not-in-session');
+    await settled();
+    expect(screen.getByText(NOT_FOUND)).toBeTruthy();
+    expect(screen.getAllByText('未保存到浏览器')).toHaveLength(1);
+    expect(screen.queryByText(UNREADABLE)).toBeNull();
+    expect(screen.getByRole('link', { name: '返回导图列表' }).getAttribute('href')).toBe('/');
   });
 
   it.each([
@@ -156,6 +171,12 @@ describe('MapEditor', () => {
       'resolves undefined',
       (late: HeldGet) => {
         late.resolve(undefined);
+      },
+    ],
+    [
+      'rejects with unavailable storage',
+      (late: HeldGet) => {
+        late.reject(new StorageUnavailableError('discarded unavailable read'));
       },
     ],
   ])('ignores the discarded StrictMode effect whose get %s late', async (_label, settleLate) => {
@@ -184,5 +205,6 @@ describe('MapEditor', () => {
     expect(screen.getByTestId('editor-title').textContent).toBe('标题A');
     expect(screen.queryByText(UNREADABLE)).toBeNull();
     expect(screen.queryByText(NOT_FOUND)).toBeNull();
+    expect(screen.queryByText('未保存到浏览器')).toBeNull();
   });
 });
