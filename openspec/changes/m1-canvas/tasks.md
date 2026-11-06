@@ -285,3 +285,13 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: shared provider, editor and app-ready contracts unchanged. Evidence: full existing browser scenarios plus home/stale-link smoke.
 - Documentation / migration notes — selected: changeset and ownership consequence. Evidence: docs:check and decisions:check.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no configuration, schema, credentials, resource cap or dependency change.
+
+## Risk packs — issue #17 (task 6.3)
+
+- Public API / CLI / script entry — selected: session provider ready shape and editor warning/error surface. Evidence: migrated consumers, provider/state DOM tests and browser private-mode flow.
+- Concurrency / shared state / ordering — selected: shared fallback promise, StrictMode and SPA identity, stale effects and notice replacement. Evidence: remount/single-instance tests, public create/back/reopen, no auto-dismiss timer.
+- Error handling / rollback / partial outputs — selected: unavailable versus generic open/get/put failures. Evidence: classification matrix, no silent fallback or not-found-on-error, edit retained after failed put.
+- File IO / path safety / overwrite — selected: failure surfaces must not rewrite records or swap storage mid-session. Evidence: raw-record unchanged after quota failure, no writes on failed get, fallback lost only on full reload.
+- Legacy compatibility / examples — selected: normal IndexedDB paths and all editor/library behavior unchanged. Evidence: existing full e2e and owning unit tests.
+- Documentation / migration notes — selected: changeset and decision consequence. Evidence: docs:check and decisions:check.
+- Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config/schema/credential/limit/dependency changes.

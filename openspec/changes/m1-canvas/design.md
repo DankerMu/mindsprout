@@ -1167,3 +1167,28 @@ Risk-pack commands: pnpm test:unit, pnpm typecheck, pnpm lint (local .omp caveat
 Non-goals: rename/delete, unavailable-home banner, fallback implementation, new APIs, account/sync, pagination/search, automatic retries, schema/dependency/config changes.
 Rollback: revert UI slice; created maps remain valid persisted records. Review focus: save-before-navigation, single pending creation, read error versus empty, same repository identity, timestamp/order fidelity and unchanged editor behavior.
 ```
+
+## Fixture — issue #17 (task 6.3)
+
+```text
+Change surface: src/app/providers/MapRepositoryProvider, editor get-state composition, two reusable notice components, EditorView wiring and paired tests/e2e, changeset and decision consequence.
+Must preserve: one repository promise per browser session, client-effect-only open/SSR safety, provider opening/failed states for genuine errors, get undefined as not-found, future-version refusal/no writes, corrupt-record boundary, all library/editor/selection/rename contracts.
+Must add: only open rejection StorageUnavailableError resolves to one shared new InMemoryMapRepository with storageUnavailable=true; successful IndexedDB resolves false. Other open failures remain failed, never silently fall back. Fallback starts empty and survives provider remount/StrictMode/SPA routes in the same document session.
+Governing invariant: every library/editor consumer uses the same resolved repository; fallback is chosen only at initial open, never on a mid-session put/get error, and UI never implies a failed edit was saved.
+Provider seam: expose ready repository and unavailable flag; migrate all consumers/tests atomically if the resolved shape changes. Reuse existing in-memory adapter, no proxy storage implementation or duplicate cache.
+Banner: reusable props-driven StorageUnavailableBanner renders 未保存到浏览器 only when true, persistent and nondismissible. Editor shows one banner when provider-open unavailable OR store put-unavailable OR current reader get-unavailable.
+Get handling: StorageUnavailableError shows banner plus unreadable/error state and back link, never not-found; generic errors remain error without unavailable flag; future version retains own state. Provider fallback unknown id legitimately shows not-found plus banner; opening a failed read writes nothing.
+Notice: reusable props-driven notice/toast displays current store.notice, including 保存失败, with accessible alert and explicit dismiss through existing clearNotice. No auto-dismiss timer is added; therefore an old timer cannot clear a newer message (#46 handoff). Do not create a second notice channel or change autosave retry semantics.
+Editor wiring: props/context provide provider status across composition boundary; shared components never import src/app/infrastructure. Keep fixed canvas sizing, no overlay hiding the header or text input.
+Sibling surfaces: #30 library creates through session repository (no home banner here); #32 will render the shared banner for list/unavailable flows; autosave put classifications and notice slot; #19 inline input; #22 future primary-root notice; error/future/not-found routes.
+Required DOM evidence: open success false flag; StorageUnavailable fallback same instance/promise across StrictMode/remount and working put/get; generic open rejection failed, no fallback; obsolete late effect results ignored.
+Required DOM evidence: banner true/false; toast from real store save failure retains renamed map, explicit dismiss clears only current notice; a replacement notice is rendered and not auto-cleared; unavailable put shows banner without 保存失败 and never swaps repository.
+Required DOM evidence: unavailable get banner+error/no not-found/no writes; unknown fallback id not-found+banner; version/generic errors unchanged; exactly one banner when provider and store both unavailable.
+Required browser evidence Private mode: page.addInitScript blocks indexedDB.open before startup; navigate /, click 新建导图, enter editor without document reload, banner visible, real inline rename commits and stays visible after save window. Return through browser history/library and reopen to prove same fallback instance; full reload then not-found+banner and no persisted map.
+Required browser evidence Write failure is visible: seed a real IndexedDB map normally; force only IDBObjectStore.put to reject for app writes (quota-style DOMException), perform real inline rename, wait for 保存失败 toast, edited text remains, stored raw record unchanged and no fallback/banner for generic quota failure.
+Required browser evidence: zero warning/error/pageerror in both scenarios; screenshots .run/ui-evidence/. Fault injection is browser boundary-only, no test-only application globals/routes/repositories.
+Evidence hygiene: vertical red→green saved .workplans/17/review; full prior browser regression stays green; local health start/stop.
+Risk-pack commands: pnpm test:unit, pnpm typecheck, pnpm lint (local .omp issue #74), pnpm boundaries, pnpm fmt:check, pnpm docs:check, pnpm decisions:check, pnpm e2e.
+Non-goals: library banner (#32), child creation (#20), autosave changes/retries, mid-session repository swapping, schema/config/dependency/API changes, durable memory fallback across full reload.
+Rollback: revert fallback/notice wiring; persisted IndexedDB schema untouched. Review focus: one session identity; failure classification; honest no-save UI; reader/store flag combination; notice replacement; public private-mode proof.
+```
