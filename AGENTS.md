@@ -16,7 +16,8 @@ Same logic must have exactly one implementation in the repo. Version evolution b
 - No parallel implementations as a transition. Without a written cutover exception, do not ship v2 while v1 still exists; replace atomically.
 - Commented-out code is a lint error, not a safety net. Delete it; git remembers.
 - Unreferenced exports and dead code paths are debt. Wire them up in the same change or delete them.
-- Do not use the repo as a scratchpad. Directories like `tmp/`, `scratch/`, `backup/`, `_old/`, `deprecated/`, `archive/`, `wip/` must not appear in commits. The one exemption is OpenSpec's fixed archive path `openspec/changes/archive/` (scratch directories below it are still rejected; [decision 0007](decisions/implemented/process/0007-openspec-archive-exempt-from-scratchpad-guard.md)).
+- Do not use the repo as a scratchpad. Directories like `tmp/`, `scratch/`, `backup/`, `_old/`, `deprecated/`, `archive/`, `wip/` must not appear in commits.
+  - The one exemption is OpenSpec's fixed archive path `openspec/changes/archive/` (scratch directories below it are still rejected; [decision 0007](decisions/implemented/process/0007-openspec-archive-exempt-from-scratchpad-guard.md)).
 
 ### Enforcement
 
@@ -40,13 +41,14 @@ AI 驱动的思维导图生成器 — 输入一句话，让想法自动生长成
 
 ## Stack & Versions
 
-| Layer              | Choice                                                                                          | Version                          | Why                                  |
-| ------------------ | ----------------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------ |
-| Language / runtime | TypeScript / Node                                                                               | 5.9 / 22.23.4 (`.tool-versions`) | strict flag set in `tsconfig.json`   |
-| Framework / canvas | Next.js (App Router) + React; React Flow + Zustand                                              | 16 / 19                          | one repo, one deploy; `docs/TECH.md` |
-| Persistence        | Supabase Postgres (RLS), Drizzle from M2                                                        | Postgres 16                      | row-level isolation per user         |
-| Tests / lint       | Vitest, Playwright (e2e), Stryker (weekly) / ESLint 9 flat config, Prettier, dependency-cruiser |                                  |                                      |
-| Package manager    | pnpm                                                                                            | 10.28.0 (`packageManager`)       |                                      |
+| Layer              | Choice                                             | Version                          | Why                                  |
+| ------------------ | -------------------------------------------------- | -------------------------------- | ------------------------------------ |
+| Language / runtime | TypeScript / Node                                  | 5.9 / 22.23.4 (`.tool-versions`) | strict flag set in `tsconfig.json`   |
+| Framework / canvas | Next.js (App Router) + React; React Flow + Zustand | 16 / 19                          | one repo, one deploy; `docs/TECH.md` |
+| Persistence        | Supabase Postgres (RLS), Drizzle from M2           | Postgres 16                      | row-level isolation per user         |
+| Tests              | Vitest, Playwright (e2e), Stryker (weekly)         |                                  |                                      |
+| Lint               | ESLint 9 flat config, Prettier, dependency-cruiser |                                  |                                      |
+| Package manager    | pnpm                                               | 10.28.0 (`packageManager`)       |                                      |
 
 ### Dependency policy
 
@@ -130,7 +132,6 @@ Every row requires fresh evidence from the current session — see `## Agent Ope
 ## Runtime Lifecycle
 
 - Start (background) / stop / status / tail logs: `pnpm dev:bg` / `pnpm dev:stop` / `pnpm dev:status` / `pnpm logs`
-
 - Dev server listens on port `3000`; health check at `http://localhost:3000/api/healthz`. Verify only after the health check passes.
 - Never verify against a stale build — restart after dependency, schema, or config changes. Never leave orphan dev processes: run `pnpm dev:stop` when done.
 - UI verification: `pnpm e2e` after every UI change, or `pnpm verify-ui "<test title>"` for one route (argument is a regex over test titles). Screenshots land in `.run/ui-evidence/` (gitignored) and are referenced from the PR `## Runtime evidence` section.
@@ -144,6 +145,7 @@ Max 10 entries, dated, pruned at milestones. An undated note is unverifiable —
 3. 2026-11-05 — Keep API keys (platform or user-supplied) server-side only, never in the client bundle, logs, or the database in plaintext (because a leaked key is a billing incident; `src/shared/logger.ts` redacts the usual paths).
 4. 2026-11-05 — Access user data through Supabase RLS as the authenticated user, not with the service-role key (because RLS is the only isolation between users).
 5. 2026-11-05 — Tests, CI and local verification use the mock provider or recorded fixtures, never a real paid key (because a runaway loop is a billing incident).
+6. 2026-11-06 — Read the relevant guide in `node_modules/next/dist/docs/` before writing Next.js code, not training-data recall (because Next.js 16 has breaking changes; full text: `docs/engineering/nextjs-agent-rules.md`).
 
 ## Conventions
 
@@ -195,21 +197,21 @@ Max 10 entries, dated, pruned at milestones. An undated note is unverifiable —
 
 ### Domain-Driven Design (strict)
 
-- Vocabulary: `openspec/glossary.md`; contexts and invariants: `CONTEXT.md`. A term that conflicts with the glossary is surfaced, never silently synonymised; a resolved term is added inline.
-- One aggregate root per aggregate (`MindMap` → root `MindNode`); one transaction touches one aggregate; cross-aggregate coordination via past-tense domain events.
-- Repositories: interface in `domain/`, implementation in `infrastructure/persistence/`, injected into application services. Contexts never import each other's domain types; translation lives in `src/contexts/<ctx>/acl/`; boundary decisions are decision records (`decisions/implemented/architecture/`).
+- Vocabulary: `openspec/glossary.md`; contexts and invariants: `CONTEXT.md`. A term that conflicts with the glossary is surfaced, never silently synonymised.
+- One transaction touches one aggregate. Contexts never import each other's domain types; translation lives in `src/contexts/<ctx>/acl/`.
 
 ### Test-Driven Development (required)
 
 - Red → green → refactor → commit. No production code without a failing test first; a new `src/**` file without its paired test fails pre-commit (`scripts/check-test-pairing.sh`).
-- Coverage 90% per file; mutation testing weekly; every external boundary has a real-service integration test.
 - Forbidden: disabling tests to pass CI; `it.skip` without a linked issue and deadline; "no exception thrown" tests; mocking the system under test. A flaky test is a bug: quarantine with an issue, fix or delete within 14 days.
 
-Full clauses (layering table, aggregates, cadence, isolation): `docs/engineering/architecture-discipline.md`.
+Full clauses (layering table, aggregates, repositories, domain events, cadence, mutation testing, boundary integration tests, isolation): `docs/engineering/architecture-discipline.md`.
 
 ## Critical Paths
 
-Agents check this table before editing. Touching a listed path requires the `risk-adaptive-cross-review` pass at full depth (reviewer + verifier subagents, every diff line) plus the owner's functional acceptance; everywhere else gray-box review (contracts + runtime evidence) is sufficient. The owner does not read diffs (decision 0001).
+Agents check this table before editing.
+Touching a listed path requires the `risk-adaptive-cross-review` pass at full depth (reviewer + verifier subagents, every diff line) plus the owner's functional acceptance.
+Everywhere else gray-box review (contracts + runtime evidence) is sufficient. The owner does not read diffs (decision 0001).
 
 | Path                                                                              | Risk class                   | Requirement                                                        |
 | --------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------ |
@@ -220,7 +222,9 @@ Agents check this table before editing. Touching a listed path requires the `ris
 
 ## Observability
 
-- **Structured logging**: all server-side code uses `pino` via `src/shared/logger.ts`; ESLint `no-console` (only `warn`/`error` allowed) enforced in pre-commit + CI. Levels: `info` business events, `warn` recoverable anomalies, `error` failures; no `debug` in production. PII/secret redaction is wired (`REDACT_PATHS`); never log raw user input, tokens, or credentials.
+- **Structured logging**: all server-side code uses `pino` via `src/shared/logger.ts`; ESLint `no-console` (only `warn`/`error` allowed) enforced in pre-commit + CI.
+  Levels: `info` business events, `warn` recoverable anomalies, `error` failures; no `debug` in production.
+  PII/secret redaction is wired (`REDACT_PATHS`); never log raw user input, tokens, or credentials.
 - **Distributed tracing (wired)**: OpenTelemetry initialised in `src/instrumentation.ts` (`@vercel/otel`); W3C trace context propagates on outbound calls; exporter from `OTEL_EXPORTER_OTLP_ENDPOINT`. Span names `<context>.<operation>` (e.g. `ai.streamOps`).
 - **Metrics (deferred)**: deferred to M2 (no deployment target yet) — recorded downgrade in `constraints.yaml`.
 
@@ -264,41 +268,44 @@ Agents check this table before editing. Touching a listed path requires the `ris
 
 ### Protocols kept in full elsewhere
 
-- Debugging CI failures (layer classification, reproduce-locally rule), environment tiers (local full / staging via CI / prod none), concurrency (separate worktrees, rebase, lockfile merges), generated artifacts (lockfile pairs with manifest; snapshots reviewed hunk by hunk, CI never writes them), incident-to-constraint ratchet (>30 min lesson → dated note; third same-class incident → a check): `docs/engineering/agent-operating-rules.md`.
+- Binding protocols in `docs/engineering/agent-operating-rules.md`: debugging CI failures (layer classification, reproduce-locally rule), environment tiers (local full / staging via CI / prod none), concurrency (separate worktrees, rebase, lockfile merges).
+- Same file: generated artifacts (lockfile pairs with manifest; snapshots reviewed hunk by hunk, CI never writes them), incident-to-constraint ratchet (>30 min lesson → dated note; third same-class incident → a check).
 - Secrets: never read, cat, or print `.env*` files; `.env.example` is the only secrets-adjacent file agents open; reference secrets by variable name only. Deny list in `.claude/settings.json`.
 
 ## Enforcement Index
 
 Strictness profile: **L4** (see `constraints.yaml`). Levels: `advice` < `review-only` < `warn` < `block` < `gate`. Anything below `warn` is a human promise, not a machine check.
 
-| Rule / Convention                                                    | Where it lives                                                                                                                                                                                                                 | Where it's checked                                                 | Level                                                                                                                                            |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Lint (incl. naming regex, no-console, size, complexity)              | `eslint.config.mjs`                                                                                                                                                                                                            | `pnpm lint` + pre-commit (lint-staged) + CI layer1                 | block                                                                                                                                            |
-| Formatter                                                            | `.prettierrc.json`                                                                                                                                                                                                             | `pnpm fmt:check` + pre-commit + CI layer1                          | block                                                                                                                                            |
-| Type strictness                                                      | `tsconfig.json`                                                                                                                                                                                                                | `pnpm typecheck` + CI layer1                                       | block                                                                                                                                            |
-| Module boundaries + cycles                                           | `.dependency-cruiser.cjs`                                                                                                                                                                                                      | `pnpm boundaries` + CI layer1                                      | block                                                                                                                                            |
-| Test coverage gate (90% per file)                                    | `vitest.config.ts`                                                                                                                                                                                                             | `pnpm test:unit` + CI layer2 `coverage-gate`                       | block                                                                                                                                            |
-| API contract snapshot                                                | `schemas/openapi.yaml` + `schemas/snapshots/openapi.yaml.snapshot`                                                                                                                                                             | `pnpm test:contract` + CI layer2                                   | block                                                                                                                                            |
-| Integration tests (real DB, no self-skip)                            | `vitest.integration.config.ts`                                                                                                                                                                                                 | `pnpm test:integration` + CI layer3                                | block                                                                                                                                            |
-| API smoke                                                            | `smoke/health.hurl`                                                                                                                                                                                                            | `pnpm smoke` + CI layer3                                           | block                                                                                                                                            |
-| E2E (zero console errors)                                            | `playwright.config.ts` + `e2e/smoke.spec.ts`                                                                                                                                                                                   | `pnpm e2e` + CI layer7                                             | block                                                                                                                                            |
-| Duplicate code (2%)                                                  | `jscpd.json`                                                                                                                                                                                                                   | `pnpm duplicate-code` + CI layer4                                  | block                                                                                                                                            |
-| Dead code                                                            | `knip.json`                                                                                                                                                                                                                    | `pnpm dead-code` + CI layer4                                       | block                                                                                                                                            |
-| Documentation gate                                                   | `scripts/check-docs.mjs` + `docs/.docgate.json`                                                                                                                                                                                | `pnpm docs:check` + CI layer4                                      | block                                                                                                                                            |
-| Decision-record gate                                                 | `scripts/check-decisions.mjs` + `decisions/archived/MANIFEST.json`                                                                                                                                                             | `pnpm decisions:check` + CI layer4                                 | block                                                                                                                                            |
-| PR diff size (400 lines)                                             | `constraints.yaml` (size_limits.max_pr_diff_lines)                                                                                                                                                                             | CI layer6 (`.github/workflows/pr-diff-guard.yml`)                  | block                                                                                                                                            |
-| Forbidden naming + scratchpad dirs                                   | `constraints.yaml` → `.git-hooks/check-naming.sh`                                                                                                                                                                              | pre-commit hook + Claude Code write-time (`.claude/settings.json`) | block                                                                                                                                            |
-| TDD pairing (new file ships its test)                                | `scripts/check-test-pairing.sh`                                                                                                                                                                                                | pre-commit hook                                                    | block                                                                                                                                            |
-| Secrets in commits                                                   | `scripts/check-secrets.sh` (pre-commit) + gitleaks                                                                                                                                                                             | pre-commit hook + CI layer5                                        | block                                                                                                                                            |
-| SAST                                                                 | semgrep `p/default` + `p/typescript`                                                                                                                                                                                           | CI layer8                                                          | block                                                                                                                                            |
-| Conventional commits                                                 | `commitlint.config.cjs`                                                                                                                                                                                                        | pre-commit hook (`commit-msg`)                                     | block                                                                                                                                            |
-| Lockfile–manifest consistency                                        | `.github/workflows/lockfile-guard.yml` + `scripts/check-lockfile-pairs.sh`                                                                                                                                                     | CI `Lockfile–manifest consistency` (separate label-aware workflow) | block                                                                                                                                            |
-| Agent write-time deny list (force-push, `--no-verify`, `.env` reads) | `.claude/settings.json`                                                                                                                                                                                                        | Claude Code sessions only (pre-commit + CI remain the floor)       | block                                                                                                                                            |
-| Branch protection (required checks, linear history)                  | GitHub classic branch protection on `main` (inspect: `gh api repos/DankerMu/mindsprout/branches/main/protection`; rulesets unused); required checks `All checks passed`, `Lockfile–manifest consistency`, `PR diff size guard` | server-side                                                        | gate (applied: strict up-to-date, three required checks, linear history, no force-push or deletion; `enforce_admins: false` — admins can bypass) |
-| Guardrail self-test, AGENTS.md liveness                              | `scripts/test-guardrails.sh`, `.github/workflows/weekly.yml`                                                                                                                                                                   | `pnpm test:guardrails` + CI weekly                                 | warn (weekly)                                                                                                                                    |
-| Mutation testing                                                     | `stryker.config.mjs`                                                                                                                                                                                                           | `pnpm mutation` + CI weekly                                        | warn (advisory)                                                                                                                                  |
-| Function length (200 lines), license allowlist                       | `constraints.yaml` (size_limits.max_function_lines, dependencies.allowed_licenses)                                                                                                                                             | reviewer agent                                                     | review-only                                                                                                                                      |
-| Critical-path cross-review protocol                                  | `## Critical Paths` + `risk-adaptive-cross-review` skill                                                                                                                                                                       | reviewer + verifier subagents                                      | review-only                                                                                                                                      |
+| Rule / Convention                                       | Where it lives                                                                     | Where it's checked                                                 | Level           |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------- |
+| Lint (incl. naming regex, no-console, size, complexity) | `eslint.config.mjs`                                                                | `pnpm lint` + pre-commit (lint-staged) + CI layer1                 | block           |
+| Formatter                                               | `.prettierrc.json`                                                                 | `pnpm fmt:check` + pre-commit + CI layer1                          | block           |
+| Type strictness                                         | `tsconfig.json`                                                                    | `pnpm typecheck` + CI layer1                                       | block           |
+| Module boundaries + cycles                              | `.dependency-cruiser.cjs`                                                          | `pnpm boundaries` + CI layer1                                      | block           |
+| Test coverage gate (90% per file)                       | `vitest.config.ts`                                                                 | `pnpm test:unit` + CI layer2 `coverage-gate`                       | block           |
+| API contract snapshot                                   | `schemas/openapi.yaml` + `schemas/snapshots/openapi.yaml.snapshot`                 | `pnpm test:contract` + CI layer2                                   | block           |
+| Integration tests (real DB, no self-skip)               | `vitest.integration.config.ts`                                                     | `pnpm test:integration` + CI layer3                                | block           |
+| API smoke                                               | `smoke/health.hurl`                                                                | `pnpm smoke` + CI layer3                                           | block           |
+| E2E (zero console errors)                               | `playwright.config.ts` + `e2e/smoke.spec.ts`                                       | `pnpm e2e` + CI layer7                                             | block           |
+| Duplicate code (2%)                                     | `jscpd.json`                                                                       | `pnpm duplicate-code` + CI layer4                                  | block           |
+| Dead code                                               | `knip.json`                                                                        | `pnpm dead-code` + CI layer4                                       | block           |
+| Documentation gate                                      | `scripts/check-docs.mjs` + `docs/.docgate.json`                                    | `pnpm docs:check` + CI layer4                                      | block           |
+| Decision-record gate                                    | `scripts/check-decisions.mjs` + `decisions/archived/MANIFEST.json`                 | `pnpm decisions:check` + CI layer4                                 | block           |
+| PR diff size (400 lines)                                | `constraints.yaml` (size_limits.max_pr_diff_lines)                                 | CI layer6 (`.github/workflows/pr-diff-guard.yml`)                  | block           |
+| Forbidden naming + scratchpad dirs                      | `constraints.yaml` → `.git-hooks/check-naming.sh`                                  | pre-commit hook + Claude Code write-time (`.claude/settings.json`) | block           |
+| TDD pairing (new file ships its test)                   | `scripts/check-test-pairing.sh`                                                    | pre-commit hook                                                    | block           |
+| Secrets in commits                                      | `scripts/check-secrets.sh` (pre-commit) + gitleaks                                 | pre-commit hook + CI layer5                                        | block           |
+| SAST                                                    | semgrep `p/default` + `p/typescript`                                               | CI layer8                                                          | block           |
+| Conventional commits                                    | `commitlint.config.cjs`                                                            | pre-commit hook (`commit-msg`)                                     | block           |
+| Lockfile–manifest consistency                           | `.github/workflows/lockfile-guard.yml` + `scripts/check-lockfile-pairs.sh`         | CI `Lockfile–manifest consistency` (separate label-aware workflow) | block           |
+| Agent write-time deny list                              | `.claude/settings.json`                                                            | Claude Code sessions only (pre-commit + CI remain the floor)       | block           |
+| Branch protection (required checks, linear history)     | GitHub classic branch protection on `main`                                         | server-side                                                        | gate            |
+| Guardrail self-test, AGENTS.md liveness                 | `scripts/test-guardrails.sh`, `.github/workflows/weekly.yml`                       | `pnpm test:guardrails` + CI weekly                                 | warn (weekly)   |
+| Mutation testing                                        | `stryker.config.mjs`                                                               | `pnpm mutation` + CI weekly                                        | warn (advisory) |
+| Function length (200 lines), license allowlist          | `constraints.yaml` (size_limits.max_function_lines, dependencies.allowed_licenses) | reviewer agent                                                     | review-only     |
+| Critical-path cross-review protocol                     | `## Critical Paths` + `risk-adaptive-cross-review` skill                           | reviewer + verifier subagents                                      | review-only     |
+
+Applied branch-protection settings and the deny-list contents: `docs/engineering/enforcement-index.md`.
 
 `constraints.yaml` is the machine-readable source of truth for every threshold and regex above. Change it first; configs and CI reference it. A rule with no enforcement entry is a wish, not a rule — wire it or remove it.
 
@@ -307,13 +314,3 @@ Strictness profile: **L4** (see `constraints.yaml`). Levels: `advice` < `review-
 - Coverage gate: proves lines ran, not that assertions are meaningful — the reviewer agent checks test strength; Stryker reports survivors weekly.
 - Docs gate: verifies file existence and section presence, not content accuracy. Contract snapshot: catches drift in `schemas/openapi.yaml` only — a route never registered there is invisible; `## Where new behavior goes` makes registration part of adding a route.
 - Secret regex guard: catches known credential shapes only; gitleaks in CI is the broader net, and neither sees a secret pasted into a decision record's prose. A declared blind spot is a review obligation; an undeclared one is a hole nobody owns.
-
-<!-- BEGIN:nextjs-agent-rules -->
-
-## This is NOT the Next.js you know
-
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->
