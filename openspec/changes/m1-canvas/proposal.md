@@ -157,3 +157,15 @@ Blast radius: overlapping or misordered nodes on the canvas, a layout that jumps
 Selected risk packs: Public API / CLI / script entry; Release / packaging / dependency compatibility
 Evidence floor: pnpm test:unit (spec scenarios, no-overlap property over a generated tree, collapse, determinism, size fallback; ≥90% per file); pnpm typecheck; pnpm lint; pnpm boundaries; pnpm dead-code (d3-hierarchy used; @types/d3-hierarchy is evidenced by typecheck since knip ignores @types/*); lockfile resolves d3-hierarchy 3.1.2; pnpm duplicate-code; pnpm fmt:check; pnpm install --frozen-lockfile; licence review (ISC, MIT)
 ```
+
+## Fixture triage — issue #9 (task 3.2)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (pure function, no persistence or entrypoint) — override: extends the public layout API (floating placement under the #8 coordinate convention) and adds contentBounds, which 6.2 fit-to-content reads; a public-API expanded trigger, same as #8
+Blast radius: floating subtrees drawn at the wrong place or jumping when another tree changes, the primary tree moving when a floating root is dragged, or fit-to-content cropping a far subtree; no data is touched
+Selected risk packs: Public API / CLI / script entry; Legacy compatibility / examples
+Evidence floor: pnpm test:unit (spec "Move a floating root", far-subtree bounds, anchoring, per-tree independence, every #8 case unchanged except the two named in design "Must preserve"; ≥90% per file); pnpm typecheck; pnpm lint; pnpm boundaries; pnpm dead-code (contentBounds consumed by its test); pnpm duplicate-code; pnpm fmt:check
+Deviation from the issue text: `contentBounds(layout)` takes no nodeSize — it reads `layout.sizes` (the size actually used, estimate included), per the #8 integration handoff; a raw nodeSize has no entry for unmeasured nodes
+```
