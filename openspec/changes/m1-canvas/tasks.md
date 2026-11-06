@@ -244,3 +244,16 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
   - Schema, File IO, Auth, Error handling, Legacy compatibility: read-only rendering of an already-validated map; no persisted shape, IO, auth, error path or existing consumer.
   - Config: the vitest config is unchanged, and the dom-shims addition is evidenced by its smoke case.
   - Documentation: two bullet edits to the existing component-tier section (route-component exemption; the act-environment rule for later component tests), evidenced by docs:check and review.
+
+## Risk packs — issue #16 (task 6.2)
+
+- Public API / CLI / script entry — selected: `/maps/[id]`, its four visible states and their texts, data-testid="editor-title" and data-testid="map-editor-ready", useMapRepository / EditorSession / useEditorStore and the e2e seed helper are read by #17–#20 and #30/#31; evidence = names fixed in design "Fixture — issue #16", dom cases, e2e scenarios, knip.
+- Concurrency / shared state / ordering — selected: one repository per session across navigations and StrictMode, the load race on unmount, flush synchronous with pagehide/unmount so later reads see the write; evidence = identity case, StrictMode stale-effect guard, synchronous-put cases.
+- Error handling / rollback / partial outputs — selected: every get outcome maps to exactly one visible state (never not-found on error), corrupt records end in the error boundary; evidence = MapEditor classification cases, e2e corrupt-record scenario, bite (i).
+- File IO / path safety / overwrite — selected (scoped): opening must never write browser storage; evidence = EditorSession zero-put case, e2e raw-record-unchanged assertions for v1 and v2 records.
+- Release / packaging / dependency compatibility — selected: first `pnpm build` compiling the canvas stylesheet import and CSS Modules; evidence = pnpm build exit 0.
+- Documentation / migration notes — selected: `/maps/[id]` is the first user-visible route, and the repository rules (the AGENTS file) say a changeset accompanies every user-visible change. Evidence: the `.changeset/*.md` entry and `pnpm changeset status`.
+- Schema; Config; Auth; Resource limits; Legacy compatibility — not selected:
+  - no persisted-shape change (seeds mirror the 4.2 envelope);
+  - no config, auth or size surface;
+  - `/` is unchanged.
