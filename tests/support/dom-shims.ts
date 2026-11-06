@@ -73,3 +73,12 @@ installIfAbsent('DOMMatrix', IdentityMatrix);
 
 // Vitest globals are off, so Testing Library's auto-cleanup never registers; unmount explicitly.
 afterEach(cleanup);
+
+declare global {
+  // Read by React: when true, a state update outside act(...) logs a "not wrapped in act" error.
+  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
+}
+
+// Testing Library's auto-setup would set this, but it is skipped with Vitest globals off. Without
+// it, React stays silent about updates outside act (observer callbacks, timers, store writes).
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
