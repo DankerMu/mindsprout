@@ -1,17 +1,9 @@
 import type { MapRepository, MapSummary } from '../../domain/map-repository';
 import type { MindMap } from '../../domain/types';
+import { byRecency } from './summary-order';
 
 // Session fallback store (design D7): holds structuredClone copies, cloned in on put and out on
 // get, so it behaves like IndexedDB's structured clone and callers can never alias its state.
-
-// Plain code-unit order (not localeCompare), branch-free: -1, 0 or 1.
-function order(left: string, right: string): number {
-  return Number(left > right) - Number(left < right);
-}
-
-function byRecency(left: MapSummary, right: MapSummary): number {
-  return order(right.updatedAt, left.updatedAt) || order(left.id, right.id);
-}
 
 export class InMemoryMapRepository implements MapRepository {
   readonly #maps = new Map<MindMap['id'], MindMap>();
