@@ -257,13 +257,17 @@ describe('MindMapCanvas view', () => {
     }
   });
 
-  it('renders nodes neither draggable nor selectable', () => {
+  it('keeps static map nodes neither draggable nor natively selectable', () => {
     render(<MindMapCanvas map={rootWithChild()} />);
+    fireEvent.click(nodeWrapper('r'));
+    fireEvent.keyDown(nodeWrapper('r'), { key: 'ArrowRight' });
+    fireEvent.pointerDown(screen.getByRole('region'), { button: 0 });
 
     for (const id of ['r', 'a']) {
       const wrapper = mindNodeElement(id).parentElement;
       expect(wrapper?.classList.contains('draggable'), `${id} draggable`).toBe(false);
       expect(wrapper?.classList.contains('selectable'), `${id} selectable`).toBe(false);
+      expect(mindNodeElement(id).getAttribute('aria-pressed')).toBe('false');
     }
   });
 

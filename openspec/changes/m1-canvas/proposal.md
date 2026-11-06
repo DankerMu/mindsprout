@@ -242,3 +242,16 @@ Scope notes:
   - The provider's open failure renders the error state until 6.3 (#17) replaces it with the fallback. #17's text "the provider (6.2) always resolves IndexedDB" describes exactly this.
   - Also folds in the #15 handoff: the "Fixture — issue #15" header now reads toFlowElements(map, layout, measured).
 ```
+
+## Fixture triage — issue #21 (task 7.3)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (override: connects the shared editor selection state to pointer events, keyboard focus and React Flow's controlled projection).
+Blast radius: selection drift between canvas and store; keyboard actions escaping a text field; hidden nodes selected; pan gestures changing selection.
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: genuine red→green DOM behavior tests with real editor store; full unit per-file coverage ≥90%; real-browser selection scenarios with screenshots and zero unexpected console noise; typecheck, boundaries, lint, format, docs and decisions checks.
+Scope: task 7.3 only. Existing canvas-editing Selection and Shortcuts requirements are the spec delta; no acceptance text changes.
+Queue deviation: #21 precedes #19 because #19's three-selected-node F2 scenario needs this public selection UI; neither issue gains the other's behavior.
+```
