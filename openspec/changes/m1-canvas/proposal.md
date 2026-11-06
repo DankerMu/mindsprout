@@ -146,3 +146,14 @@ Blast radius: this is the only durable store in M1 — a wrong envelope, a lost 
 Selected risk packs: Public API / CLI / script entry; Schema / columns / units / field names; File IO / path safety / overwrite; Error handling / rollback / partial outputs; Release / packaging / dependency compatibility; Legacy compatibility / examples
 Evidence floor: pnpm test:unit (contract suite under fake-indexeddb, envelope shape, reopen round-trip, version and corrupt-record paths, three open-failure paths, list tolerance; ≥90% per file); pnpm typecheck; pnpm lint; pnpm boundaries; pnpm dead-code (idb used, fake-indexeddb used by tests); pnpm duplicate-code; pnpm fmt:check; pnpm install --frozen-lockfile; licence review (ISC, Apache-2.0 on the allowlist; no CI licence audit)
 ```
+
+## Fixture triage — issue #8 (task 3.1)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (pure function, no persistence or entrypoint) — override: layoutForest, its returned sizes and the coordinate convention (top-left positions, root at origin, per-tree columns) are a public API read by 3.2, 6.1 rendering and 8.x hit-testing, an expanded trigger
+Blast radius: overlapping or misordered nodes on the canvas, a layout that jumps between renders, or hidden descendants getting positions (and so becoming drag targets); no data is touched
+Selected risk packs: Public API / CLI / script entry; Release / packaging / dependency compatibility
+Evidence floor: pnpm test:unit (spec scenarios, no-overlap property over a generated tree, collapse, determinism, size fallback; ≥90% per file); pnpm typecheck; pnpm lint; pnpm boundaries; pnpm dead-code (d3-hierarchy used; @types/d3-hierarchy is evidenced by typecheck since knip ignores @types/*); lockfile resolves d3-hierarchy 3.1.2; pnpm duplicate-code; pnpm fmt:check; pnpm install --frozen-lockfile; licence review (ISC, MIT)
+```
