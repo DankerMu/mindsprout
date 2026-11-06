@@ -124,7 +124,7 @@ Multi-select delete / group reparent / color use groups through one store helper
 
 ### D4. Layout: d3-hierarchy `tree()` per root, LR by axis swap (grill Q3)
 
-`layoutForest(map, { direction: 'LR', nodeSize, gap })` → `{ positions: Map<NodeId, {x,y}>, edges }`. Primary tree is laid out from origin; each floating subtree is laid out from its own `position`. Collapsed nodes contribute no descendants. Node dimensions are measured (`ResizeObserver` in the custom node component, task 6.1) and fed back as `nodeSize` per node; a first pass uses estimated width from text length so the first paint has no jump. The function is pure and lives in `application/layout/`, tested without React.
+`layoutForest(map, { direction: 'LR', nodeSize, gap })` → `{ positions, sizes, edges }` (positions are top-left corners; exact contract in "Fixture — issue #8 (task 3.1)"). Primary tree is laid out from origin; each floating subtree is laid out from its own `position`. Collapsed nodes contribute no descendants. Node dimensions are measured (`ResizeObserver` in the custom node component, task 6.1) and fed back as `nodeSize` per node; a first pass uses estimated width from text length so the first paint has no jump. The function is pure and lives in `application/layout/`, tested without React.
 
 Alternative: ELK / dagre — rejected: heavier dependencies for a tree, and both struggle with per-root free positioning.
 

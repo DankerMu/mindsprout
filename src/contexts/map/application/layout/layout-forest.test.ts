@@ -88,6 +88,34 @@ function expectGoverningInvariant(map: MindMap, result: ForestLayout): void {
   }
 }
 
+// d3 centres parents and spreads shifts with fractional arithmetic; the tolerance absorbs rounding
+// only and is far below any gap the cases use.
+const ROUNDING = 1e-9;
+
+// Fixture rows: adjacent same-depth nodes (siblings or cousins) are at least
+// (h_a + h_b) / 2 + gap apart centre to centre, so the space between their boxes is at least gap.
+// Lower bound only, never exact spacing. Returns the number of pairs checked.
+function expectRowGaps(map: MindMap, result: ForestLayout, gap: number): number {
+  const [primary] = map.roots;
+  if (primary === undefined) throw new Error('map has no primary root');
+  const rows: Box[][] = [];
+  const walk = (current: MindNode, depth: number): void => {
+    (rows[depth] ??= []).push(boxOf(result, current.id));
+    if (current.collapsed === true) return;
+    for (const child of current.children) walk(child, depth + 1);
+  };
+  walk(primary, 0);
+  let pairs = 0;
+  for (const row of rows) {
+    row.reduce((previous, next) => {
+      expect(next.y - (previous.y + previous.height)).toBeGreaterThanOrEqual(gap - ROUNDING);
+      pairs += 1;
+      return next;
+    });
+  }
+  return pairs;
+}
+
 function sizesOf(entries: [NodeId, NodeSize][]): Map<NodeId, NodeSize> {
   return new Map(entries);
 }
@@ -346,6 +374,31 @@ describe('layoutForest — sizes and gap', () => {
     expect(touching.positions.get('b')).toStrictEqual({ x: rootWidth, y: 16 });
     expectNoIntersections(touching);
   });
+
+  it('leaves at least DEFAULT_GAP between two adjacent leaf siblings', () => {
+    const map = mapOf(node('r', [node('a'), node('b')]));
+    const result = layout(map);
+
+    expect(expectRowGaps(map, result, DEFAULT_GAP)).toBe(1);
+  });
+
+  it('leaves at least the explicit gap between mixed-height siblings and same-depth cousins', () => {
+    const map = mapOf(
+      node('r', [node('p', [node('p1'), node('p2')]), node('q', [node('q1'), node('q2')])]),
+    );
+    const nodeSize = sizesOf([
+      ['p1', { width: 60, height: 20 }],
+      ['p2', { width: 60, height: 120 }],
+      ['q1', { width: 60, height: 20 }],
+    ]);
+    const result = layout(map, { nodeSize, gap: 10 });
+
+    // Pairs: p-q at depth 1; p1-p2, p2-q1 (cousins under different parents), q1-q2 at depth 2.
+    expect(expectRowGaps(map, result, 10)).toBe(4);
+    const p2 = boxOf(result, 'p2');
+    expect(boxOf(result, 'q1').y - (p2.y + p2.height)).toBeGreaterThanOrEqual(10 - ROUNDING);
+    expectGoverningInvariant(map, result);
+  });
 });
 
 describe('estimateNodeSize', () => {
@@ -464,6 +517,7 @@ describe('layoutForest — governing invariant on a generated forest', () => {
 
     const result = layout(map, { nodeSize });
     expectGoverningInvariant(map, result);
+    expect(expectRowGaps(map, result, DEFAULT_GAP)).toBeGreaterThan(0);
     expect(result.edges).toHaveLength(result.positions.size - 1);
     expect(layout(map, { nodeSize })).toStrictEqual(result);
   });
