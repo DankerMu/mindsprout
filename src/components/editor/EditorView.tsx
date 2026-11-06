@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
+import { visibleIds } from '../../contexts/map/application/editor-store/selection';
 import { MindMapCanvas } from '../canvas/MindMapCanvas';
-import { selectMap, useEditorStore } from './EditorSession';
+import { selectMap, useEditorStore, useEditorStoreApi } from './EditorSession';
 import styles from './EditorView.module.css';
 
 // The editor page body (design "Fixture — issue #16"): a header with the map title, never the
@@ -8,6 +10,34 @@ import styles from './EditorView.module.css';
 export function EditorView() {
   const selection = useEditorStore((state) => state);
   const map = selectMap(selection);
+  const store = useEditorStoreApi();
+  const editing = selection.editing;
+  useEffect(() => {
+    const current = store.getState();
+    if (current.editing !== editing || editing?.created !== false) return;
+    if (!visibleIds(selectMap(current)).includes(editing.id)) current.cancelEdit();
+  }, [editing, map, store]);
+
+  // Detached inputs may blur after another edit starts; only their own live edit may finish.
+  function finishTitle(text?: string): void {
+    const current = store.getState();
+    if (current.editing !== editing || editing === null) return;
+    if (text !== undefined && visibleIds(selectMap(current)).includes(editing.id)) {
+      current.commitTitle(text);
+    } else current.cancelEdit();
+  }
+  const titleEditing = {
+    editing,
+    startEdit: (id: string) => {
+      selection.startEdit(id);
+    },
+    commitTitle: (text: string) => {
+      finishTitle(text);
+    },
+    cancelEdit: () => {
+      finishTitle();
+    },
+  };
   return (
     <div data-testid="map-editor-ready" className={styles.editor}>
       <header className={styles.header}>
@@ -16,7 +46,7 @@ export function EditorView() {
         </h1>
       </header>
       <div className={styles.canvas}>
-        <MindMapCanvas map={map} selection={selection} />
+        <MindMapCanvas map={map} selection={selection} titleEditing={titleEditing} />
       </div>
     </div>
   );
