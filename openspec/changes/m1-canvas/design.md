@@ -1091,3 +1091,30 @@ Review focus:
   - seed helper fidelity to the adapter envelope and constants;
   - boundaries (components never import infrastructure).
 ```
+
+## Fixture — issue #21 (task 7.3)
+
+```text
+Change surface: src/components/canvas selection/keyboard handling and selected rendering; EditorView wiring if needed; paired DOM/unit tests; real-browser e2e selection scenarios; changeset and decision consequence or feature record.
+Must preserve: map-prop rendering and existing measurement/layout/fit contracts, node handles, map.title header, no-write-on-open, all #16 browser scenarios, middle-button and Space-drag panning, zoom clamps, domain/store/autosave behavior.
+Must add: click selects one node; Shift+click toggles and preserves last-click primary order; left-drag on empty canvas selects exactly fully enclosed visible nodes; Ctrl/Meta+A selects all visible nodes; Escape clears selection.
+Must add: ArrowLeft selects parent, no-op on primary/floating roots; ArrowRight selects first visible child, no-op on collapsed/leaf nodes; ArrowUp/Down select previous/next sibling without wrap, no-op at edges and on roots. Arrows navigate from primaryId and replace selection with the single target; empty selection and missing targets are no-ops.
+Governing invariant: the editor store is the sole selection authority; rendered selected IDs equal its visible selectedIds and selection-only interactions never change map/history/persistence.
+Integration: reuse existing select/toggleSelect/setSelection/selectAll/clearSelection actions; do not write Zustand state directly or create a second selection store. Preserve current static map rendering; the editor supplies controlled interaction state/actions, not an infrastructure dependency.
+React Flow: use one selection event path per gesture; prevent built-in keyboard deletion, positional arrow movement and selection shortcuts from bypassing the store. Node drag/connect remain disabled. Selected nodes have an observable, accessible selected state and visible indication.
+Focus: handle keyboard input only for the canvas; ignore input, textarea, select and contenteditable targets/focus, active composition, and editing !== null. Unhandled shortcuts retain browser defaults. Handled navigation/selection keys prevent default scrolling/select-page behavior.
+Pointer ordering: Space/middle pan never changes selection; Shift toggling never double-applies through a second React Flow callback; clicking a selected node without Shift reduces selection to that node.
+Sibling surfaces: EditorSession/useEditorStore; existing selection.ts and store pruning; MindNodeView/flow-elements measurement; #19 F2 primary targeting and title edit; #20 creation focus; #22 delete; #23 undo; #24/#25 drag; #27 menu.
+Seams under test: keyboard handler without React Flow, backed by a real createEditorStore; canvas DOM integration with real React Flow; /maps/[id] through real IndexedDB seed helper.
+Required DOM evidence: each handled key changes the real store selection as specified; empty selection is safe; roots/leaf/collapsed/sibling boundaries; hidden descendants excluded from select-all; editing flag and text-focus gates preserve selection, history and default behavior. Select A then Shift+click B: Left selects only parent(B); with a mid-sibling primary, Up/Down select only its previous/next sibling regardless of the first selected ID.
+Required DOM evidence: click, repeat click, Shift add/remove and last-click primary; selection projection follows store state; no duplicate toggle; selection never changes map identity, canUndo, or persisted roots.
+Required browser evidence: spec Rubber-band selection, Arrow navigation, Arrow right on a collapsed node, Arrow left on a floating root; real click/Shift-click selects three nodes with last clicked primary, Ctrl/Meta+A and Escape work.
+Required browser evidence: seed through e2e/support/seed.ts; fit before coordinate-sensitive gestures; assert exact selected ID sets, unchanged raw record, zero console errors/warnings/pageerrors and save screenshots under .run/ui-evidence/.
+Required regression evidence: existing Space-drag, zoom, fit and measured-render scenarios stay green; add selection-preserving Space-drag over selected nodes so native pan cannot clear the store selection.
+Test chronology: save each meaningful red/green command, exit and relevant failure before its production fix; no synthetic test-only production hooks and no bulk imagined-test phase.
+Risk-pack commands: pnpm test:unit (affected files explicitly reported), pnpm typecheck, pnpm boundaries, pnpm lint (local .omp limitation tracked in #74), pnpm fmt:check, pnpm docs:check, pnpm decisions:check, pnpm e2e.
+Non-goals: inline rename/F2, creation, delete, undo/redo, menus, drag mutations, storage fallback, note UI, persistence schema/config changes. #19 owns canceling a hidden rename editor when its input disappears (issue #21 handoff from #35); no rename UI is introduced here.
+Implementation order: keyboard tracer red→green; controlled pointer selection and projection red→green; browser acceptance and preserved-pan evidence; parent verification and cross-review.
+Rollback: revert this slice; persisted maps are unchanged because selection is session-only.
+Review focus: exact store/render identity; click order and duplicate events; focus/IME gating; React Flow defaults; normalized viewport coordinates for rubber band; no edits or autosave from selection.
+```

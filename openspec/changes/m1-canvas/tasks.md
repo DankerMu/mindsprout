@@ -257,3 +257,11 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
   - no persisted-shape change (seeds mirror the 4.2 envelope);
   - no config, auth or size surface;
   - `/` is unchanged.
+
+## Risk packs — issue #21 (task 7.3)
+
+- Public API / CLI / script entry — selected: canvas pointer/keyboard events and selected state are consumed by later editing issues. Evidence: named DOM and browser scenarios in the issue #21 design fixture.
+- Concurrency / shared state / ordering — selected: React Flow callbacks and store selection must agree; keyboard focus and pan gestures must not duplicate or leak events. Evidence: exact selected sets, Shift-toggle ordering, real-store focus/IME gates and selection-preserving pan.
+- Legacy compatibility / examples — selected: static map rendering, measurement, fit, zoom and #16 routes remain intact. Evidence: unchanged existing assertions except the deliberately obsolete read-only selection expectation; full e2e and owning component coverage.
+- Documentation / migration notes — selected: changeset plus decision ownership record/consequence. Evidence: docs:check and decisions:check.
+- Config; File IO; Schema; Auth; Resource limits; Error handling; Release / packaging — not selected: no config, stored shape, credentials, dependencies, IO operation, new recovery state or resource limit changes. Browser seed/readback exercises existing persistence only to prove selection writes nothing.
