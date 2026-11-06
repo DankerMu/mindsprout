@@ -231,6 +231,58 @@ expect_accept --what "$archive_ok without constraints.yaml" "scratchpad exemptio
 expect_reject "scratchpad exemption (k) fallback src/archive/x.ts" "naming violation (write-time)" \
   in_dir "$tmp/naming-nofile" bash .git-hooks/check-naming.sh src/archive/x.ts
 rm -rf "$tmp/naming-invalid" "$tmp/naming-nokey" "$tmp/naming-nofile"
+
+# 2b. Staged paths are judged by their real bytes (#61): without -z, git C-quotes a path that
+# holds non-ASCII or control bytes, and the quoted form slips past both anchored regexes.
+staged_case() { # staged_case <case> <label> <path> <reason> <exact output line>
+  probe_staged "$3"
+  expect_reject --line "$5" "naming staged ($1) $2" "$4" bash "$naming_hook"
+  drop_staged "$3"
+}
+staged_case n1 "tmp/é.md" "tmp/é.md" "scratchpad directory" "  scratchpad directory:    tmp/é.md"
+staged_case n2 "tmp/x<LF>y.md" "$(printf 'tmp/x\ny.md')" "scratchpad directory" \
+  "  scratchpad directory:    tmp/x"
+staged_case n3 "note_é_new" "note_é_new" "forbidden naming suffix" "  forbidden naming suffix: note_é_new"
+staged_case n4 "docs é/Backup" "docs é/Backup" "forbidden naming suffix" \
+  "  forbidden naming suffix: docs é/Backup"
+p="openspec/changes/archive/2026-01-01-probe/说明.md"
+probe_staged "$p"
+expect_accept --what "$p" "naming staged (n5) $p" bash "$naming_hook"
+drop_staged "$p"
+p="openspec/changes/archive/2026-01-01-probe/tmp/说明.md"
+staged_case n6 "$p" "$p" "scratchpad directory" "  scratchpad directory:    $p"
+rm -rf tmp "docs é" openspec/changes/archive/2026-01-01-probe
+rmdir openspec/changes/archive 2>/dev/null
+
+# 2c. Path mode judges an absolute path by where it physically is (#59, decision 0008): outside
+# the worktree → accepted; inside, also through a symlink → the repo-relative verdict; a `..`
+# segment never earns the outside verdict.
+path_reject() { # path_reject <case> <label> <path argument>
+  expect_reject --line "naming violation (write-time): $3 — see AGENTS.md § Code Canonicality" \
+    "naming path mode ($1) $2" "naming violation (write-time)" bash "$naming_hook" "$3"
+}
+mkdir -p "$tmp/outside/scratch"
+ln -s "$wt" "$tmp/wt-link"
+ln -s "$wt/src" "$tmp/l"
+expect_accept --what "a path outside the repository" \
+  "naming path mode (p1) \$tmp/outside/scratch/notes_old.md" bash "$naming_hook" "$tmp/outside/scratch/notes_old.md"
+expect_accept --what "a path outside the repository" \
+  "naming path mode (p1) /tmp/scratch-probe/x_old.md" bash "$naming_hook" /tmp/scratch-probe/x_old.md
+expect_accept --what "a non-existent path outside the repository" \
+  "naming path mode (p2) /nonexistent-mindsprout-probe/notes_old.md" \
+  bash "$naming_hook" /nonexistent-mindsprout-probe/notes_old.md
+path_reject p3 "\$wt/scratch/x.md" "$wt/scratch/x.md"
+path_reject p3 "\$wt/foo_v2.ts" "$wt/foo_v2.ts"
+path_reject p4 "\$tmp/wt-link/scratch/x.md" "$tmp/wt-link/scratch/x.md"
+expect_accept --what "an exempt path reached through a symlink" \
+  "naming path mode (p4) \$tmp/wt-link/$archive_ok" bash "$naming_hook" "$tmp/wt-link/$archive_ok"
+path_reject p5 "scratch/x.md" "scratch/x.md"
+path_reject p5 "foo_v2.ts" "foo_v2.ts"
+path_reject p6 "\$tmp/nope/../wt/foo_v2.ts" "$tmp/nope/../wt/foo_v2.ts"
+path_reject p6 "\$tmp/nope/../wt/scratch/x.md" "$tmp/nope/../wt/scratch/x.md"
+path_reject p6 "\$tmp/l/../foo_v2.ts (\$tmp/l -> \$wt/src)" "$tmp/l/../foo_v2.ts"
+rm -rf "$tmp/outside"
+rm -f "$tmp/wt-link" "$tmp/l"
 git checkout --quiet -- constraints.yaml
 
 # 3. Secret guard — a credential-shaped token in a staged addition.
