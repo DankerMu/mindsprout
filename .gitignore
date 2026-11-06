@@ -43,7 +43,15 @@ out/
 next-env.d.ts
 .worktree-guard.json
 .review-gate.json
+# Agent runtime dirs. Skills, agents and commands under .claude/ are installed
+# projections (my-agents packs, OpenSpec); reinstall to regenerate. Hook
+# settings and hook scripts stay versioned (eng-init). No trailing slash on
+# .omp so a symlinked .omp in a linked worktree is ignored too.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 .claude/settings.local.json
+.omp
 __pycache__/
 
 # subagent-workflow review evidence
