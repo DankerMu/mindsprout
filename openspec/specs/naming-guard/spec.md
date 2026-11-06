@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD - created by archiving change ci-openspec-archive-exemption. Update Purpose after archive.
+Which added paths the code-canonicality naming guard (`.git-hooks/check-naming.sh`, pre-commit and Claude Code write-time) rejects: forbidden name suffixes and scratchpad directories, with the single OpenSpec archive exemption (decision 0007).
 
 ## Requirements
 

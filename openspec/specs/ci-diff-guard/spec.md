@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD - created by archiving change ci-diff-guard-labels. Update Purpose after archive.
+When the required `PR diff size guard` check passes or fails, and how the `diff-limit-exempt` label exempts a pull request from the 400-line limit (`scripts/check-diff-size.sh`, `.github/workflows/pr-diff-guard.yml`).
 
 ## Requirements
 
