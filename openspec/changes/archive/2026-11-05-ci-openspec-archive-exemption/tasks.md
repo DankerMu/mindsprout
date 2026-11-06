@@ -2,11 +2,11 @@
 
 ## 1. Exemption (issue #54)
 
-- [ ] 1.1 Red: add guardrail cases (a)–(k) from design "Fixture — issue #54" to `scripts/test-guardrails.sh` and show the exemption accept case failing
-- [ ] 1.2 `constraints.yaml` `exempt_prefixes` and `.git-hooks/check-naming.sh` parsing, remainder check, path-mode normalisation, fail-closed validation, fallback parity
-- [ ] 1.3 Decision record 0007 and the AGENTS.md Code Canonicality bullet
-- [ ] 1.4 Evidence: `pnpm test:guardrails`, bite checks (i)–(v), bash 3.2 run, `pnpm decisions:check`, `pnpm docs:check`, `pnpm fmt:check`
-- [ ] 1.5 Archive `ci-diff-guard-labels` and this change through the normal pre-commit hook, before the final review round
+- [x] 1.1 Red: add guardrail cases (a)–(k) from design "Fixture — issue #54" to `scripts/test-guardrails.sh` and show the exemption accept case failing
+- [x] 1.2 `constraints.yaml` `exempt_prefixes` and `.git-hooks/check-naming.sh` parsing, remainder check, path-mode normalisation, fail-closed validation, fallback parity
+- [x] 1.3 Decision record 0007 and the AGENTS.md Code Canonicality bullet
+- [x] 1.4 Evidence: `pnpm test:guardrails`, bite checks (i)–(v), bash 3.2 run, `pnpm decisions:check`, `pnpm docs:check`, `pnpm fmt:check`
+- [x] 1.5 Archive `ci-diff-guard-labels` and this change through the normal pre-commit hook, before the final review round
 
 ## Risk packs — issue #54
 
