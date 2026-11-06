@@ -87,12 +87,24 @@ describe('MapRepositoryProvider', () => {
 
     expect(shownState()).toBe('ready');
     expect(lastRepository(seen)).toBe(repository);
+    expect(seen.at(-1)).toMatchObject({ storageUnavailable: false });
   });
 
-  it.each([
-    ['StorageUnavailableError', new StorageUnavailableError('IndexedDB could not be opened')],
-    ['a plain Error', new Error('boom')],
-  ])('is failed when the open rejects with %s', async (_label, error) => {
+  it('uses an empty fallback when the injected open reports unavailable storage', async () => {
+    const seen = renderProvider(() => Promise.reject(new StorageUnavailableError('blocked')));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(shownState()).toBe('ready');
+    expect(seen.at(-1)).toMatchObject({ storageUnavailable: true });
+    const repository = lastRepository(seen);
+    const map = mapOf(node('fallback-root'));
+    await repository?.put(map);
+    expect(await repository?.get(map.id)).toStrictEqual(map);
+  });
+
+  it('is failed when the open rejects with a plain Error', async () => {
+    const error = new Error('boom');
     const opening = deferred();
     const seen = renderProvider(() => opening.promise);
 
@@ -116,6 +128,12 @@ describe('MapRepositoryProvider', () => {
       'rejects',
       (late: Deferred) => {
         late.reject(new Error('late failure of the discarded effect'));
+      },
+    ],
+    [
+      'rejects with unavailable storage',
+      (late: Deferred) => {
+        late.reject(new StorageUnavailableError('discarded unavailable open'));
       },
     ],
   ])('ignores a discarded StrictMode effect whose open %s late', async (_label, settleLate) => {
@@ -146,6 +164,7 @@ describe('MapRepositoryProvider', () => {
 
     expect(shownState()).toBe('ready');
     expect(lastRepository(seen)).toBe(live);
+    expect(seen.at(-1)).toMatchObject({ storageUnavailable: false });
   });
 
   it('opens the session repository by default', async () => {
@@ -156,7 +175,8 @@ describe('MapRepositoryProvider', () => {
     const session = await act(() => openSessionRepository());
 
     expect(shownState()).toBe('ready');
-    expect(lastRepository(seen)).toBe(session);
+    expect(lastRepository(seen)).toBe(session.repository);
+    expect(session.storageUnavailable).toBe(false);
   });
 
   it('throws when useMapRepository is used outside the provider', () => {
@@ -176,7 +196,7 @@ describe('openSessionRepository', () => {
     const map = { ...mapOf(node('r', [node('a')])), id: 'session-map', title: '会话' };
 
     expect(second).toBe(first);
-    const repository = await first;
+    const { repository } = await first;
     await repository.put(map);
     expect(await repository.get('session-map')).toStrictEqual(map);
   });

@@ -281,3 +281,16 @@ Evidence floor: genuine red→green component behavior tests with real repositor
 Scope: home list, empty state, create/open. Existing map-library Create/List delta is the oracle; rename/delete and unavailable-home banner remain separate tasks.
 Queue deviation: #30 precedes #17 so the latter can create a fallback-session map through public UI before its private-mode inline rename.
 ```
+
+## Fixture triage — issue #17 (task 6.3)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (override: changes shared session repository resolution and user-visible persistence-failure classification).
+Blast radius: different fallback stores across routes, false save assurance, lost in-session maps, open errors swallowed, stale notices clearing newer failures.
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; File IO / path safety / overwrite; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: genuine red→green DOM/provider integration, full ≥90% per-file coverage, real-browser blocked IndexedDB public create/rename and failed-write scenarios, zero unexpected console noise/screenshots, typecheck/lint/boundaries/format/docs/decisions.
+Scope: provider fallback, editor banner and notice, unavailable get handling. Existing map-persistence Storage unavailable delta is oracle; library banner remains #32.
+Queue prerequisite resolved: #30 public creation now bootstraps an empty fallback through real UI, no seed hook or implicit creation on unknown ids.
+```
