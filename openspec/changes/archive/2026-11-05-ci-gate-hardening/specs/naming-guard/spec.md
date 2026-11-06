@@ -28,7 +28,7 @@ The pre-commit naming guard SHALL judge each staged added or renamed path by its
 
 ### Requirement: Write-time checks ignore paths outside the repository
 
-When the naming guard checks a single absolute path, it SHALL resolve the path physically, including symlinks, against the repository root. A path outside the repository SHALL be accepted, because it can never be committed. A path inside the repository SHALL get its repo-relative verdict, including when it is reached through a symlink.
+When the naming guard checks a single absolute path, it SHALL resolve the path physically, including symlinks, against the repository root. A path outside the repository SHALL be accepted, because it can never be committed. A path inside the repository SHALL get its repo-relative verdict, including when it is reached through a symlink or a filesystem alias (a different letter case on a case-insensitive filesystem, a firmlink, or another Unicode normalisation). An absolute path containing a `..` segment SHALL be checked as given, without the outside-repository acceptance.
 
 #### Scenario: Scratch file in the system temp directory
 
@@ -38,4 +38,14 @@ When the naming guard checks a single absolute path, it SHALL resolve the path p
 #### Scenario: Symlinked route into the repository
 
 - **WHEN** the write-time hook passes `<link-to-repo>/scratch/x.md`, where `<link-to-repo>` is a symlink to the repository root
+- **THEN** the guard exits 2
+
+#### Scenario: Case variant of the repository path
+
+- **WHEN** on a case-insensitive filesystem the write-time hook passes the repository path spelled in upper case followed by `/scratch/x.md`
+- **THEN** the guard exits 2
+
+#### Scenario: Parent-directory segment through a symlink
+
+- **WHEN** the write-time hook passes `<outside>/l/../foo_v2.ts`, where `<outside>/l` is a symlink to the repository's `src`
 - **THEN** the guard exits 2

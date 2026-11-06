@@ -49,7 +49,8 @@ module.exports = {
     {
       name: 'no-framework-in-domain-or-application',
       severity: 'error',
-      comment: 'next/react/drizzle/postgres stay in infrastructure/ and src/app',
+      comment:
+        'next/react/react-dom/drizzle/postgres/@supabase stay in infrastructure/ and src/app',
       from: { path: '^src/contexts/[^/]+/(domain|application)/' },
       // depcruise matches the resolved path, not the specifier: both pnpm layouts, two entries
       // because the single optional-group form is rejected by depcruise's safe-regex check.

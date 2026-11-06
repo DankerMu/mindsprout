@@ -20,8 +20,16 @@ DEFAULT_FORBIDDEN_SUFFIX_RE='(_v[0-9]+|_new|_old|_backup|_temp|_copy|_final|_rea
 DEFAULT_SCRATCH_DIR_RE='(^|/)(tmp|scratch|backup|_old|deprecated|archive|wip)(/|$)'
 DEFAULT_SCRATCH_EXEMPT_PREFIX='openspec/changes/archive/'
 
-# Physical, like git's toplevel, so path mode can compare resolved paths (decision 0008).
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
+# physical_pwd: the current directory as the kernel names it (getcwd). The builtin `pwd -P`
+# only resolves symlinks and keeps the caller's spelling of every other component, so on
+# macOS a case variant, the /System/Volumes/Data firmlink or an NFD spelling of the repo
+# would not compare equal to git's toplevel (decision 0008).
+physical_pwd() {
+  /bin/pwd -P
+}
+
+# Canonical, like git's toplevel, so path mode can compare resolved paths (decision 0008).
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || physical_pwd)"
 constraints_file="$repo_root/constraints.yaml"
 
 yaml_get() {
@@ -147,7 +155,7 @@ check_path() {
 }
 
 # physical_path <absolute path>: the deepest existing ancestor directory, resolved with
-# `cd` + `pwd -P`, followed by the non-existent remainder verbatim. Callers never pass a `..`
+# `cd` + physical_pwd, followed by the non-existent remainder verbatim. Callers never pass a `..`
 # segment: `cd` drops `..` as text while the filesystem follows a symlinked ancestor.
 physical_path() {
   local dir="$1" rest="" resolved
@@ -156,7 +164,7 @@ physical_path() {
     dir="${dir%/*}"
     [ -z "$dir" ] && dir="/"
   done
-  resolved="$(cd "$dir" && pwd -P)" || return 1
+  resolved="$(cd "$dir" && physical_pwd)" || return 1
   printf '%s%s\n' "${resolved%/}" "$rest"
 }
 

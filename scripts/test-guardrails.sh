@@ -247,6 +247,9 @@ staged_case n4 "docs é/Backup" "docs é/Backup" "forbidden naming suffix" \
   "  forbidden naming suffix: docs é/Backup"
 p="openspec/changes/archive/2026-01-01-probe/说明.md"
 probe_staged "$p"
+# The accept only means something if the probe is really staged under its exact bytes.
+expect_accept --what "$p staged" "naming staged (n5) probe is staged" \
+  sh -c 'git diff --cached --name-only -z | tr "\0" "\n" | grep -qxF -- "$1"' sh "$p"
 expect_accept --what "$p" "naming staged (n5) $p" bash "$naming_hook"
 drop_staged "$p"
 p="openspec/changes/archive/2026-01-01-probe/tmp/说明.md"
@@ -281,6 +284,15 @@ path_reject p5 "foo_v2.ts" "foo_v2.ts"
 path_reject p6 "\$tmp/nope/../wt/foo_v2.ts" "$tmp/nope/../wt/foo_v2.ts"
 path_reject p6 "\$tmp/nope/../wt/scratch/x.md" "$tmp/nope/../wt/scratch/x.md"
 path_reject p6 "\$tmp/l/../foo_v2.ts (\$tmp/l -> \$wt/src)" "$tmp/l/../foo_v2.ts"
+# p7: another spelling of the same directory (here case; also firmlinks, Unicode normalisation)
+# must not read as outside. Needs a case-insensitive filesystem (default macOS APFS).
+wt_upper="$(printf '%s' "$wt" | tr '[:lower:]' '[:upper:]')"
+if [ "$wt_upper" != "$wt" ] && [ -d "$wt_upper" ] && [ "$wt_upper" -ef "$wt" ]; then
+  path_reject p7 "\$WT/scratch/x.md (upper-cased \$wt)" "$wt_upper/scratch/x.md"
+  path_reject p7 "\$WT/foo_v2.ts (upper-cased \$wt)" "$wt_upper/foo_v2.ts"
+else
+  skip "naming path mode (p7) upper-cased \$wt" "filesystem is case-sensitive, so no case alias of \$wt exists"
+fi
 rm -rf "$tmp/outside"
 rm -f "$tmp/wt-link" "$tmp/l"
 git checkout --quiet -- constraints.yaml
@@ -542,8 +554,9 @@ expect_accept --what "an exempt lockfile-only PR" "lockfile guard (l2: lockfile 
 expect_reject "lockfile guard (l3: lockfile only, near-miss label)" "$lock_msg" \
   env PR_LABELS=$'bug\nnot-lockfile-refresh' bash "$lock_guard" "$diff_base"
 # A resolvable base with no merge base makes git diff itself fail; LC_ALL=C pins git's message.
+# Labels are present but not exempt, so the label check must run and fall through to the diff.
 expect_reject --absent "label present" "lockfile guard (l8: git diff fails: no merge base)" "no merge base" \
-  env -u PR_LABELS LC_ALL=C bash "$lock_guard" "$unrelated_base"
+  env PR_LABELS=$'bug\nnot-lockfile-refresh' LC_ALL=C bash "$lock_guard" "$unrelated_base"
 restore_fixture
 
 echo "# lockfile guard fixture" >> pnpm-lock.yaml
