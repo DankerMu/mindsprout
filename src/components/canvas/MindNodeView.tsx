@@ -3,6 +3,7 @@ import { createContext, memo, useCallback, useContext } from 'react';
 import type { ColorToken, NodeId } from '../../contexts/map/domain/types';
 import type { MindFlowNode } from './flow-elements';
 import styles from './MindNodeView.module.css';
+import { InlineTitleInput, TitleEditingContext } from './InlineTitleInput';
 
 // The custom React Flow node; collapse and note indicators are display only.
 
@@ -40,6 +41,7 @@ function useMeasuredBox(id: NodeId) {
 
 function MindNodeBody({ id, data, selected }: NodeProps<MindFlowNode>) {
   const measuredBox = useMeasuredBox(id);
+  const titleEditing = useContext(TitleEditingContext);
   return (
     <>
       <Handle
@@ -55,7 +57,11 @@ function MindNodeBody({ id, data, selected }: NodeProps<MindFlowNode>) {
         aria-pressed={selected}
         aria-label={data.text}
       >
-        <span>{data.text}</span>
+        {titleEditing?.editing?.id === id ? (
+          <InlineTitleInput text={data.text} controls={titleEditing} />
+        ) : (
+          <span>{data.text}</span>
+        )}
         {data.hiddenCount > 0 && (
           <span
             role="img"

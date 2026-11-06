@@ -22,6 +22,7 @@ import { MindNodeView, NodeMeasurerContext, type NodeMeasurer } from './MindNode
 import { mergeNodeSizes, type NodeMeasurement } from './node-sizes';
 import { handleSelectionKey, selectionBlocked, type CanvasSelection } from './selection-input';
 import { useRubberBand } from './rubber-band';
+import { handleTitleKey, TitleEditingContext, type CanvasEditing } from './InlineTitleInput';
 
 // Geometry remains a projection of the map and measured sizes; selection is supplied by the
 // editor session. React Flow never writes selection or tree changes back into the map.
@@ -126,9 +127,10 @@ function FitButton({ bounds }: { bounds: ContentBounds | undefined }) {
 interface CanvasProps {
   map: MindMap;
   selection?: CanvasSelection | undefined;
+  titleEditing?: CanvasEditing | undefined;
 }
 
-function CanvasView({ map, selection }: CanvasProps) {
+function CanvasView({ map, selection, titleEditing }: CanvasProps) {
   const composing = useRef(false);
   const space = useKeyPress('Space', {
     target: typeof window === 'undefined' ? null : window,
@@ -153,78 +155,87 @@ function CanvasView({ map, selection }: CanvasProps) {
   );
   return (
     <NodeMeasurerContext value={measurer}>
-      <div
-        role="region"
-        aria-label="思维导图画布"
-        tabIndex={0}
-        style={{ width: '100%', height: '100%', position: 'relative' }}
-        {...rubberBand}
-        onCompositionStart={() => {
-          composing.current = true;
-        }}
-        onCompositionEnd={() => {
-          composing.current = false;
-        }}
-        onKeyDownCapture={(event) => {
-          if (selection !== undefined && !composing.current) {
-            handleSelectionKey(event.nativeEvent, map, selection);
-          }
-        }}
-        onBlur={() => {
-          composing.current = false;
-        }}
-      >
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={NODE_TYPES}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          elementsSelectable={false}
-          disableKeyboardA11y
-          deleteKeyCode={null}
-          selectionKeyCode={null}
-          multiSelectionKeyCode={null}
-          onNodeClick={(event, node) => {
-            if (
-              selection === undefined ||
-              space ||
-              selectionBlocked(selection, event.target, composing.current)
-            )
-              return;
-            if (event.shiftKey) selection.toggleSelect(node.id);
-            else selection.select(node.id);
-            event.currentTarget.closest<HTMLElement>('[role="region"]')?.focus();
+      <TitleEditingContext value={titleEditing}>
+        <div
+          role="region"
+          aria-label="思维导图画布"
+          tabIndex={0}
+          style={{ width: '100%', height: '100%', position: 'relative' }}
+          {...rubberBand}
+          onCompositionStart={() => {
+            composing.current = true;
           }}
-          minZoom={MIN_ZOOM}
-          maxZoom={MAX_ZOOM}
-          panOnDrag={PAN_BUTTONS}
+          onCompositionEnd={() => {
+            composing.current = false;
+          }}
+          onKeyDownCapture={(event) => {
+            if (selection !== undefined && !composing.current) {
+              handleSelectionKey(event.nativeEvent, map, selection);
+              handleTitleKey(event.nativeEvent, selection, titleEditing);
+            }
+          }}
+          onBlur={() => {
+            composing.current = false;
+          }}
         >
-          <Panel position="top-right">
-            <FitButton bounds={bounds} />
-          </Panel>
-        </ReactFlow>
-        {rectangle !== null && (
-          <div
-            aria-hidden="true"
-            style={{
-              ...rectangle,
-              position: 'absolute',
-              pointerEvents: 'none',
-              border: '1px solid #0969da',
-              background: '#0969da22',
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={NODE_TYPES}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            disableKeyboardA11y
+            deleteKeyCode={null}
+            selectionKeyCode={null}
+            multiSelectionKeyCode={null}
+            onNodeClick={(event, node) => {
+              if (
+                selection === undefined ||
+                space ||
+                selectionBlocked(selection, event.target, composing.current)
+              )
+                return;
+              if (event.shiftKey) selection.toggleSelect(node.id);
+              else selection.select(node.id);
+              event.currentTarget.closest<HTMLElement>('[role="region"]')?.focus();
             }}
-          />
-        )}
-      </div>
+            onNodeDoubleClick={(event, node) => {
+              if (titleEditing === undefined || selection === undefined || space) return;
+              if (selectionBlocked(selection, event.target, composing.current)) return;
+              titleEditing.startEdit(node.id);
+            }}
+            minZoom={MIN_ZOOM}
+            maxZoom={MAX_ZOOM}
+            panOnDrag={PAN_BUTTONS}
+            zoomOnDoubleClick={titleEditing === undefined}
+          >
+            <Panel position="top-right">
+              <FitButton bounds={bounds} />
+            </Panel>
+          </ReactFlow>
+          {rectangle !== null && (
+            <div
+              aria-hidden="true"
+              style={{
+                ...rectangle,
+                position: 'absolute',
+                pointerEvents: 'none',
+                border: '1px solid #0969da',
+                background: '#0969da22',
+              }}
+            />
+          )}
+        </div>
+      </TitleEditingContext>
     </NodeMeasurerContext>
   );
 }
 
-export function MindMapCanvas({ map, selection }: CanvasProps) {
+export function MindMapCanvas({ map, selection, titleEditing }: CanvasProps) {
   return (
     <ReactFlowProvider>
-      <CanvasView map={map} selection={selection} />
+      <CanvasView map={map} selection={selection} titleEditing={titleEditing} />
     </ReactFlowProvider>
   );
 }

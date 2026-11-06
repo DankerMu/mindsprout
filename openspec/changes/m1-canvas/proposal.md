@@ -255,3 +255,16 @@ Evidence floor: genuine red→green DOM behavior tests with real editor store; f
 Scope: task 7.3 only. Existing canvas-editing Selection and Shortcuts requirements are the spec delta; no acceptance text changes.
 Queue deviation: #21 precedes #19 because #19's three-selected-node F2 scenario needs this public selection UI; neither issue gains the other's behavior.
 ```
+
+## Fixture triage — issue #19 (task 7.1)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (override: first public edit path connects focus/IME and shared editing state to undo and persisted autosave).
+Blast radius: duplicate commits, wrong-node rename under multi-selection, stuck editing after input removal, keystrokes leaking to canvas, renamed text lost after save window.
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; File IO / path safety / overwrite; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: genuine red→green real-store DOM integration, ≥90% per-file coverage, named browser scenarios through real IndexedDB, screenshots and zero unexpected browser noise, typecheck/boundaries/lint/format/docs/decisions.
+Scope: existing-node title editing only; existing canvas-editing Inline title editing and map-persistence Autosave deltas remain the oracle.
+Queue deviation: selection issue #21 landed first to make the three-selected-node scenario executable through real public UI.
+```

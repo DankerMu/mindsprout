@@ -45,11 +45,15 @@ export function EditorSession({
   return <EditorStoreContext value={store}>{children}</EditorStoreContext>;
 }
 
-// The React binding of the session's store.
-export function useEditorStore<T>(selector: (state: EditorState) => T): T {
+export function useEditorStoreApi(): StoreApi<EditorState> {
   const store = useContext(EditorStoreContext);
   if (store === null) throw new Error('useEditorStore must be used inside EditorSession');
-  return useStore(store, selector);
+  return store;
+}
+
+// The React binding of the session's store.
+export function useEditorStore<T>(selector: (state: EditorState) => T): T {
+  return useStore(useEditorStoreApi(), selector);
 }
 
 // The session's map. EditorSession loads one before providing the store and no action unloads it,
