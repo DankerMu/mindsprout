@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { deepFreeze, mapOf, node, sampleMap } from '../../../../../tests/support/map-domain';
 import type { MindMap, MindNode, NodeId } from '../../domain/types';
 import {
+  contentBounds,
   DEFAULT_GAP,
   estimateNodeSize,
   layoutForest,
@@ -10,8 +11,8 @@ import {
   type NodeSize,
 } from './layout-forest';
 
-// Seams: layoutForest and estimateNodeSize (design "Fixture — issue #8"). Expected values come
-// from the fixture's formulas (columns, estimate) and the spec canvas-layout scenarios, never from
+// Seams: layoutForest, estimateNodeSize and contentBounds (design "Fixture — issue #8" and "#9").
+// Expected values come from the fixture's formulas (columns, estimate) and the spec canvas-layout scenarios, never from
 // running the implementation.
 
 interface Box {
@@ -45,13 +46,21 @@ function intersects(a: Box, b: Box): boolean {
   return overlapX && overlapY;
 }
 
-function expectNoIntersections(result: ForestLayout): void {
-  const ids = [...result.positions.keys()];
+function expectNoIntersections(result: ForestLayout, ids = [...result.positions.keys()]): void {
   ids.forEach((a, i) => {
     ids.slice(i + 1).forEach((b) => {
       expect(intersects(boxOf(result, a), boxOf(result, b)), `${a} ∩ ${b}`).toBe(false);
     });
   });
+}
+
+// Hidden nodes: no position, no size, no edge in either direction.
+function expectNotLaidOut(result: ForestLayout, ids: readonly NodeId[]): void {
+  for (const id of ids) {
+    expect(result.positions.has(id)).toBe(false);
+    expect(result.sizes.has(id)).toBe(false);
+    expect(result.edges.some((edge) => edge.source === id || edge.target === id)).toBe(false);
+  }
 }
 
 function preOrder(nodes: readonly MindNode[], visible: boolean): MindNode[] {
@@ -61,18 +70,23 @@ function preOrder(nodes: readonly MindNode[], visible: boolean): MindNode[] {
   ]);
 }
 
-// Governing invariant (fixture): pairwise non-intersection, every child entirely right of its
-// parent, siblings stacked top-to-bottom in children order, hidden nodes without a position.
-function expectGoverningInvariant(map: MindMap, result: ForestLayout): void {
-  const [primary] = map.roots;
-  if (primary === undefined) throw new Error('map has no primary root');
-  const visible = preOrder([primary], true);
+// Governing invariant (fixture) for one tree — the primary one unless `root` names a floating
+// root: pairwise non-intersection, every child entirely right of its parent, siblings stacked
+// top-to-bottom in children order, hidden nodes without a position. Trees may overlap each other,
+// so boxes are compared within the tree only; every laid-out id must still belong to the map.
+function expectGoverningInvariant(map: MindMap, result: ForestLayout, root = map.roots[0]): void {
+  if (root === undefined) throw new Error('map has no primary root');
+  const visible = preOrder([root], true);
   const visibleIds = new Set(visible.map((current) => current.id));
-  expect([...result.positions.keys()]).toStrictEqual([...visibleIds]);
-  for (const hidden of preOrder(map.roots, false)) {
-    if (!visibleIds.has(hidden.id)) expect(result.positions.has(hidden.id)).toBe(false);
+  const treeIds = new Set(preOrder([root], false).map((current) => current.id));
+  const mapIds = new Set(preOrder(map.roots, false).map((current) => current.id));
+  const keys = [...result.positions.keys()];
+  expect(keys.filter((id) => !mapIds.has(id))).toStrictEqual([]);
+  expect(keys.filter((id) => treeIds.has(id))).toStrictEqual([...visibleIds]);
+  for (const id of treeIds) {
+    if (!visibleIds.has(id)) expect(result.positions.has(id)).toBe(false);
   }
-  expectNoIntersections(result);
+  expectNoIntersections(result, [...visibleIds]);
   for (const parent of visible) {
     if (parent.collapsed === true) continue;
     const parentBox = boxOf(result, parent.id);
@@ -279,23 +293,27 @@ describe('layoutForest — scope, collapse and purity', () => {
     const pruned = layout(mapOf(node('r', [node('s0'), node('c'), node('s1')])));
 
     expect(result.positions.has('c')).toBe(true);
-    for (const id of ['d1', 'd2', 'd3', 'd4']) {
-      expect(result.positions.has(id)).toBe(false);
-      expect(result.sizes.has(id)).toBe(false);
-      expect(result.edges.some((edge) => edge.source === id || edge.target === id)).toBe(false);
-    }
+    expectNotLaidOut(result, ['d1', 'd2', 'd3', 'd4']);
     expect(result.positions).toStrictEqual(pruned.positions);
     expect(result.edges).toStrictEqual(pruned.edges);
   });
 
-  it('lays out only the primary tree: floating roots get no positions or edges', () => {
-    const result = layout(sampleMap());
+  it('lays out the floating root f1 at its stored position with its child fc after the primary tree', () => {
+    const map = sampleMap();
+    const result = layout(map);
 
-    expect([...result.positions.keys()]).toStrictEqual(['r', 'p', 'a', 'b']);
-    expect([...result.sizes.keys()]).toStrictEqual(['r', 'p', 'a', 'b']);
-    for (const id of ['f1', 'fc']) {
-      expect(result.edges.some((edge) => edge.source === id || edge.target === id)).toBe(false);
-    }
+    expect([...result.positions.keys()]).toStrictEqual(['r', 'p', 'a', 'b', 'f1', 'fc']);
+    expect([...result.sizes.keys()]).toStrictEqual(['r', 'p', 'a', 'b', 'f1', 'fc']);
+    expect(result.positions.get('f1')).toStrictEqual({ x: 10, y: 20 });
+    expect(result.positions.get('fc')).toStrictEqual({ x: 10 + 48 + DEFAULT_GAP, y: 20 });
+    expect(result.edges).toStrictEqual([
+      { source: 'r', target: 'p' },
+      { source: 'p', target: 'a' },
+      { source: 'p', target: 'b' },
+      { source: 'f1', target: 'fc' },
+    ]);
+    expectGoverningInvariant(map, result);
+    expectGoverningInvariant(map, result, map.roots[1]);
   });
 
   it('accepts a deep-frozen map and nodeSize and leaves them unchanged', () => {
@@ -314,7 +332,8 @@ describe('layoutForest — scope, collapse and purity', () => {
 
     expect(map).toStrictEqual(mapBefore);
     expect(nodeSize).toStrictEqual(sizesBefore);
-    expect(result.positions.size).toBe(4);
+    expect([...result.positions.keys()]).toStrictEqual(['r', 'p', 'a', 'b', 'f1', 'fc']);
+    expect(layout(map, { nodeSize })).toStrictEqual(result);
   });
 });
 
@@ -398,6 +417,177 @@ describe('layoutForest — sizes and gap', () => {
     const p2 = boxOf(result, 'p2');
     expect(boxOf(result, 'q1').y - (p2.y + p2.height)).toBeGreaterThanOrEqual(10 - ROUNDING);
     expectGoverningInvariant(map, result);
+  });
+});
+
+// Fixture "issue #9": floating subtrees and contentBounds.
+const primaryTree = (): MindNode => node('r', [node('a', [node('a1')]), node('b')]);
+const PRIMARY_IDS = ['r', 'a', 'a1', 'b'];
+
+// f ─ (g ─ (h, j), k): two levels below the floating root.
+function floatingTree(fields: Partial<MindNode> = {}): MindNode {
+  return node('f', [node('g', [node('h'), node('j')]), node('k')], fields);
+}
+const FLOATING_IDS = ['f', 'g', 'h', 'j', 'k'];
+
+function treeOf(result: ForestLayout, ids: readonly NodeId[]): unknown {
+  const keep = ([id]: [NodeId, unknown]): boolean => ids.includes(id);
+  return {
+    positions: [...result.positions].filter(keep),
+    sizes: [...result.sizes].filter(keep),
+    edges: result.edges.filter((edge) => ids.includes(edge.target)),
+  };
+}
+
+describe('layoutForest — floating subtrees', () => {
+  // Bite (i).
+  it('Move a floating root', () => {
+    const before = layout(mapOf(primaryTree(), floatingTree({ position: { x: 300, y: 200 } })));
+    const map = mapOf(primaryTree(), floatingTree({ position: { x: 500, y: 200 } }));
+    const after = layout(map);
+
+    for (const id of FLOATING_IDS) {
+      expect(boxOf(after, id).x - boxOf(before, id).x).toBeCloseTo(200, 9);
+      expect(boxOf(after, id).y - boxOf(before, id).y).toBeCloseTo(0, 9);
+    }
+    expect(treeOf(after, PRIMARY_IDS)).toStrictEqual(treeOf(before, PRIMARY_IDS));
+    expectGoverningInvariant(map, after);
+    expectGoverningInvariant(map, after, map.roots[1]);
+  });
+
+  // Bites (v) and (vi).
+  it('anchors the floating root top-left at its stored position and honours nodeSize and gap', () => {
+    const position = { x: 12.5, y: -7.25 };
+    const nodeSize = sizesOf([
+      ['g', { width: 140, height: 60 }],
+      ['h', { width: Number.NaN, height: 40 }],
+    ]);
+    const map = mapOf(primaryTree(), floatingTree({ position }));
+    const result = layout(map, { nodeSize, gap: 10 });
+    const reference = layout(mapOf(floatingTree()), { nodeSize, gap: 10 });
+
+    expect(result.positions.get('f')).toStrictEqual(position);
+    expect(result.sizes.get('g')).toStrictEqual({ width: 140, height: 60 });
+    expect(result.sizes.get('h')).toStrictEqual(estimateNodeSize('H'));
+    for (const id of FLOATING_IDS) {
+      expect(boxOf(result, id).x).toBeCloseTo(boxOf(reference, id).x + position.x, 9);
+      expect(boxOf(result, id).y).toBeCloseTo(boxOf(reference, id).y + position.y, 9);
+    }
+    // Columns by the fixture formula: F is estimated 48 wide, G is measured 140, gap 10.
+    expect(boxOf(result, 'g').x).toBe(12.5 + 48 + 10);
+    expect(boxOf(result, 'h').x).toBe(12.5 + 48 + 10 + 140 + 10);
+    expectGoverningInvariant(map, result, map.roots[1]);
+  });
+
+  // Bite (ii).
+  it('leaves the primary tree unchanged when a floating tree with wider and taller nodes is added', () => {
+    const wide = node('w', [node('w1', [node('w2')]), node('w3')], { position: { x: 40, y: 10 } });
+    const nodeSize = sizesOf([
+      ['w', { width: 600, height: 200 }],
+      ['w1', { width: 500, height: 150 }],
+      ['w2', { width: 400, height: 120 }],
+      ['w3', { width: 450, height: 180 }],
+    ]);
+    const alone = layout(mapOf(primaryTree()), { nodeSize });
+    const map = mapOf(primaryTree(), wide);
+    const result = layout(map, { nodeSize });
+
+    expect(treeOf(result, PRIMARY_IDS)).toStrictEqual(treeOf(alone, PRIMARY_IDS));
+    expect(boxOf(alone, 'a').x).toBe(48 + DEFAULT_GAP);
+    expectGoverningInvariant(map, result, wide);
+  });
+
+  it('hides the children of a collapsed floating descendant', () => {
+    const collapsed = node('c', [node('c1'), node('c2')], { collapsed: true });
+    const floating = node('f', [collapsed, node('d')], { position: { x: -50, y: 400 } });
+    const map = mapOf(primaryTree(), floating);
+    const result = layout(map);
+
+    expect(result.positions.has('c')).toBe(true);
+    expectNotLaidOut(result, ['c1', 'c2']);
+    expectGoverningInvariant(map, result, floating);
+  });
+
+  it('lists the primary tree, then each floating tree in roots order, with no edge between roots', () => {
+    const map = mapOf(
+      primaryTree(),
+      node('f1', [node('g', [node('g1')]), node('h')], { position: { x: 400, y: 0 } }),
+      node('f2', [node('k')], { position: { x: -100, y: 300 } }),
+    );
+    const result = layout(map);
+
+    const order = ['r', 'a', 'a1', 'b', 'f1', 'g', 'g1', 'h', 'f2', 'k'];
+    expect([...result.positions.keys()]).toStrictEqual(order);
+    expect([...result.sizes.keys()]).toStrictEqual(order);
+    expect(result.edges).toStrictEqual([
+      { source: 'r', target: 'a' },
+      { source: 'a', target: 'a1' },
+      { source: 'r', target: 'b' },
+      { source: 'f1', target: 'g' },
+      { source: 'g', target: 'g1' },
+      { source: 'f1', target: 'h' },
+      { source: 'f2', target: 'k' },
+    ]);
+  });
+
+  it.each([
+    ['without a position', {}],
+    ['with x NaN', { position: { x: Number.NaN, y: 0 } }],
+    ['with an infinite y', { position: { x: 0, y: Number.POSITIVE_INFINITY } }],
+  ])('throws naming a corrupt floating root %s', (_, fields) => {
+    const map = mapOf(primaryTree(), node('ghost', [node('gc')], fields));
+
+    expect(() => layout(map)).toThrow(/ghost/);
+  });
+});
+
+describe('contentBounds', () => {
+  // Bite (iv).
+  it('covers every box of a far floating subtree and of the primary tree', () => {
+    const result = layout(mapOf(primaryTree(), floatingTree({ position: { x: 5000, y: 5000 } })));
+    const bounds = contentBounds(result);
+
+    expect(result.positions.size).toBe(PRIMARY_IDS.length + FLOATING_IDS.length);
+    expect(bounds?.minX).toBe(0);
+    expect(bounds?.minY).toBeLessThanOrEqual(0);
+    for (const id of result.positions.keys()) {
+      const box = boxOf(result, id);
+      expect(bounds?.minX).toBeLessThanOrEqual(box.x);
+      expect(bounds?.minY).toBeLessThanOrEqual(box.y);
+      expect(bounds?.maxX).toBeGreaterThanOrEqual(box.x + box.width);
+      expect(bounds?.maxY).toBeGreaterThanOrEqual(box.y + box.height);
+    }
+  });
+
+  // Bite (iii). r is 100 × 40 at (0, 0); a is 60 × 20, one column right at x = 110, centred: y 10.
+  it('takes maxX and maxY from box widths and heights, not positions', () => {
+    const nodeSize = sizesOf([
+      ['r', { width: 100, height: 40 }],
+      ['a', { width: 60, height: 20 }],
+    ]);
+    const result = layout(mapOf(node('r', [node('a')])), { nodeSize, gap: 10 });
+
+    expect(contentBounds(result)).toStrictEqual({ minX: 0, minY: 0, maxX: 170, maxY: 40 });
+  });
+
+  it('lets a floating root at a negative position drive minX and minY', () => {
+    const result = layout(mapOf(node('r'), node('f', [], { position: { x: -300, y: -200 } })));
+
+    expect(contentBounds(result)).toStrictEqual({ minX: -300, minY: -200, maxX: 48, maxY: 32 });
+  });
+
+  it('returns undefined for an empty layout', () => {
+    expect(contentBounds({ positions: new Map(), sizes: new Map(), edges: [] })).toBeUndefined();
+  });
+
+  it('throws naming a laid-out node without a size', () => {
+    const positions = new Map([
+      ['r', { x: 0, y: 0 }],
+      ['lost', { x: 5, y: 5 }],
+    ]);
+    const broken = { positions, sizes: sizesOf([['r', { width: 48, height: 32 }]]), edges: [] };
+
+    expect(() => contentBounds(broken)).toThrow(/lost/);
   });
 });
 

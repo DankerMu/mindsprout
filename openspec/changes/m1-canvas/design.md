@@ -603,3 +603,41 @@ Required evidence (vitest, node env):
 Non-goals: floating subtrees and contentBounds (3.2); React Flow rendering and measurement (6.1); the rendered collapse scenario and descendant count (9.1); TB/radial directions (only 'LR' is accepted, by type); memoisation (8.3)
 Review focus: the coordinate convention and its documentation; no-overlap across depths and within depths with mixed sizes; collapse; determinism; dependency version and licences
 ```
+
+## Fixture — issue #9 (task 3.2)
+
+```text
+Change surface: src/contexts/map/application/layout/layout-forest.ts + layout-forest.test.ts only; no dependency, domain or other module change
+Must preserve: every #8 contract in "Fixture — issue #8 (task 3.1)" for the primary tree — top-left positions, primary root exactly at (0, 0), per-tree columns and rows, sizes fallback, gap fallback, collapse, pre-order, purity, governing invariant; every #8 test assertion stays (two exceptions, both because 3.2 now lays out sampleMap's floating root f1 → fc: the 3.1 case "floating roots get no positions or edges" is replaced by the cases below, and the deep-frozen case's `expect(result.positions.size).toBe(4)` becomes `expect([...result.positions.keys()]).toStrictEqual(['r', 'p', 'a', 'b', 'f1', 'fc'])`); `expectGoverningInvariant` checks one tree (primary-only key set, all-pairs overlap) — on forest maps apply it per tree (e.g. a `root` parameter) or rely on the translated-equivalence case, never across trees
+Must add (exact names):
+  - interface ContentBounds { minX: number; minY: number; maxX: number; maxY: number }
+  - contentBounds(layout: ForestLayout): ContentBounds | undefined
+Floating placement:
+  - every floating root (roots[1..]) is laid out by the same per-tree routine as the primary tree, then translated so the floating root's top-left equals its stored `position` exactly: for every node of that tree, position = local position + root.position, where local is what the routine gives with the root at (0, 0)
+  - columns, rows, widest-per-depth and separation are computed per tree from that tree's visible nodes only; trees never influence each other, so the primary tree's positions/sizes/edges are toStrictEqual whether floating roots exist, move, or change content
+  - trees may overlap each other (floating positions are user-placed); the governing invariant holds within each tree, not across trees
+  - collapse, the sizes rule and the gap rule apply to floating trees exactly as to the primary tree
+  - edges: per tree, { source: parent, target: child } for visible pairs; no edge between roots
+  - order: positions, sizes and edges list the primary tree first, then each floating tree in roots order, each in pre-order
+  - a floating root whose `position` is absent or has a non-finite x or y (a corrupt map — no TreeOp produces one; reachable only from a hand-edited persisted record) throws Error naming the root id; never laid out at an invented place
+contentBounds:
+  - over every id in layout.positions with its layout.sizes entry: minX = min x, minY = min y, maxX = max(x + width), maxY = max(y + height) — the union of every laid-out box, floating subtrees included
+  - an empty layout (no positions) → undefined; a position whose id has no sizes entry → throws Error naming the id (ForestLayout guarantees identical keys; a hand-built layout that breaks it is a caller bug)
+  - pure; reads nothing but the layout
+Governing invariant: for every map, each tree's boxes satisfy the #8 governing invariant, each floating root's box top-left equals its stored position, the primary tree's layout is independent of every floating root, and contentBounds contains every laid-out box
+Sibling surfaces: 6.1 canvas renders all trees' positions; 6.2 fit-to-content frames contentBounds; 8.1/8.2 hit-test every tree's rects and set_root_position / detach store top-left positions (a detach at positions.get(id) must not move the node); 8.3 memoisation (D11 per-root recompute stays possible because trees are independent); a corrupt persisted map makes layoutForest throw during the 6.1 render — the 6.2/6.3 editor route owns the error boundary for it
+Seams under test: layoutForest and contentBounds
+Required evidence (vitest, node env):
+  - spec "Move a floating root": map with a primary tree (≥ 3 nodes) and a floating root with ≥ 2 levels of children at (300, 200), then the same map with it at (500, 200) → every node of that subtree shifts by (+200, 0) (toBeCloseTo, 9 digits) and the primary tree's positions are toStrictEqual to before
+  - anchoring: a floating root's position equals its stored position exactly (toStrictEqual), including a non-integer position; its subtree equals the primary-style layout of the same subtree (laid out as roots[0] of another map, with the same nodeSize and gap) translated by the position (toBeCloseTo); the case passes an explicit gap ≠ DEFAULT_GAP and a nodeSize with one valid and one invalid entry for floating nodes, and those nodes' sizes are toStrictEqual the measured entry and the estimate respectively
+  - independence: adding a floating root whose subtree has a much wider node and taller measured nodes at every depth leaves the primary tree's positions, sizes and edges unchanged (toStrictEqual on the primary ids)
+  - collapse in a floating tree: a collapsed floating descendant hides its children (no position, size or edge)
+  - order and edges: a map with two floating roots (each with children) → positions keys are primary pre-order then each floating tree's pre-order in roots order (literal toStrictEqual list), and edges equal a literal toStrictEqual list in the same order with no pair between two roots
+  - corrupt map: floating root without position, and one with x NaN → each throws, message contains the root id
+  - contentBounds: a layout with a floating subtree at (5000, 5000) → bounds include every box of that subtree (maxX ≥ x + width and maxY ≥ y + height for each) and of the primary tree (minX = 0, minY ≤ 0); a hand-computed small case with literal expected bounds where maxX comes from a node's width (not its x); a floating root at a negative position drives minX/minY; empty layout → undefined; missing size → throws with the id
+  - determinism / purity: deep-frozen map with floating roots accepted; two runs toStrictEqual
+  - bites (red, then restored): (i) anchor ignored (floating trees at the origin) → "Move a floating root" fails; (ii) columns shared across trees (widest per depth over the whole forest) → independence fails; (iii) contentBounds from positions only (no width/height) → the literal bounds case fails; (iv) contentBounds over the primary tree only → the far-subtree case fails; (v) anchoring the floating root's centre instead of its top-left → anchoring fails; (vi) floating trees laid out without options.nodeSize / options.gap → anchoring fails
+  - gates: pnpm test:unit ≥90% per file, typecheck, lint, boundaries, dead-code, duplicate-code, fmt:check exit 0
+Non-goals: fit-to-content rendering and viewport math (6.2); drag and set_root_position dispatch (8.x); avoiding overlap between trees (user placement); memoisation (8.3)
+Review focus: exact top-left anchoring; per-tree independence; options (nodeSize, gap) honoured for floating trees; bounds include widths/heights and every tree; #8 behaviour unchanged; the stale 3.1 scope comment in layout-forest.ts is rewritten
+```
