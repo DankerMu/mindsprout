@@ -229,3 +229,18 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
   - the TDD section of `docs/engineering/architecture-discipline.md` names the `.test.tsx` → jsdom convention, the shim file, cleanup, and that coverage applies;
   - `pnpm docs:check`.
 - **Not selected:** Public API; Schema; File IO; Auth; Concurrency; Resource limits; Error handling. There is no production code, runtime surface, persisted shape or error path.
+
+## Risk packs — issue #15 (task 6.1)
+
+- **Public API / CLI / script entry** — selected. `MindMapCanvas({ map })`, the node data shape, the CSS class contract (`mind-node--color-<token>`) and the accessible names of the indicators and fit button are what 6.2, 7.x–9.x and the e2e walk read. Evidence: names fixed in design "Fixture — issue #15", typecheck, knip, component cases.
+- **Release / packaging / dependency compatibility** — selected. Adds runtime `@xyflow/react` (MIT; peers react/react-dom ≥17, satisfied by 19.3). Evidence: `pnpm install --frozen-lockfile`, lockfile version, npm publish time ≥3 days, licence, knip.
+- **Concurrency / shared state / ordering** — selected. Measurement callbacks arrive asynchronously and in batches, and feed back into layout. React Flow's internal state must never become the source of truth. Evidence:
+  - the `mergeNodeSizes` identity cases;
+  - the batched-measurement and unchanged-measurement cases;
+  - rerender-from-props cases;
+  - observer disconnect on unmount.
+- **Resource limits / large input / discovery** — selected, scoped. One shared observer, not one per node; no re-layout when measurements are unchanged. Evidence: the identity case and the single-observer case. The 500-node frame budget stays with 8.3 (non-goal).
+- **Not selected:**
+  - Schema, File IO, Auth, Error handling, Legacy compatibility: read-only rendering of an already-validated map; no persisted shape, IO, auth, error path or existing consumer.
+  - Config: the vitest config is unchanged, and the dom-shims addition is evidenced by its smoke case.
+  - Documentation: two bullet edits to the existing component-tier section (route-component exemption; the act-environment rule for later component tests), evidenced by docs:check and review.
