@@ -196,3 +196,14 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Public API / CLI / script entry — selected: floating placement under the #8 convention and `contentBounds` / `ContentBounds` are what 6.1, 6.2 fit-to-content and 8.x read; evidence = names fixed in design "Fixture — issue #9", typecheck, knip, anchoring and bounds cases.
 - Legacy compatibility / examples — selected: every #8 behaviour of the primary tree (convention, sizes, collapse, order, purity) must hold unchanged; evidence = the #8 test cases pass with no assertion weakened (only the "floating roots get no positions" case is replaced and the deep-frozen case's position count is updated from 4 to the six sampleMap ids, because 3.2 is exactly that change), git diff shows no other deleted or weakened #8 assertion.
 - Schema; Config; File IO; Auth; Concurrency; Resource limits; Error handling; Release / packaging; Documentation — not selected: no persisted shape, config, IO, auth, shared state, size limits, dependency change or doc surface; the one error path (floating root with an absent or non-finite position) is a corrupt-map guard covered by a unit case.
+
+## Risk packs — issue #13 (task 5.2)
+
+- Public API / CLI / script entry — selected: 6.2 and 6.3 read `createEditorStore({ repository })`, `flush()`, `storageUnavailable` and the "保存失败" notice. Evidence: the names fixed in design "Fixture — issue #13", typecheck, knip, and the flush cases.
+- Concurrency / shared state / ordering — selected: the debounce timer, a write still in flight when more edits arrive, load while a save is pending, and saves while a History group is open. Evidence: the coalesce, restart, group, load-while-pending and in-flight cases, using fake timers and deferred stub promises.
+- Error handling / rollback / partial outputs — selected: `StorageUnavailableError` versus any other rejection, the edit kept in state, a failed write left pending, no stacked notices, `flush()` never rejects. Evidence: the failure cases.
+- Legacy compatibility / examples — selected: a store created without `repository` behaves exactly as before. Evidence: every existing editor-store test passes unchanged; git diff shows no deleted or weakened assertion.
+- Schema; Config; File IO; Auth; Resource limits; Release / packaging; Documentation — not selected:
+  - no persisted shape change (the 4.x adapters own the envelope);
+  - no config, auth, dependency or doc surface;
+  - IndexedDB itself is 4.2's job, and the `pagehide` listener is 6.2's.

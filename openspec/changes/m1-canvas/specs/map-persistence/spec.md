@@ -8,7 +8,7 @@ Maps survive page reloads and browser restarts in the user's browser, saved auto
 
 ### Requirement: Autosave after every change
 
-After an op is applied in the editor, the map SHALL be persisted within 500 ms of the last op. An edit older than that window SHALL never be lost; a pending save SHALL be flushed on `pagehide` as a best-effort attempt, so a reload inside the window MAY lose at most the last burst of edits (design D7).
+After an op is applied in the editor, the map SHALL be persisted within 500 ms of the last op. Ops inside an open undo group (for example a node being created and named) count from when the group closes: their result is written only once the group ends, and never if the group is cancelled. An edit older than that window SHALL never be lost; a pending save SHALL be flushed on `pagehide` as a best-effort attempt, so a reload inside the window MAY lose at most the last burst of edits (design D7).
 
 #### Scenario: Reload after edits
 
@@ -24,6 +24,16 @@ After an op is applied in the editor, the map SHALL be persisted within 500 ms o
 
 - **WHEN** ten ops are dispatched within 200 ms
 - **THEN** at most one write hits the store after the burst, and it contains the result of all ten ops
+
+#### Scenario: Opening a map is not an edit
+
+- **WHEN** a map is opened in the editor and no op is applied
+- **THEN** nothing is written and its stored `updatedAt` is unchanged
+
+#### Scenario: Unnamed new node is not saved
+
+- **WHEN** a node created with Tab is still being named and a save or a `pagehide` flush runs
+- **THEN** the written map does not contain the unnamed node, and every edit made before the Tab is in it
 
 ### Requirement: Saves stamp updatedAt
 

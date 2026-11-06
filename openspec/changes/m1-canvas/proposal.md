@@ -169,3 +169,14 @@ Selected risk packs: Public API / CLI / script entry; Legacy compatibility / exa
 Evidence floor: pnpm test:unit (spec "Move a floating root", far-subtree bounds, anchoring, per-tree independence, every #8 case unchanged except the two named in design "Must preserve"; ≥90% per file); pnpm typecheck; pnpm lint; pnpm boundaries; pnpm dead-code (contentBounds consumed by its test); pnpm duplicate-code; pnpm fmt:check
 Deviation from the issue text: `contentBounds(layout)` takes no nodeSize — it reads `layout.sizes` (the size actually used, estimate included), per the #8 integration handoff; a raw nodeSize has no entry for unmeasured nodes
 ```
+
+## Fixture triage — issue #13 (task 5.2)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree): owns the persisted-state write and flush path and how its failures are surfaced
+Blast radius: lost edits (a save never fires, or fires with a stale map), a half-made map persisted (an unnamed new node survives reload), save loops or a write per keystroke, opening a map rewriting its updatedAt, failures swallowed or reported as the wrong state (banner vs "保存失败")
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; Legacy compatibility / examples
+Evidence floor: pnpm test:unit (fake-timer store cases in design "Fixture — issue #13", every existing editor-store case unchanged; ≥90% per file); pnpm typecheck; pnpm lint; pnpm boundaries; pnpm dead-code; pnpm duplicate-code; pnpm fmt:check
+```

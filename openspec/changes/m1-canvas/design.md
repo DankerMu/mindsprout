@@ -641,3 +641,73 @@ Required evidence (vitest, node env):
 Non-goals: fit-to-content rendering and viewport math (6.2); drag and set_root_position dispatch (8.x); avoiding overlap between trees (user placement); memoisation (8.3)
 Review focus: exact top-left anchoring; per-tree independence; options (nodeSize, gap) honoured for floating trees; bounds include widths/heights and every tree; #8 behaviour unchanged; the stale 3.1 scope comment in layout-forest.ts is rewritten
 ```
+
+## Fixture — issue #13 (task 5.2)
+
+```text
+Change surface:
+  - src/contexts/map/application/editor-store/editor-store.ts, extended in place.
+  - The debounce and write logic MAY live in a new sibling, editor-store/autosave.ts, with a paired autosave.test.ts. It must not import editor-store.ts (no cycle), and its only domain imports are the MapRepository port and StorageUnavailableError.
+  - Store tests go in a new editor-store-autosave.test.ts. Shared test helpers go in tests/support/ (reuse the existing ones, never copy).
+  - No new dependency. application/ imports domain only (pnpm boundaries).
+Must preserve:
+  - Every #12 and #35 contract and test.
+  - A store created without `repository` schedules nothing, calls no timer, and behaves exactly as before.
+  - rename stamps updatedAt in state with the injected now (design D1).
+  - The reducer never touches updatedAt.
+Must add (exact names):
+  - createEditorStore(options?: { now?: () => Date; newId?: () => NodeId; repository?: MapRepository }). The repository is injected, never imported from infrastructure/.
+  - EditorState gains `readonly storageUnavailable: boolean` (initially false) and `flush(): Promise<void>`.
+  - Exported const AUTOSAVE_DELAY_MS = 500.
+Autosave rules (only when a repository is given):
+  - Stable map: the latest state.map observed while groupOpen is false. Autosave only ever writes the stable map, never a map from inside an open History group. So the empty node of an open creation edit is never persisted, not even by flush().
+  - Pending: the stable map changed by identity since the last write started. Changes that leave state.map's identity alone never make it pending: viewport, selection, menu, notice, beginGroup/endGroup with no ops, undo or redo on an empty stack.
+  - Debounce: each time the stable map changes, the 500 ms timer restarts. When the timer fires with a save pending, one write runs. Ops inside a group do not restart the timer; closing the group publishes the new stable map, and that restarts it.
+  - load(map) is not an edit. If a save is pending, load first starts the write of the current stable map (the previous map's last state), then makes the loaded map the baseline. The loaded map is never written just because it was opened.
+  - A write puts { ...stable, updatedAt: now().toISOString() }, stamped when the write starts; every other field is as in state. The stamp is not written back into state, which avoids a save loop and keeps map identity stable for subscribers.
+  - Concurrent writes are allowed; nothing serialises or cancels them. Storage keeps them in start order (IndexedDB readwrite transactions on one store; the in-memory adapter is synchronous).
+  - On StorageUnavailableError: set storageUnavailable to true, and nothing else. No notice, no repository swap; only the 6.2 provider swaps. The flag survives load, because it is session state.
+  - On any other rejection: set notice to "保存失败", unless notice already equals it (a repeated failure does not republish the notice). The edit stays in state.
+  - After either failure: the written map becomes pending again only if the current stable map is still the exact object (by identity) that the write sent. The next change or flush() then retries; there is no automatic retry timer. A load (new baseline) or a newer stable change in between means no retry.
+  - flush(): with a save pending, clear the timer and write immediately; resolve once that write settles. With nothing pending, resolve without calling put. flush() never rejects; failures are reported only through the state above. Without a repository it resolves at once.
+Governing invariant: every map handed to put is a map that was in state outside an open group, with only updatedAt changed (stamped at write start). Every edit published outside a group is written within 500 ms of the last stable change, or reported (the flag or the notice).
+Accepted edges:
+  - cancelGroup restores an equal map under a new identity, which can cause one redundant put with a fresh updatedAt.
+  - If the write that load started for the previous map fails, its "保存失败" lands in the new map's state. The same happens when a write already in flight at load fails. In both cases the previous map's unsaved edits are not retried and are lost; the notice reports it.
+Sibling surfaces:
+  - 6.2 route: creates the store with the session repository, registers pagehide → flush().
+  - 6.3 banner/toast: reads storageUnavailable and notice; deduplicating toasts is its job beyond the single notice slot.
+  - 4.1 and 4.2 MapRepository error contract (map-repository.ts doc comment). 4.2's dropped connection rejects with non-StorageUnavailable errors, so those must show "保存失败".
+  - 7.4 and other showNotice callers share the notice slot; autosave never clears it.
+  - 10.x library list reads updatedAt from the repository.
+Seams under test: the createEditorStore public API with a stub/in-memory MapRepository and vi fake timers. No IndexedDB, no DOM, no real timers.
+Required evidence (vitest, node env, fake timers):
+  - spec "Rapid edits coalesce": ten ops dispatched 20 ms apart. At 499 ms after the last op, zero puts; at 500 ms, exactly one. Its roots toStrictEqual the state.map.roots after all ten. Also the AC case: three ops within 500 ms give exactly one put.
+  - restart: ops 400 ms apart ×3 → no put until 500 ms after the third.
+  - spec "Save stamps updatedAt": a loaded map with updatedAt T0 and an injected now giving T1 > T0. The put map's updatedAt === T1.toISOString(). id, title, createdAt and roots equal state. state.map.updatedAt is still T0. After advancing another 5 s, still exactly one put (no loop).
+  - load and non-edits: load, then advance 10 s → zero puts. setViewport, select, openMenu, showNotice, beginGroup+endGroup with no ops, and undo on an empty stack, each followed by advancing 1 s → zero puts.
+  - undo and redo each give one put with the undone/redone roots. rename gives one put with the new title, updatedAt stamped at write start.
+  - groups: dispatch A, then createNode within 100 ms. At 500 ms the put contains A and not the new node's id. Advance 2 s more with the edit open → no further put. In a fresh store: dispatch A, call createNode before the timer fires, then flush() → exactly one put, which contains A and not the new node's id. flush() with the edit open and nothing pending → no put. commitTitle('x') then 500 ms → the put contains node x. cancelEdit instead → no put ever contains the new node's id. Explicit beginGroup / dispatch ×2 / endGroup → one put after endGroup + 500 ms, none during the group.
+  - flush: with a pending save, put is called before the timer is advanced and flush resolves after it; advancing 1 s afterwards adds no put. With nothing pending, it resolves and put is not called. A store without a repository resolves.
+  - no repository (fake timers): createEditorStore(), then load + dispatch → vi.getTimerCount() === 0 and storageUnavailable === false. A repository-backed store starts with storageUnavailable false.
+  - load while pending: dispatch on map A, then load(B) at 100 ms → exactly one put, of A's map (A's id, the op applied), started synchronously during load. After advancing 10 s: B is never put, and the total is one put.
+  - StorageUnavailableError from put → storageUnavailable true, notice stays null, the edit stays in state. A later load keeps storageUnavailable true.
+  - any other rejection (an Error / DOMException-like) → notice "保存失败", the edit stays in state, storageUnavailable false. Two failing saves in a row → the notice is published once (count the subscriber calls where notice changed), and the second save did call put (it was retried). flush() after a failure re-puts the same content and resolves without rejecting, even if that put rejects.
+  - in flight: the first put is held on a deferred promise while a second save fires. Both are called, in start order. Resolve the first, reject the second → notice "保存失败".
+  - failure across load: A's write held on a deferred promise, load(B), then reject A's put → notice "保存失败". Then flush() and advance 10 s → zero puts of B (no retry, and B is never written).
+  - bites (make each change, show the named case going red, then restore):
+    (i) save on every state change instead of on map identity → the load/non-edit case fails
+    (ii) a fixed throttle instead of a restart → the restart case fails
+    (iii) no stamp → the stamp case fails
+    (iv) the stamp written back into state → the no-loop case fails
+    (v) the mid-group map written → the groups case fails
+    (vi) StorageUnavailableError treated as a generic failure → the unavailable case fails
+    (vii) load ignoring a pending save → the load-while-pending case fails
+    (viii) a failed write not left pending → the retry assertion fails
+  - gates: pnpm test:unit ≥90% per file, typecheck, lint, boundaries, dead-code, duplicate-code, fmt:check all exit 0.
+Non-goals:
+  - the pagehide listener and provider (6.2), banner and toast rendering (6.3), IndexedDB (4.2);
+  - automatic retry or backoff; clearing the notice on a later success; serialising writes;
+  - deferring a creation edit's own content (it is saved once committed).
+Review focus: the stable-map rule (never a mid-group map, including in flush); identity gating and load as baseline (with the pending flush); the stamp not written back; the split between the two failure kinds; pending again after a failure; no change for stores without a repository; boundaries (no infrastructure import, no cycle).
+```
