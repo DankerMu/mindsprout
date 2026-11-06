@@ -51,7 +51,14 @@ module.exports = {
       severity: 'error',
       comment: 'next/react/drizzle/postgres stay in infrastructure/ and src/app',
       from: { path: '^src/contexts/[^/]+/(domain|application)/' },
-      to: { path: '^(next|react|react-dom|drizzle-orm|postgres|@supabase)(/|$)' },
+      // depcruise matches the resolved path, not the specifier: both pnpm layouts, two entries
+      // because the single optional-group form is rejected by depcruise's safe-regex check.
+      to: {
+        path: [
+          '^node_modules/(next|react|react-dom|drizzle-orm|postgres|@supabase)(/|$)',
+          '^node_modules/\\.pnpm/[^/]+/node_modules/(next|react|react-dom|drizzle-orm|postgres|@supabase)(/|$)',
+        ],
+      },
     },
     {
       name: 'components-and-shared-not-infrastructure',

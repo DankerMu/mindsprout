@@ -316,11 +316,13 @@ expect_reject "decisions gate (unknown kind)" "unknown kind" \
 rm -f decisions/proposed/9999-fixture.md
 
 # 7. Boundaries guard — domain-is-pure admits zod (decision 0005) and nothing else;
-# test files are exempt from it (decision 0006).
-# depcruise reads the worktree's committed .dependency-cruiser.cjs and must resolve the
-# probed packages. A symlink to the root node_modules would resolve to real paths
-# outside the worktree (matching no rule path), so mirror only zod, react and vitest into the
-# worktree, keeping pnpm's .pnpm/<pkg>@<ver>/node_modules/<pkg> layout when present.
+# test files are exempt from it (decision 0006). no-framework-in-domain-or-application rejects
+# next/react/react-dom/drizzle-orm/postgres/@supabase in domain/ and application/ (#37).
+# depcruise reads the repo root's .dependency-cruiser.cjs, copied into the worktree for this
+# section (restored at the end) so the uncommitted version is the one tested, and must resolve
+# the probed packages. A symlink to the root node_modules would resolve to real paths
+# outside the worktree (matching no rule path), so mirror only zod, react, vitest and postgres
+# into the worktree, keeping pnpm's .pnpm/<pkg>@<ver>/node_modules/<pkg> layout when present.
 mirror_package() {
   pkg="$1"
   nm="$(cd "$repo_root/node_modules" && pwd -P)" || return 1
@@ -336,11 +338,13 @@ mirror_package() {
 }
 depcruise_bin="$repo_root/node_modules/.bin/depcruise"
 mkdir -p "$wt/node_modules"
-if [ ! -x "$depcruise_bin" ] || [ ! -f .dependency-cruiser.cjs ]; then
+if [ ! -x "$depcruise_bin" ] || [ ! -f "$repo_root/.dependency-cruiser.cjs" ]; then
   skip "boundaries guard" "depcruise not installed at $depcruise_bin or no .dependency-cruiser.cjs"
-elif ! mirror_package zod || ! mirror_package react || ! mirror_package vitest; then
-  skip "boundaries guard" "could not mirror zod/react/vitest from $repo_root/node_modules"
+elif ! mirror_package zod || ! mirror_package react || ! mirror_package vitest ||
+  ! mirror_package postgres; then
+  skip "boundaries guard" "could not mirror zod/react/vitest/postgres from $repo_root/node_modules"
 else
+  cp "$repo_root/.dependency-cruiser.cjs" .dependency-cruiser.cjs
   mkdir -p src/contexts/map/domain
   printf "import { z } from 'zod';\nexport const probe = z.string();\n" > src/contexts/map/domain/zod-probe.ts
   expect_accept "boundaries guard (zod in domain)" \
@@ -352,10 +356,87 @@ else
   printf "import 'react';\n" > src/contexts/map/domain/react-probe.ts
   expect_reject "boundaries guard (react in domain)" "domain-is-pure" \
     "$depcruise_bin" src --config .dependency-cruiser.cjs
+  expect_reject "boundaries guard (b3) react in domain also names the framework rule" \
+    "no-framework-in-domain-or-application" "$depcruise_bin" src --config .dependency-cruiser.cjs
   rm -f src/contexts/map/domain/zod-probe.ts src/contexts/map/domain/zod-probe.test.ts \
     src/contexts/map/domain/react-probe.ts
+  mkdir -p src/contexts/map/application
+  printf "import 'react';\n" > src/contexts/map/application/react-probe.ts
+  expect_reject "boundaries guard (b1) react in application" "no-framework-in-domain-or-application" \
+    "$depcruise_bin" src --config .dependency-cruiser.cjs
+  rm -f src/contexts/map/application/react-probe.ts
+  printf "import 'postgres';\n" > src/contexts/map/application/postgres-probe.ts
+  expect_reject "boundaries guard (b2) postgres in application" "no-framework-in-domain-or-application" \
+    "$depcruise_bin" src --config .dependency-cruiser.cjs
+  rm -f src/contexts/map/application/postgres-probe.ts
+  git checkout --quiet -- .dependency-cruiser.cjs
 fi
 rm -rf "$wt/node_modules"
+
+# 7a. Duplicate-code gate — the working-tree package.json scripts.duplicate-code (read at runtime,
+# not retyped) must load jscpd.json, so test files count as neither clones nor lines (#47); and
+# jscpd.json's threshold, the only one that runs, must equal constraints.yaml
+# anti_drift.duplicate_code_threshold_percent. The gate runs in throwaway dirs under $tmp,
+# outside the worktree, each holding a copy of the working-tree jscpd.json.
+dup_script=$(node -e 'process.stdout.write(require(process.argv[1]).scripts["duplicate-code"] || "")' \
+  "$repo_root/package.json")
+dup_clone() { # dup_clone <file> — writes one block far above jscpd's minimum clone size
+  cat > "$1" <<'CLONE'
+export function probeTotal(items: readonly number[]): number {
+  let total = 0;
+  for (const item of items) {
+    if (item > 10) {
+      total += item * 2;
+    } else if (item > 5) {
+      total += item + 3;
+    } else {
+      total -= item;
+    }
+  }
+  const scaled = total * 7 + items.length;
+  return scaled > 100 ? scaled - 100 : scaled + 100;
+}
+CLONE
+}
+dup_dir() { # dup_dir <dir> — a fresh dir with src/ and the working-tree jscpd.json
+  rm -rf "$1" && mkdir -p "$1/src" && cp "$repo_root/jscpd.json" "$1/jscpd.json"
+}
+dup_run() { # dup_run <dir> — runs the working-tree duplicate-code script in <dir>
+  (cd "$1" && PATH="$repo_root/node_modules/.bin:$PATH" sh -c "$dup_script")
+}
+# dup_parity <jscpd.json> <constraints.yaml> — the runtime threshold equals the canonical one.
+dup_parity() {
+  j=$(node -e 'const t = require(process.argv[1]).threshold; process.stdout.write(t === undefined ? "" : String(t))' \
+    "$1") || return 1
+  c=$(awk 'prev ~ /^  duplicate_code_threshold_percent:$/ && /^    value: / { print $2 } { prev = $0 }' "$2")
+  if [ -z "$j" ] || [ -z "$c" ] || [ "$j" != "$c" ]; then
+    echo "duplicate-code threshold drift: jscpd.json threshold '${j}' != constraints.yaml anti_drift.duplicate_code_threshold_percent '${c}'"
+    return 1
+  fi
+}
+if [ -z "$dup_script" ] || [ ! -x "$repo_root/node_modules/.bin/jscpd" ]; then
+  skip "duplicate-code gate" "no scripts.duplicate-code in package.json or jscpd not installed"
+else
+  dup_dir "$tmp/dup-tests"
+  dup_clone "$tmp/dup-tests/src/a.test.ts"
+  dup_clone "$tmp/dup-tests/src/b.test.ts"
+  printf 'export const probeName = "duplicate-code gate";\n' > "$tmp/dup-tests/src/probe.ts"
+  expect_accept --what "a clone between two *.test.ts files" \
+    "duplicate-code gate (d2) clone between test files" dup_run "$tmp/dup-tests"
+  dup_dir "$tmp/dup-prod"
+  dup_clone "$tmp/dup-prod/src/a.ts"
+  dup_clone "$tmp/dup-prod/src/b.ts"
+  expect_reject "duplicate-code gate (d3) clone between production files" "too many duplicates" \
+    dup_run "$tmp/dup-prod"
+  rm -rf "$tmp/dup-tests" "$tmp/dup-prod"
+fi
+expect_accept --what "the working-tree jscpd.json and constraints.yaml" \
+  "duplicate-code gate (d4) threshold parity" dup_parity "$repo_root/jscpd.json" "$repo_root/constraints.yaml"
+node -e 'const f = process.argv[1]; const c = require(f); c.threshold += 1;
+  require("fs").writeFileSync(process.argv[2], JSON.stringify(c))' "$repo_root/jscpd.json" "$tmp/jscpd-drift.json"
+expect_reject "duplicate-code gate (d4) mismatched jscpd.json threshold" "threshold drift" \
+  dup_parity "$tmp/jscpd-drift.json" "$repo_root/constraints.yaml"
+rm -f "$tmp/jscpd-drift.json"
 
 # 8. Commit-message guard — non-conventional message (commitlint needs node_modules → run from repo root).
 badmsg="$tmp/badmsg"

@@ -33,7 +33,7 @@ The scratchpad naming guard (`.git-hooks/check-naming.sh`, list in `constraints.
 ## Consequences
 
 - Scratch below the prefix is still rejected: `openspec/changes/archive/<change>/tmp/x.md` fails the scratchpad check, and `openspec/changes/archive/<change>/foo_v2.md` fails the suffix check.
-- In path-argument (write-time) mode, a path that starts with the repository root is made repo-relative before both checks, so the Claude Code write-time hook gives an absolute path the same verdict as the staged check. Absolute paths outside the repository are checked as given and never match a prefix.
+- In path-argument (write-time) mode, a path that starts with the repository root is made repo-relative before both checks, so the Claude Code write-time hook gives an absolute path the same verdict as the staged check. Absolute paths that physically resolve outside the repository are accepted without a check; one with a `..` segment is still checked as given ([decision 0008](0008-write-time-naming-guard-skips-paths-outside-repo.md)).
 - Adding a second exempt prefix needs a new decision record; the list is not a general escape hatch.
 - `scripts/test-guardrails.sh` "scratchpad exemption" cases cover the accept path, the lookalike and nested rejects, write-time normalisation, invalid entries, the missing key and the fallback.
 - `decisions/archived/` is unaffected: its segment is `archived`, which the guard never matched.
