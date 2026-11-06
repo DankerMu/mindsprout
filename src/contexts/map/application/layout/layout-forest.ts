@@ -77,13 +77,15 @@ function isPositiveFinite(value: number): boolean {
   return Number.isFinite(value) && value > 0;
 }
 
+// The one acceptance test for a measured size: both sides positive and finite. Anything else (a
+// 0×0 box from a hidden container, NaN, Infinity) falls back to the estimate.
+export function isValidNodeSize(size: NodeSize): boolean {
+  return isPositiveFinite(size.width) && isPositiveFinite(size.height);
+}
+
 function sizeOf(current: MindNode, nodeSize: LayoutOptions['nodeSize']): NodeSize {
   const measured = nodeSize?.get(current.id);
-  if (
-    measured !== undefined &&
-    isPositiveFinite(measured.width) &&
-    isPositiveFinite(measured.height)
-  ) {
+  if (measured !== undefined && isValidNodeSize(measured)) {
     return { width: measured.width, height: measured.height };
   }
   return estimateNodeSize(current.text);

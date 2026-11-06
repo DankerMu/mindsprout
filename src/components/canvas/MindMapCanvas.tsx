@@ -120,7 +120,7 @@ function CanvasView({ map }: { map: MindMap }) {
     () => layoutForest(map, { direction: 'LR', nodeSize: sizes }),
     [map, sizes],
   );
-  const { nodes, edges } = useMemo(() => toFlowElements(map, layout), [map, layout]);
+  const { nodes, edges } = useMemo(() => toFlowElements(map, layout, sizes), [map, layout, sizes]);
   const bounds = useMemo(() => contentBounds(layout), [layout]);
   return (
     <NodeMeasurerContext value={measurer}>

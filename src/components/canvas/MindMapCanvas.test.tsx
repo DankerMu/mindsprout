@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { Profiler, StrictMode, type ReactElement } from 'react';
+import { Activity, Profiler, StrictMode, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   borderBoxEntry,
@@ -7,7 +7,10 @@ import {
   failOnConsoleNoise,
   installControllableResizeObservers,
   mindNodeElement,
+  nodeWrapper,
+  reactFlowNodeObserverOf,
   renderedPosition,
+  sizedWrapperEntry,
   viewportTransform,
 } from '../../../tests/support/canvas';
 import { mapOf, node } from '../../../tests/support/map-domain';
@@ -136,6 +139,57 @@ describe.each([
   });
 });
 
+describe('MindMapCanvas measured nodes', () => {
+  const visibilityOf = (ids: readonly string[]) =>
+    Object.fromEntries(ids.map((id) => [id, nodeWrapper(id).style.visibility]));
+
+  it('keeps measured nodes visible when a layout change moves them (no blink)', () => {
+    const view = render(<MindMapCanvas map={rootWithChild()} />);
+    const measured = ['r', 'a'];
+    canvasObserverOf(observers()).fire(
+      measured.map((id) => borderBoxEntry(mindNodeElement(id), 100, 32)),
+    );
+    // React Flow measures its wrappers too, as in a browser, so without `measured` the nodes are
+    // visible here and the blink shows up only after the rerender below.
+    reactFlowNodeObserverOf(observers()).fire(measured.map((id) => sizedWrapperEntry(id, 100, 32)));
+
+    expect(visibilityOf(measured)).toStrictEqual({ r: 'visible', a: 'visible' });
+
+    const before = renderedPosition('a');
+    view.rerender(<MindMapCanvas map={mapOf(node('r', [node('a'), node('b')]))} />);
+
+    // A sibling moved a, so every node object was rebuilt.
+    expect(renderedPosition('a')).not.toStrictEqual(before);
+    expect(visibilityOf(measured)).toStrictEqual({ r: 'visible', a: 'visible' });
+  });
+
+  it('observes again after an Activity hides and shows the canvas', () => {
+    const tree = (mode: 'visible' | 'hidden') => (
+      <Activity mode={mode}>
+        <MindMapCanvas map={rootWithChild()} />
+      </Activity>
+    );
+    const view = render(tree('visible'));
+    const canvas = canvasObserverOf(observers());
+    const disconnects = canvas.disconnectCalls;
+
+    view.rerender(tree('hidden'));
+
+    // Hiding destroys the canvas's effects (disconnect) and detaches every node's ref.
+    expect(canvas.disconnectCalls).toBe(disconnects + 1);
+    expect(canvas.observed.size).toBe(0);
+
+    view.rerender(tree('visible'));
+
+    expect(canvasObserverOf(observers())).toBe(canvas);
+    expect(canvas.observed).toStrictEqual(new Set([mindNodeElement('r'), mindNodeElement('a')]));
+
+    canvas.fire([borderBoxEntry(mindNodeElement('r'), 300, 32)]);
+
+    expect(renderedPosition('a').x).toBe(300 + DEFAULT_GAP);
+  });
+});
+
 describe('MindMapCanvas view', () => {
   it('clamps wheel zoom to 2 and 0.25', async () => {
     const { container } = render(<MindMapCanvas map={rootWithChild()} />);
@@ -160,9 +214,12 @@ describe('MindMapCanvas view', () => {
 
     expect(renderedPosition('f')).toStrictEqual({ x: 300, y: 200 });
 
+    const child = renderedPosition('fc');
+
     view.rerender(<MindMapCanvas map={at(500)} />);
 
     expect(renderedPosition('f')).toStrictEqual({ x: 500, y: 200 });
+    expect(renderedPosition('fc')).toStrictEqual({ x: child.x + 200, y: child.y });
     expect({ r: renderedPosition('r'), a: renderedPosition('a') }).toStrictEqual(primary);
   });
 

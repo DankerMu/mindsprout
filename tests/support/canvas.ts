@@ -1,5 +1,5 @@
 import { act, cleanup } from '@testing-library/react';
-import { afterEach, beforeEach, expect, vi, type MockInstance } from 'vitest';
+import { afterEach, beforeEach, expect, vi } from 'vitest';
 
 // Shared jsdom support for the canvas component tests (design "Fixture — issue #15"). React Flow
 // internals are never mocked: these helpers stand in for browser services jsdom lacks
@@ -7,19 +7,31 @@ import { afterEach, beforeEach, expect, vi, type MockInstance } from 'vitest';
 
 // Fails the test on any console.error or console.warn, checked after an explicit unmount so
 // unmount-time noise is caught too. React Flow's own devWarn is silent outside development.
+// The recorders are plain assignments, not vi.spyOn spies: vi.restoreAllMocks() in another
+// afterEach (which, with Vitest's stacked hooks, may run first) cannot remove them before the
+// unmount here, so the check holds whatever order the calling file registers its hooks in.
 export function failOnConsoleNoise(): void {
-  let error: MockInstance<typeof console.error>;
-  let warn: MockInstance<typeof console.warn>;
+  const original = { error: console.error, warn: console.warn };
+  let calls: { error: unknown[][]; warn: unknown[][] };
   beforeEach(() => {
-    error = vi.spyOn(console, 'error');
-    warn = vi.spyOn(console, 'warn');
+    const recorded: typeof calls = { error: [], warn: [] };
+    calls = recorded;
+    console.error = (...args: unknown[]) => {
+      recorded.error.push(args);
+    };
+    console.warn = (...args: unknown[]) => {
+      recorded.warn.push(args);
+    };
   });
   afterEach(() => {
-    cleanup();
-    expect(error.mock.calls).toStrictEqual([]);
-    expect(warn.mock.calls).toStrictEqual([]);
-    error.mockRestore();
-    warn.mockRestore();
+    try {
+      cleanup();
+    } finally {
+      console.error = original.error;
+      console.warn = original.warn;
+    }
+    expect(calls.error).toStrictEqual([]);
+    expect(calls.warn).toStrictEqual([]);
   });
 }
 
@@ -95,6 +107,32 @@ export function canvasObserverOf(
   return only;
 }
 
+// React Flow's node observer: the one instance that ever observed a `.react-flow__node` wrapper.
+export function reactFlowNodeObserverOf(
+  instances: readonly ControllableResizeObserver[],
+): ControllableResizeObserver {
+  const measuring = instances.filter((instance) =>
+    [...instance.everObserved].some((target) => target.classList.contains('react-flow__node')),
+  );
+  expect(measuring).toHaveLength(1);
+  const [only] = measuring;
+  if (only === undefined) throw new Error('no observer measured a .react-flow__node wrapper');
+  return only;
+}
+
+// React Flow sizes a node from its wrapper's offsetWidth/offsetHeight (0 in jsdom), so the entry
+// for its observer comes with those stubbed on the wrapper.
+export function sizedWrapperEntry(
+  id: string,
+  width: number,
+  height: number,
+): Partial<ResizeObserverEntry> {
+  const target = nodeWrapper(id);
+  Object.defineProperty(target, 'offsetWidth', { configurable: true, value: width });
+  Object.defineProperty(target, 'offsetHeight', { configurable: true, value: height });
+  return { target };
+}
+
 export function borderBoxEntry(
   target: Element,
   width: number,
@@ -103,7 +141,7 @@ export function borderBoxEntry(
   return { target, borderBoxSize: [{ inlineSize: width, blockSize: height }] };
 }
 
-function nodeWrapper(id: string): HTMLElement {
+export function nodeWrapper(id: string): HTMLElement {
   const wrapper = document.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`);
   if (wrapper === null) throw new Error(`node ${id} is not rendered`);
   return wrapper;

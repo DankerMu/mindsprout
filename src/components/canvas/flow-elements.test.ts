@@ -1,17 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { mapOf, node, sampleMap } from '../../../tests/support/map-domain';
-import { layoutForest } from '../../contexts/map/application/layout/layout-forest';
-import type { MindMap } from '../../contexts/map/domain/types';
+import { layoutForest, type NodeSize } from '../../contexts/map/application/layout/layout-forest';
+import type { MindMap, NodeId } from '../../contexts/map/domain/types';
 import { toFlowElements } from './flow-elements';
 
 // Seam: toFlowElements (design "Fixture — issue #15"). Expected values come from the fixture's
 // rules (one node per laid-out id, data from the map, edge id = target) and from layoutForest's
 // output as the input under translation, never from running toFlowElements.
 
-function elementsOf(map: MindMap) {
-  const layout = layoutForest(map, { direction: 'LR' });
-  return { layout, ...toFlowElements(map, layout) };
+// The canvas lays out with the same measured sizes it hands to toFlowElements.
+function elementsOf(map: MindMap, measured: ReadonlyMap<NodeId, NodeSize> = new Map()) {
+  const layout = layoutForest(map, { direction: 'LR', nodeSize: measured });
+  return { layout, ...toFlowElements(map, layout, measured) };
 }
+
+function keysById(map: MindMap, measured: ReadonlyMap<NodeId, NodeSize>) {
+  return elementsOf(map, measured).nodes.map((flowNode) => [flowNode.id, Object.keys(flowNode)]);
+}
+
+const PLAIN_KEYS = ['id', 'type', 'position', 'data'];
 
 function dataOf(map: MindMap, id: string) {
   const found = elementsOf(map).nodes.find((flowNode) => flowNode.id === id);
@@ -34,13 +41,45 @@ describe('toFlowElements', () => {
     expect(nodes.map(({ id }) => id)).toStrictEqual(['r', 'p', 'a', 'b', 'f1', 'fc']);
   });
 
-  it('gives every node exactly id, type, position and data (no size fields)', () => {
+  it('without measurements, gives every node exactly id, type, position and data', () => {
     const { nodes } = elementsOf(sampleMap());
 
     for (const flowNode of nodes) {
       expect(Object.keys(flowNode).sort()).toStrictEqual(['data', 'id', 'position', 'type']);
       expect(flowNode.type).toBe('mindNode');
     }
+  });
+
+  it('carries a valid measurement as measured on that node only', () => {
+    const measured = new Map([['p', { width: 120, height: 32 }]]);
+    const { layout, nodes } = elementsOf(sampleMap(), measured);
+    const withMeasured = nodes.filter((flowNode) => 'measured' in flowNode);
+
+    expect(withMeasured.map(({ id, measured: size }) => [id, size])).toStrictEqual([
+      ['p', { width: 120, height: 32 }],
+    ]);
+    // Every other node has an estimated layout size, and none of them becomes measured.
+    expect(layout.sizes.size).toBe(nodes.length);
+    expect(keysById(sampleMap(), measured)).toStrictEqual(
+      ['r', 'p', 'a', 'b', 'f1', 'fc'].map((id) => [
+        id,
+        id === 'p' ? [...PLAIN_KEYS, 'measured'] : PLAIN_KEYS,
+      ]),
+    );
+  });
+
+  it.each([
+    ['zero width', { width: 0, height: 32 }],
+    ['zero height', { width: 120, height: 0 }],
+    ['NaN width', { width: Number.NaN, height: 32 }],
+    ['NaN height', { width: 120, height: Number.NaN }],
+    ['infinite width', { width: Number.POSITIVE_INFINITY, height: 32 }],
+    ['infinite height', { width: 120, height: Number.POSITIVE_INFINITY }],
+    ['negative width', { width: -120, height: 32 }],
+  ])('never turns a measurement with %s into measured', (_case, size) => {
+    const keys = keysById(sampleMap(), new Map([['p', size]]));
+
+    expect(keys).toStrictEqual(['r', 'p', 'a', 'b', 'f1', 'fc'].map((id) => [id, PLAIN_KEYS]));
   });
 
   it('carries the title, no color, no note and no hidden count for a plain node', () => {
