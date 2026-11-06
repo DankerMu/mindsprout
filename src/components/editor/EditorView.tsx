@@ -6,7 +6,8 @@ import styles from './EditorView.module.css';
 // primary root text, and the canvas over the store's map. data-testid="map-editor-ready" and
 // data-testid="editor-title" are read by the e2e walks and later tasks.
 export function EditorView() {
-  const map = useEditorStore(selectMap);
+  const selection = useEditorStore((state) => state);
+  const map = selectMap(selection);
   return (
     <div data-testid="map-editor-ready" className={styles.editor}>
       <header className={styles.header}>
@@ -15,7 +16,7 @@ export function EditorView() {
         </h1>
       </header>
       <div className={styles.canvas}>
-        <MindMapCanvas map={map} />
+        <MindMapCanvas map={map} selection={selection} />
       </div>
     </div>
   );

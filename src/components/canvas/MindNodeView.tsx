@@ -4,8 +4,7 @@ import type { ColorToken, NodeId } from '../../contexts/map/domain/types';
 import type { MindFlowNode } from './flow-elements';
 import styles from './MindNodeView.module.css';
 
-// The custom React Flow node (design D5, "Fixture — issue #15"). Read-only in 6.1: the collapse
-// and note indicators are display only.
+// The custom React Flow node; collapse and note indicators are display only.
 
 // The canvas's shared size observer; each rendered node registers its box through this context.
 export interface NodeMeasurer {
@@ -39,7 +38,7 @@ function useMeasuredBox(id: NodeId) {
   );
 }
 
-function MindNodeBody({ id, data }: NodeProps<MindFlowNode>) {
+function MindNodeBody({ id, data, selected }: NodeProps<MindFlowNode>) {
   const measuredBox = useMeasuredBox(id);
   return (
     <>
@@ -49,7 +48,13 @@ function MindNodeBody({ id, data }: NodeProps<MindFlowNode>) {
         isConnectable={false}
         className={styles.handle}
       />
-      <div ref={measuredBox} className={classNameOf(data.color)}>
+      <div
+        ref={measuredBox}
+        className={classNameOf(data.color)}
+        role="button"
+        aria-pressed={selected}
+        aria-label={data.text}
+      >
         <span>{data.text}</span>
         {data.hiddenCount > 0 && (
           <span

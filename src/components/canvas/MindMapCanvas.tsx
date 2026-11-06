@@ -2,7 +2,7 @@
 
 import '@xyflow/react/dist/style.css';
 import { Panel, ReactFlow, ReactFlowProvider, useReactFlow, type NodeTypes } from '@xyflow/react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   contentBounds,
   layoutForest,
@@ -13,9 +13,11 @@ import type { MindMap, NodeId } from '../../contexts/map/domain/types';
 import { toFlowElements } from './flow-elements';
 import { MindNodeView, NodeMeasurerContext, type NodeMeasurer } from './MindNodeView';
 import { mergeNodeSizes, type NodeMeasurement } from './node-sizes';
+import { handleSelectionKey, selectionBlocked, type CanvasSelection } from './selection-input';
+import { useRubberBand } from './rubber-band';
 
-// The read-only canvas over a map (design D4, D5, "Fixture — issue #15"). Rendered nodes and edges
-// are a pure function of (map, measured sizes); React Flow's internal node state is never read back.
+// Geometry remains a projection of the map and measured sizes; selection is supplied by the
+// editor session. React Flow never writes selection or tree changes back into the map.
 
 // Module-level so React Flow never sees a new nodeTypes object (its error002).
 const NODE_TYPES: NodeTypes = { mindNode: MindNodeView };
@@ -114,39 +116,113 @@ function FitButton({ bounds }: { bounds: ContentBounds | undefined }) {
   );
 }
 
-function CanvasView({ map }: { map: MindMap }) {
+interface CanvasProps {
+  map: MindMap;
+  selection?: CanvasSelection | undefined;
+}
+
+function CanvasView({ map, selection }: CanvasProps) {
+  const composing = useRef(false);
+  const space = useRef(false);
   const [sizes, measurer] = useNodeSizes();
   const layout = useMemo(
     () => layoutForest(map, { direction: 'LR', nodeSize: sizes }),
     [map, sizes],
   );
-  const { nodes, edges } = useMemo(() => toFlowElements(map, layout, sizes), [map, layout, sizes]);
+  const { nodes, edges } = useMemo(() => {
+    const elements = toFlowElements(map, layout, sizes);
+    const selected = new Set(selection?.selectedIds);
+    for (const node of elements.nodes) node.selected = selected.has(node.id);
+    return elements;
+  }, [map, layout, sizes, selection?.selectedIds]);
   const bounds = useMemo(() => contentBounds(layout), [layout]);
+  const { rectangle, ...rubberBand } = useRubberBand(
+    layout,
+    (target) =>
+      selection === undefined ||
+      space.current ||
+      selectionBlocked(selection, target, composing.current),
+    (ids) => selection?.setSelection(ids),
+  );
   return (
     <NodeMeasurerContext value={measurer}>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={NODE_TYPES}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        elementsSelectable={false}
-        minZoom={MIN_ZOOM}
-        maxZoom={MAX_ZOOM}
-        panOnDrag={PAN_BUTTONS}
+      <div
+        role="region"
+        aria-label="思维导图画布"
+        tabIndex={0}
+        style={{ width: '100%', height: '100%', position: 'relative' }}
+        {...rubberBand}
+        onCompositionStart={() => {
+          composing.current = true;
+        }}
+        onCompositionEnd={() => {
+          composing.current = false;
+        }}
+        onKeyDownCapture={(event) => {
+          if (event.key === ' ') space.current = true;
+          if (selection !== undefined && !composing.current) {
+            handleSelectionKey(event.nativeEvent, map, selection);
+          }
+        }}
+        onKeyUpCapture={(event) => {
+          if (event.key === ' ') space.current = false;
+        }}
+        onBlur={() => {
+          space.current = false;
+          composing.current = false;
+        }}
       >
-        <Panel position="top-right">
-          <FitButton bounds={bounds} />
-        </Panel>
-      </ReactFlow>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={NODE_TYPES}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable={false}
+          disableKeyboardA11y
+          deleteKeyCode={null}
+          selectionKeyCode={null}
+          multiSelectionKeyCode={null}
+          onNodeClick={(event, node) => {
+            if (
+              selection === undefined ||
+              space.current ||
+              selectionBlocked(selection, event.target, composing.current)
+            )
+              return;
+            if (event.shiftKey) selection.toggleSelect(node.id);
+            else selection.select(node.id);
+            event.currentTarget.closest<HTMLElement>('[role="region"]')?.focus();
+          }}
+          minZoom={MIN_ZOOM}
+          maxZoom={MAX_ZOOM}
+          panOnDrag={PAN_BUTTONS}
+        >
+          <Panel position="top-right">
+            <FitButton bounds={bounds} />
+          </Panel>
+        </ReactFlow>
+        {rectangle !== null && (
+          <div
+            aria-hidden="true"
+            style={{
+              ...rectangle,
+              position: 'absolute',
+              pointerEvents: 'none',
+              border: '1px solid #0969da',
+              background: '#0969da22',
+            }}
+          />
+        )}
+      </div>
     </NodeMeasurerContext>
   );
 }
 
-export function MindMapCanvas({ map }: { map: MindMap }) {
+export function MindMapCanvas({ map, selection }: CanvasProps) {
   return (
     <ReactFlowProvider>
-      <CanvasView map={map} />
+      <CanvasView map={map} selection={selection} />
     </ReactFlowProvider>
   );
 }

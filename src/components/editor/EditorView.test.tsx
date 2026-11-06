@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { failOnConsoleNoise, nodeWrapper } from '../../../tests/support/canvas';
 import { mapOf, node } from '../../../tests/support/map-domain';
@@ -25,5 +25,23 @@ describe('EditorView', () => {
     expect(screen.getByTestId('editor-title').textContent).toBe('标题A');
     expect(screen.getByTestId('map-editor-ready').contains(nodeWrapper('r'))).toBe(true);
     expect(nodeWrapper('r').textContent).toBe('根节点B');
+  });
+
+  it('projects click and Shift toggle selection and routes canvas keys to the session', () => {
+    render(
+      <EditorSession map={MAP} repository={new RecordingRepository()}>
+        <EditorView />
+      </EditorSession>,
+    );
+    fireEvent.click(nodeWrapper('r'));
+    expect(nodeWrapper('r').querySelector('[aria-pressed="true"]')).not.toBeNull();
+    fireEvent.click(nodeWrapper('a'), { shiftKey: true });
+    expect(nodeWrapper('r').querySelector('[aria-pressed="true"]')).not.toBeNull();
+    expect(nodeWrapper('a').querySelector('[aria-pressed="true"]')).not.toBeNull();
+    fireEvent.click(nodeWrapper('a'), { shiftKey: true });
+    expect(nodeWrapper('a').querySelector('[aria-pressed="true"]')).toBeNull();
+    fireEvent.keyDown(nodeWrapper('r'), { key: 'ArrowRight' });
+    expect(nodeWrapper('a').querySelector('[aria-pressed="true"]')).not.toBeNull();
+    expect(nodeWrapper('r').querySelector('[aria-pressed="true"]')).toBeNull();
   });
 });

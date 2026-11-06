@@ -30,4 +30,5 @@ Three AI interaction modes (one-shot generation, node-level Grow, conversational
 ## Consequences
 
 - `src/contexts/map/domain/` owns `TreeOp` + reducer and is pure (no framework imports — enforced by `pnpm boundaries`).
-- The Zustand editor store lives in `src/contexts/map/application/editor-store` and only dispatches ops. `src/app` (the composition root) supplies the session `MapRepository`; `src/components/editor/EditorSession` owns store creation, repository injection, and pagehide/unmount listeners. Direct state mutation is a review rejection (`AGENTS.md ## Important Development Notes`).
+- The Zustand editor store lives in `src/contexts/map/application/editor-store`; tree changes dispatch ops, while selection stays in its session-only UI slice. `src/app` supplies the session `MapRepository`; `src/components/editor/EditorSession` owns store creation, repository injection, and pagehide/unmount listeners. Direct state mutation is a review rejection (`AGENTS.md ## Important Development Notes`).
+- `EditorView` supplies controlled selection state and actions to the canvas. Click, rubber-band and navigation use those actions without changing map identity, history or persistence. React Flow's native selection, positional keyboard edits and deletion are disabled so gestures have one selection authority.
