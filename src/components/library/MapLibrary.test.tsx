@@ -129,12 +129,16 @@ describe('MapLibrary', () => {
     view.unmount();
   });
 
-  it('creates and saves the factory map with independent ids and one timestamp before opening it', async () => {
+  it('creates after StrictMode setup with independent ids and one timestamp before opening it', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-11-06T12:34:56.789Z'));
     const repository = memoryLibrary();
     const navigate = vi.fn();
-    render(<MapLibrary repository={repository} navigate={navigate} />);
+    render(
+      <StrictMode>
+        <MapLibrary repository={repository} navigate={navigate} />
+      </StrictMode>,
+    );
     await screen.findByText('还没有导图');
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '新建导图' }));
@@ -183,6 +187,93 @@ describe('MapLibrary', () => {
     expect(repository.puts).toHaveLength(1);
     expect(navigate).toHaveBeenCalledTimes(1);
   });
+
+  it.each(['resolve', 'reject'] as const)(
+    'leaves an unmounted library alone when its pending save settles: %s',
+    async (outcome) => {
+      const saved = memoryLibrary();
+      class PersistingRepository extends LibraryWriteRepository {
+        override async put(map: MindMap) {
+          await super.put(map);
+          await saved.put(map);
+        }
+      }
+      const repository = new PersistingRepository();
+      const held = repository.holdNext();
+      const navigate = vi.fn();
+      const view = render(<MapLibrary repository={repository} navigate={navigate} />);
+      fireEvent.click(await screen.findByRole('button', { name: '新建导图' }));
+      expect(screen.getByRole('link', { name: 'Existing map' }).getAttribute('href')).toBe(
+        '/maps/existing',
+      );
+      expect(repository.puts).toHaveLength(1);
+      view.unmount();
+      await act(async () => {
+        if (outcome === 'resolve') held.resolve();
+        else held.reject(new Error('save failed after leaving'));
+        await Promise.resolve();
+      });
+      expect(navigate).not.toHaveBeenCalled();
+      expect(repository.puts).toHaveLength(1);
+      expect(view.container.innerHTML).toBe('');
+      expect(screen.queryByRole('alert')).toBeNull();
+      const summaries = await saved.list();
+      expect(summaries).toHaveLength(outcome === 'resolve' ? 1 : 0);
+      if (outcome === 'resolve') {
+        expect(await saved.get(repository.puts[0]?.id ?? '')).toStrictEqual(repository.puts[0]);
+        render(<MapLibrary repository={saved} navigate={navigate} />);
+        expect((await screen.findByRole('link', { name: '新导图' })).getAttribute('href')).toBe(
+          `/maps/${repository.puts[0]?.id ?? ''}`,
+        );
+        expect(navigate).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each(['resolve', 'reject'] as const)(
+    'creates in the current repository without a superseded save interfering: %s',
+    async (outcome) => {
+      const old = new LibraryWriteRepository();
+      const stale = old.holdNext();
+      const current = new LibraryWriteRepository();
+      const pending = current.holdNext();
+      const navigate = vi.fn();
+      const view = render(
+        <StrictMode>
+          <MapLibrary repository={old} navigate={navigate} />
+        </StrictMode>,
+      );
+      fireEvent.click(await screen.findByRole('button', { name: '新建导图' }));
+      expect(old.puts).toHaveLength(1);
+      view.rerender(
+        <StrictMode>
+          <MapLibrary repository={current} navigate={navigate} />
+        </StrictMode>,
+      );
+      const button = await screen.findByRole('button', { name: '新建导图' });
+      fireEvent.click(button);
+      expect(current.puts).toHaveLength(1);
+      await act(async () => {
+        if (outcome === 'resolve') stale.resolve();
+        else stale.reject(new Error('superseded save failed'));
+        await Promise.resolve();
+      });
+      expect(navigate).not.toHaveBeenCalled();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(button);
+      expect(current.puts).toHaveLength(1);
+      await act(async () => {
+        pending.resolve();
+        await Promise.resolve();
+      });
+      expect(navigate.mock.calls).toEqual([[`/maps/${current.puts[0]?.id ?? ''}`]]);
+      fireEvent.click(button);
+      expect(current.puts).toHaveLength(1);
+      expect(old.puts).toHaveLength(1);
+      expect(navigate).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('retains the library on save failure and only retries after another explicit activation', async () => {
     const repository = new LibraryWriteRepository();
