@@ -159,6 +159,80 @@ expect_reject "scratchpad guard (scratch/)" "scratchpad directory" \
 git reset --quiet -- scratch/note.txt
 rm -rf scratch
 
+# 2a. Scratchpad exemption — only OpenSpec's fixed archive prefix is exempt (decision 0007).
+# Like the diff guard, these cases run the hook under test from the repo root with the worktree
+# as cwd, and the worktree reads the repo root's constraints.yaml for this section (restored at
+# the end), so the uncommitted versions are the ones tested. Cases (i)–(k) use throwaway repos
+# under $tmp with a copy of the hook and their own constraints.yaml (or none); the real one is
+# only ever read.
+naming_hook="$repo_root/.git-hooks/check-naming.sh"
+cp "$repo_root/constraints.yaml" constraints.yaml
+probe_staged() {
+  mkdir -p "$(dirname "$1")" && echo "guardrail self-test" > "$1" && git add -- "$1"
+}
+drop_staged() {
+  git reset --quiet -- "$1" && rm -f -- "$1"
+}
+in_dir() {
+  (cd "$1" && shift && "$@")
+}
+naming_repo() {
+  rm -rf "$1" && mkdir -p "$1/.git-hooks" && git -C "$1" init --quiet &&
+    cp "$naming_hook" "$1/.git-hooks/check-naming.sh"
+}
+archive_ok="openspec/changes/archive/2026-01-01-probe/proposal.md"
+
+probe_staged "$archive_ok"
+expect_accept --what "$archive_ok" "scratchpad exemption (a) $archive_ok" bash "$naming_hook"
+drop_staged "$archive_ok"
+
+for c in "b src/archive/x.ts" "c archive/x.txt" "d openspec/changes/archive/2026-01-01-probe/tmp/x.md" \
+  "f docs/openspec/changes/archive/x.md" "g openspec/archive/x.md"; do
+  p="${c#* }"
+  probe_staged "$p"
+  expect_reject --line "  scratchpad directory:    $p" "scratchpad exemption (${c%% *}) $p" \
+    "scratchpad directory" bash "$naming_hook"
+  drop_staged "$p"
+done
+
+p="openspec/changes/archive/2026-01-01-probe/foo_v2.md"
+probe_staged "$p"
+expect_reject --line "  forbidden naming suffix: $p" --absent "scratchpad directory" \
+  "scratchpad exemption (e) $p" "forbidden naming suffix" bash "$naming_hook"
+drop_staged "$p"
+rm -rf openspec/changes/archive/2026-01-01-probe src/archive archive docs/openspec openspec/archive
+rmdir openspec/changes/archive 2>/dev/null
+
+expect_accept --what "a repo-absolute exempt path" "scratchpad exemption (h) write-time \$wt/$archive_ok" \
+  bash "$naming_hook" "$wt/$archive_ok"
+expect_reject --line "naming violation (write-time): $wt/src/archive/x.ts — see AGENTS.md § Code Canonicality" \
+  "scratchpad exemption (h) write-time \$wt/src/archive/x.ts" "naming violation (write-time)" \
+  bash "$naming_hook" "$wt/src/archive/x.ts"
+
+for entry in /abs/ no-slash; do
+  naming_repo "$tmp/naming-invalid" &&
+    sed "s|^    exempt_prefixes:.*\$|    exempt_prefixes: [\"$entry\"]|" "$repo_root/constraints.yaml" \
+      > "$tmp/naming-invalid/constraints.yaml"
+  expect_reject --line "check-naming.sh: invalid exempt prefix: $entry" --absent "scratchpad exempt prefixes:" \
+    "scratchpad exemption (i) exempt_prefixes [\"$entry\"]" "invalid exempt prefix: $entry" \
+    in_dir "$tmp/naming-invalid" bash .git-hooks/check-naming.sh src/clean.ts
+done
+
+naming_repo "$tmp/naming-nokey" &&
+  grep -v '^    exempt_prefixes:' "$repo_root/constraints.yaml" > "$tmp/naming-nokey/constraints.yaml"
+in_dir "$tmp/naming-nokey" probe_staged "$archive_ok"
+expect_reject --line "  scratchpad directory:    $archive_ok" \
+  "scratchpad exemption (j) constraints.yaml without exempt_prefixes" "scratchpad directory" \
+  in_dir "$tmp/naming-nokey" bash .git-hooks/check-naming.sh
+
+naming_repo "$tmp/naming-nofile"
+expect_accept --what "$archive_ok without constraints.yaml" "scratchpad exemption (k) fallback $archive_ok" \
+  in_dir "$tmp/naming-nofile" bash .git-hooks/check-naming.sh "$archive_ok"
+expect_reject "scratchpad exemption (k) fallback src/archive/x.ts" "naming violation (write-time)" \
+  in_dir "$tmp/naming-nofile" bash .git-hooks/check-naming.sh src/archive/x.ts
+rm -rf "$tmp/naming-invalid" "$tmp/naming-nokey" "$tmp/naming-nofile"
+git checkout --quiet -- constraints.yaml
+
 # 3. Secret guard — a credential-shaped token in a staged addition.
 printf 'const key = "sk-ant-%s";\n' "$(printf 'x%.0s' $(seq 1 40))" > leak.ts
 git add leak.ts

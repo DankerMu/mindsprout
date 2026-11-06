@@ -92,6 +92,8 @@ code_canonicality:
   scratchpad_directories:
     description: "Directories that must never appear in commits"
     paths: ["tmp", "scratch", "backup", "_old", "deprecated", "archive", "wip"]
+    # Literal repo-relative prefixes whose scratchpad segments are exempt; scratch below them is still rejected. Without this, OpenSpec's hard-coded archive dir blocks every `openspec archive` commit (decision 0007).
+    exempt_prefixes: ["openspec/changes/archive/"]
     enforced_by: ".git-hooks/check-naming.sh + .gitignore"
 
 # ── Size Limits ────────────────────────────────────────────────
