@@ -23,8 +23,4 @@ describe('byRecency', () => {
     ]);
     expect(byRecency(summary('a', at), summary('a', at))).toBe(0);
   });
-
-  it('leaves an empty list empty', () => {
-    expect([].sort(byRecency)).toStrictEqual([]);
-  });
 });

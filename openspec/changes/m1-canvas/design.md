@@ -526,10 +526,11 @@ Review focus: no stamping and no aliasing in the adapter; summary exactness and 
 ```text
 Change surface:
   - src/contexts/map/infrastructure/persistence/indexed-db-map-repository.ts (new) + indexed-db-map-repository.test.ts (contract run + adapter tests)
+  - src/contexts/map/infrastructure/persistence/summary-order.ts (new) + summary-order.test.ts: the summary comparator (updatedAt desc, id asc by code unit), extracted from in-memory-map-repository.ts so both adapters share one implementation (AGENTS.md Code Canonicality); in-memory-map-repository.ts only switches to importing it
   - package.json + pnpm-lock.yaml: `idb` 8.0.4 (runtime, ISC) and `fake-indexeddb` 6.2.7 (dev, Apache-2.0) via pnpm add; both releases are older than Renovate's 3-day minimum age; the task adds them, which overrides "never bump a dependency inside a feature PR" (this adds, it does not bump)
   - tests import 'fake-indexeddb/auto' in the test file only (node env; no global setup change)
   - openspec m1-canvas tasks.md: 4.1 and 4.2 ticked
-Must preserve: the MapRepository port, its error contract (doc comment on MapRepository) and tests/support/map-repository-contract.ts unchanged; InMemoryMapRepository unchanged; domain purity (idb lives only in infrastructure/)
+Must preserve: the MapRepository port, its error contract (doc comment on MapRepository) and tests/support/map-repository-contract.ts unchanged; InMemoryMapRepository behaviour unchanged (its only edit is importing the shared comparator); domain purity (idb lives only in infrastructure/)
 Must add (exact names):
   - openIndexedDbMapRepository(): Promise<MapRepository> — the async factory of the port's error contract: opens the database eagerly and resolves only with a usable repository; any open failure rejects with StorageUnavailableError whose `cause` is the underlying error. Opens through idb's openDB, which reads the global `indexedDB`; no test-only parameters
   - exported constants used by tests instead of duplicating literals: MAP_DB_NAME = 'mindsprout', MAP_DB_VERSION = 1, MAP_STORE = 'maps', MAP_SCHEMA_VERSION = 1
@@ -549,6 +550,7 @@ Required evidence (vitest, node env, fake-indexeddb):
   - envelope: after put(map), the raw value under key map.id is toStrictEqual { schemaVersion: 1, map } and the store holds exactly one record
   - spec "Floating root round-trip": a floating root at (300, 200) with a collapsed child carrying a note (and a color) is put, a second repository is opened on the same IDBFactory (a reload), and its get returns the map toStrictEqual; its list shows the summary
   - spec "Future version" (issue AC): a seeded { schemaVersion: 2, map } under 'x' → get('x') rejects with UnsupportedSchemaVersionError, found 2, supported 1; the raw record is deep-equal to the seed afterwards; list includes { id: 'x', title, updatedAt } from it
+  - a newer version whose shape changed: a seeded { schemaVersion: 3, data: … } (no map) → get rejects with UnsupportedSchemaVersionError found 3, supported 1 (the version is reported regardless of map's shape — the reason for out-of-line keys), record unchanged; bite: the version check moved inside the map guard → this case fails
   - list tolerance: alongside a valid record, seeded records that are skipped — a newer version without a readable map ({ schemaVersion: 3, data: … }), a non-object value, null, { schemaVersion: 1, map: null }, a v1 envelope whose title is not a string — list resolves (never rejects) with only the readable summaries
   - unreadable get: seeded values without schemaVersion, { schemaVersion: '1', map }, { schemaVersion: 1, map: null } and { schemaVersion: 1.5, map } → get rejects with an Error that is neither StorageUnavailableError nor UnsupportedSchemaVersionError and names the id; record unchanged
   - open failure → StorageUnavailableError with `cause` set, for: (a) globalThis.indexedDB undefined; (b) indexedDB.open throwing synchronously (a stub whose open throws a SecurityError-named DOMException/Error); (c) the open request failing — a database MAP_DB_NAME already at version 2 makes opening version 1 fail with VersionError (cause.name === 'VersionError')

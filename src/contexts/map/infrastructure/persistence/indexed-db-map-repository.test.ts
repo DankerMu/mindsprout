@@ -139,6 +139,21 @@ describe('IndexedDbMapRepository versioned and unreadable records', () => {
     ]);
   });
 
+  it('rejects a newer schemaVersion on get even when its shape changed', async () => {
+    freshIndexedDb();
+    const repository = await openIndexedDbMapRepository();
+    await seed('v3', { schemaVersion: 3, data: 'x' });
+
+    const error = await rejectionOf(repository.get('v3'));
+
+    expect(error).toBeInstanceOf(UnsupportedSchemaVersionError);
+    expect(error).toMatchObject({ found: 3, supported: 1 });
+    expect(await rawRecords()).toStrictEqual({
+      keys: ['v3'],
+      values: [{ schemaVersion: 3, data: 'x' }],
+    });
+  });
+
   it('lists only readable summaries and never rejects because of a record', async () => {
     freshIndexedDb();
     const repository = await openIndexedDbMapRepository();
