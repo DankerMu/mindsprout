@@ -711,3 +711,72 @@ Non-goals:
   - deferring a creation edit's own content (it is saved once committed).
 Review focus: the stable-map rule (never a mid-group map, including in flush); identity gating and load as baseline (with the pending flush); the stamp not written back; the split between the two failure kinds; pending again after a failure; no change for stores without a repository; boundaries (no infrastructure import, no cycle).
 ```
+
+## Fixture — issue #14 (task 6.0)
+
+```text
+Change surface:
+  - vitest.config.ts: test.projects. Root keeps resolve.alias and coverage (provider, include, exclude, per-file thresholds, reportsDirectory) unchanged.
+    - Root removes test.include and test.environment. vitest 5 merges inline projects with root arrays concatenated ("inline values win, arrays are concatenated"), so a root include of src/**/*.test.{ts,tsx} would also pull smoke.test.tsx into the node project.
+    - project `node`: include src/**/*.test.ts, environment node
+    - project `dom`: include src/**/*.test.tsx, environment jsdom, setupFiles tests/support/dom-shims.ts
+    - both inherit the root config (extends: true) so the @ alias works
+  - tests/support/dom-shims.ts (new): no-op browser APIs missing from jsdom that React Flow needs, plus Testing Library cleanup after each test
+  - src/components/canvas/smoke.test.tsx (new): the smoke component test, with an inline trivial component
+  - docs/engineering/architecture-discipline.md, TDD section: one subsection on the component-test tier
+  - package.json + pnpm-lock.yaml: devDependencies jsdom, @testing-library/react, @testing-library/dom (the RTL peer), added via pnpm add -D
+  - nothing in src/ outside the smoke test; no gate config is weakened (knip.json, constraints.yaml and the coverage thresholds are unchanged)
+Must preserve:
+  - every pre-existing src/**/*.test.ts runs in node with no shim globals (the node project has no setupFiles)
+  - the coverage include/exclude and 90% per-file thresholds, byte-identical in meaning
+  - the vitest.integration/contract configs, untouched
+  - Stryker keeps running through @stryker-mutator/vitest-runner (decision in the archived ci-gate-hardening change)
+Must add:
+  - `.test.tsx` under src/ means jsdom; `.test.ts` means node. No docblock is needed (projects deviation in the proposal triage).
+  - tests/support/dom-shims.ts installs each of the following on globalThis only when it is absent, never overwriting a real implementation:
+    - ResizeObserver: a class whose observe/unobserve/disconnect do nothing; the callback is never invoked
+    - window.matchMedia(query): returns { matches: false, media: query, onchange: null, addListener, removeListener, addEventListener, removeEventListener (all no-ops), dispatchEvent → false }
+    - DOMMatrixReadOnly and DOMMatrix: one identity-matrix class (a=d=m11=m22=m33=m44=1, every other component 0, is2D true, isIdentity true) that ignores its constructor argument. React Flow reads `new DOMMatrixReadOnly(transform).m22` as the zoom; identity means zoom 1.
+    - plus afterEach(cleanup) from @testing-library/react, because vitest globals are off and RTL's auto-cleanup does not register
+  - These are inert stand-ins, not behavioural mocks. A test that needs real geometry (6.1 node measurement) adds its own per-test setup.
+Governing invariant: a test file's environment is decided by its extension alone. Node tests never load the DOM environment or the shims, and every .tsx source under src/ is measured by the same per-file coverage gate.
+Sibling surfaces:
+  - stryker.config.mjs (vitest runner reads vitest.config.ts, so projects must work there)
+  - scripts/check-fast.sh / pnpm check:fast (runs vitest; must still work with projects)
+  - CI unit job (pnpm test:unit with coverage)
+  - knip vitest plugin (reads environments and setupFiles from projects)
+  - tsconfig and eslint coverage of tests/support/*.ts and .tsx tests
+  - 6.1–6.3 and 9.x component tests are the consumers of this tier
+  - constraints.yaml exemptions (unchanged; no new coverage exclude)
+Seams under test: the smoke test through RTL render/screen/fireEvent; per-project vitest list; the coverage report
+Required evidence:
+  - smoke.test.tsx (dom project):
+    - renders an inline counter component; getByRole('button', { name: '0' }), then fireEvent.click → the button reads '1' (React DOM events and state work under jsdom)
+    - `document` and `window` exist
+    - shims present and inert: new ResizeObserver(cb), then observe(document.body) and disconnect() → cb was not called (vi.fn calls length 0); matchMedia('(prefers-color-scheme: dark)') → matches false and media equal to the query; new DOMMatrixReadOnly('scale(2)').m22 === 1 and new DOMMatrix().isIdentity === true
+    - cleanup: two tests each render the same text, and the second finds exactly one match (getAllByText length 1)
+  - project split: `pnpm vitest list --project node` lists every pre-existing test file and no .tsx file; `--project dom` lists only src/components/canvas/smoke.test.tsx. The pre-existing test count equals main's (491 tests in 24 files on main at 24ae58a).
+  - coverage probe (uncommitted, deleted afterwards; git status shows it gone):
+    - a temporary src/components/canvas/coverage-probe.tsx rendered by a temporary probe test in the dom project → its coverage row ≥90% in the pnpm test:unit report
+    - with the probe source present but never rendered → pnpm test:unit fails the per-file threshold naming coverage-probe.tsx
+    - this proves .tsx sources under jsdom are measured and gated
+  - knip: pnpm dead-code exit 0, with knip.json unchanged (git diff knip.json is empty). jsdom is found through the dom project's environment, @testing-library/dom as RTL's peer, and tests/support/dom-shims.ts through setupFiles.
+  - check:fast: with the change uncommitted, pnpm check:fast runs vitest related in the dom project and reaches the smoke test, exit 0.
+  - bites (each applied, shown red, then restored):
+    (i) remove setupFiles from the dom project → the shim assertions fail
+    (ii) dom project environment set to node → the smoke test fails (document is not defined)
+    (iii) remove the cleanup → the cleanup case fails
+  - gates: pnpm test:unit, typecheck, lint, boundaries, dead-code, duplicate-code, fmt:check, docs:check, install --frozen-lockfile, mutation, all exit 0
+  - for each new devDependency: the resolved version, its npm publish time (≥3 days old) and its licence (MIT)
+Non-goals:
+  - any canvas component, or React Flow itself (6.1)
+  - element measurement shims (offsetWidth/getBBox: 6.1 adds them when needed)
+  - @testing-library/user-event and jest-dom matchers (added by the first task that needs them)
+  - e2e
+Issue acceptance criteria mapped to the deviations:
+  - "smoke *.test.tsx under jsdom, pre-existing under node": the per-project vitest list plus pnpm test:unit
+  - "≥90% for the smoke component file": the coverage probe (.tsx under jsdom is measured, and gated when unrendered)
+  - "TDD section names the jsdom opt-in docblock and the shim file": the TDD section names the opt-in, which is the `.test.tsx` extension (dom project), and the shim file tests/support/dom-shims.ts; pnpm docs:check
+  - "knip clean": pnpm dead-code exit 0 with knip.json unchanged
+Review focus: node tests unaffected (no shims, no jsdom); coverage settings unchanged; shims inert and install-if-absent; knip clean without new ignores; Stryker and check:fast still work with projects; dependency versions, licences and release age; the three deviations are justified
+```

@@ -32,7 +32,7 @@ MindSprout's differentiator (node-level AI growth, streaming ops) needs a canvas
 
 ## Impact
 
-- New code: `src/contexts/map/{domain,application,infrastructure}` (the map context owns the `MapRepository` port and the browser adapters; `CONTEXT.md` map row revised accordingly), `src/components/canvas/`, `src/app/providers/` (repository provider), `src/app/page.tsx` (library), `src/app/maps/[id]/`, `src/test/dom-shims.ts` (component-test tier).
+- New code: `src/contexts/map/{domain,application,infrastructure}` (the map context owns the `MapRepository` port and the browser adapters; `CONTEXT.md` map row revised accordingly), `src/components/canvas/`, `src/app/providers/` (repository provider), `src/app/page.tsx` (library), `src/app/maps/[id]/`; test scaffolding `tests/support/dom-shims.ts` (component-test tier, issue #14).
 - New dependencies: `@xyflow/react` (canvas), `d3-hierarchy` + `@types/d3-hierarchy` (layout), `nanoid` (ids), `idb` (IndexedDB), `zustand` (editor store), `fake-indexeddb` (dev, persistence tests), `jsdom` + `@testing-library/react` (dev, component tests). All MIT.
 - Documents revised in this change: `CONTEXT.md` (invariants: forest, metadata vs tree state; map and account context rows: `MapRepository` port owned by map), `openspec/glossary.md` (`MindMap`), `docs/TECH.md` §2/§3/§4/§6/§10, `docs/PRD.md` §8 (undo/redo row), `docs/engineering/architecture-discipline.md` (aggregate-root sentence), `decisions/implemented/architecture/0003-treeop-single-mutation-protocol.md` (consequence: store location), new `decisions/implemented/architecture/0004-mindmap-forest-with-primary-root.md`; task 1.0 adds `decisions/implemented/architecture/0005-zod-in-domain.md` and amends `.dependency-cruiser.cjs`, `constraints.yaml` `module_boundaries` and `AGENTS.md ## Directory Map`.
 - Verification surfaces: `e2e/smoke.spec.ts` gains `/maps/[id]`; `constraints.yaml` `key_ui_paths` status updated; `vitest.config.ts` gains `setupFiles` for the jsdom component-test tier. The 500-node drag budget (design D11) is review-only Runtime evidence. No API routes, no database schema, no AI calls.
@@ -179,4 +179,19 @@ Upstream suggested level: expanded (agree): owns the persisted-state write and f
 Blast radius: lost edits (a save never fires, or fires with a stale map), a half-made map persisted (an unnamed new node survives reload), save loops or a write per keystroke, opening a map rewriting its updatedAt, failures swallowed or reported as the wrong state (banner vs "保存失败")
 Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; Legacy compatibility / examples
 Evidence floor: pnpm test:unit (fake-timer store cases in design "Fixture — issue #13", every existing editor-store case unchanged; ≥90% per file); pnpm typecheck; pnpm lint; pnpm boundaries; pnpm dead-code; pnpm duplicate-code; pnpm fmt:check
+```
+
+## Fixture triage — issue #14 (task 6.0)
+
+```text
+Issue type: test
+Fixture level: expanded
+Upstream suggested level: expanded (agree): shared test configuration (vitest.config.ts) that every later UI task and the mutation run depend on, plus new dev dependencies
+Blast radius: existing node tests silently move to jsdom or stop running; UI files can't meet the per-file coverage gate; knip, the lockfile or Stryker break on the new dependencies; a later canvas task cannot render React Flow in tests
+Selected risk packs: Config / project setup; Release / packaging / dependency compatibility; Legacy compatibility / examples; Documentation / migration notes
+Evidence floor: pnpm test:unit (all existing tests in the node project, the smoke test in the dom project); pnpm typecheck; pnpm lint; pnpm boundaries; pnpm dead-code; pnpm duplicate-code; pnpm fmt:check; pnpm docs:check; pnpm install --frozen-lockfile; pnpm mutation; licence review
+Deviations from the issue text:
+  - Environment selection: two vitest projects instead of a `// @vitest-environment jsdom` docblock. A `dom` project runs src/**/*.test.tsx in jsdom with the shim setup file; a `node` project runs src/**/*.test.ts with no setup file. Reason: in a single-project config, `setupFiles` is global, so the issue's design would load the shim module, @testing-library/react and react-dom, and register a DOM cleanup hook, in every one of the 24 existing node test files. The shim would also need a `typeof window` guard. Projects scope the DOM setup to DOM tests and make the environment follow the file extension, so a forgotten docblock cannot exist. knip is clean either way: it reads both docblocks and `test.projects`.
+  - Shim location: tests/support/dom-shims.ts instead of src/test/dom-shims.ts. Reason: tests/support/ is already the single home for test scaffolding. Under src/ the shim would need a paired test (scripts/check-test-pairing.sh) and 90% coverage of scaffolding, and it would create a second home for test helpers.
+  - Smoke component: defined inside src/components/canvas/smoke.test.tsx. Reason: the issue's PR boundary says "no production code", and AGENTS.md forbids placeholder code, so a src component used only by a test would be fake production code. The per-file coverage criterion for a .tsx source under jsdom is instead proven by an uncommitted probe (design "Fixture — issue #14", Required evidence).
 ```

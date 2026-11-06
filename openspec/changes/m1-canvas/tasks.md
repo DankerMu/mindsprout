@@ -1,6 +1,6 @@
 # Tasks
 
-Module boundaries follow `AGENTS.md ## Directory Map`; every task lands its own tests (TDD required, 90% per-file coverage) and the docs its work calls for. Dependencies are added by the task that first uses them (`knip` fails on an unused dependency). Verification tiers: **unit** = Vitest in `node` (domain/application) or jsdom component tests (`src/components`, tier added by task 6.0) — this is what the per-file coverage gate measures; **e2e** = the named Playwright scenario from the spec. Each UI task says which assertions are unit and which are e2e; every spec scenario with a user-visible THEN is named by exactly one task.
+Module boundaries follow `AGENTS.md ## Directory Map`; every task lands its own tests (TDD required, 90% per-file coverage) and the docs its work calls for. Dependencies are added by the task that first uses them (`knip` fails on an unused dependency). Verification tiers: **unit** = Vitest in `node` (domain/application) or jsdom component tests (`src/**/*.test.tsx` in the `dom` Vitest project, tier added by task 6.0) — this is what the per-file coverage gate measures; **e2e** = the named Playwright scenario from the spec. Each UI task says which assertions are unit and which are e2e; every spec scenario with a user-visible THEN is named by exactly one task.
 
 ## 1. Map domain — model, TreeOp schemas, reducer
 
@@ -46,7 +46,7 @@ Minimal mergeable slice: 5.1 - the store without autosave is fully testable and 
 
 ## 6. Canvas rendering and editor route
 
-- [ ] 6.0 Component-test tier: add dev `jsdom` and `@testing-library/react`; `*.test.tsx` files opt in with a `// @vitest-environment jsdom` docblock; add `src/test/dom-shims.ts` (`ResizeObserver`, `matchMedia`, `DOMMatrix` no-ops for React Flow) to `vitest.config.ts` `setupFiles`; document the tier in `docs/engineering/architecture-discipline.md` TDD section; verify (unit) a smoke component test (`src/components/canvas/smoke.test.tsx` rendering a trivial component) reaches 90% on its file and `pnpm test:unit` stays green in node for existing tests.
+- [ ] 6.0 Component-test tier: add dev `jsdom`, `@testing-library/react` and its peer `@testing-library/dom`; `vitest.config.ts` splits into a `node` project (`src/**/*.test.ts`) and a `dom` project (`src/**/*.test.tsx`, jsdom), so a `.test.tsx` file opts in by its extension; the `dom` project's `setupFiles` loads `tests/support/dom-shims.ts` (`ResizeObserver`, `matchMedia`, `DOMMatrixReadOnly`/`DOMMatrix` no-ops for React Flow, plus RTL cleanup); document the tier in `docs/engineering/architecture-discipline.md` TDD section; verify (unit) a smoke component test (`src/components/canvas/smoke.test.tsx`, trivial component inline) passes in jsdom, a temporary `.tsx` coverage probe shows the per-file gate measures UI files, and `pnpm test:unit` stays green in node for existing tests. Issue #14 revised the original docblock / `src/test/` / on-file-coverage wording; the reasons are in proposal "Fixture triage — issue #14".
 - [ ] 6.1 Build `src/components/canvas` over a static `map` prop with `@xyflow/react`: nodes/edges from `layoutForest`, custom node (title, color token class, collapse indicator with descendant count, note indicator), `ResizeObserver` measurement fed back as `nodeSize` (design D4), pan/zoom clamped 25–200%, fit-to-content button using `contentBounds`; add `@xyflow/react`; verify (unit, jsdom) component tests cover the collapsed indicator count, the note indicator, the color token class, estimate-then-measured `nodeSize` feedback, zoom clamping and that a floating root renders at its position; the rendered scenarios are verified through the route in task 6.2.
 - [ ] 6.2 Create `/maps/[id]`: the app-wide `MapRepository` provider in `src/app/providers/` (one instance per session, IndexedDB by default), page loads the map into the editor store, registers a `pagehide` listener calling `flush()`, shows the not-found state for unknown ids and "此导图由更新版本创建" on `UnsupportedSchemaVersionError`; verify (e2e) spec map-library "Stale link", spec map-persistence "Future version" (seeded `schemaVersion: 2` record), "Reload after edits", "Edits older than the save window survive reload", spec canvas-layout "Fit to content", "Zoom clamps", "Space-drag pans", and that a seeded map renders its primary root and a floating root at its position.
 - [ ] 6.3 Storage fallback and notices: the provider falls back to one shared `InMemoryMapRepository` on `StorageUnavailableError` and exposes `storageUnavailable`; the editor renders the persistent banner "未保存到浏览器" and the "保存失败" toast from the store's notice state; verify (unit, jsdom) banner and toast components render from state; verify (e2e, IndexedDB blocked via `page.addInitScript`) spec map-persistence "Private mode" and "Write failure is visible" (a `put` forced to reject).
@@ -207,3 +207,25 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
   - no persisted shape change (the 4.x adapters own the envelope);
   - no config, auth, dependency or doc surface;
   - IndexedDB itself is 4.2's job, and the `pagehide` listener is 6.2's.
+
+## Risk packs — issue #14 (task 6.0)
+
+- **Config / project setup** — selected. `vitest.config.ts` changes for every unit test and for Stryker's vitest runner. Evidence:
+  - `vitest list` per project: the `node` project holds exactly the pre-existing .test.ts files and the `dom` project only .test.tsx files;
+  - `pnpm test:unit` passes with the same count of pre-existing tests;
+  - the coverage-probe evidence;
+  - `pnpm mutation` exit 0 with the vitest runner.
+- **Release / packaging / dependency compatibility** — selected. Adds dev dependencies `jsdom`, `@testing-library/react`, and its required peer `@testing-library/dom`. Evidence:
+  - `pnpm install --frozen-lockfile`;
+  - lockfile versions, each published ≥3 days before the PR (Renovate minimum release age);
+  - MIT licences on the allowlist;
+  - `pnpm dead-code`: knip reports none of them unused;
+  - typecheck.
+- **Legacy compatibility / examples** — selected. Existing node tests must keep running in node, unchanged. Evidence:
+  - the node project file list;
+  - the pre-existing test count is unchanged;
+  - git diff shows no existing test file touched.
+- **Documentation / migration notes** — selected. Later UI tasks need to know the tier. Evidence:
+  - the TDD section of `docs/engineering/architecture-discipline.md` names the `.test.tsx` → jsdom convention, the shim file, cleanup, and that coverage applies;
+  - `pnpm docs:check`.
+- **Not selected:** Public API; Schema; File IO; Auth; Concurrency; Resource limits; Error handling. There is no production code, runtime surface, persisted shape or error path.
