@@ -2,26 +2,26 @@
 
 ## 1. Naming guard (#61, #59)
 
-- [ ] 1.1 Red: guardrail cases n1–n6 and p1–p6 from design "Fixture"; show the behaviour-changing ones failing
-- [ ] 1.2 NUL-separated staged read; physical path-mode resolution with outside-repo exit 0; decision 0008
-- [ ] 1.3 Bites for #61 and #59; /bin/bash 3.2 runs
+- [x] 1.1 Red: guardrail cases n1–n6 and p1–p6 from design "Fixture"; show the behaviour-changing ones failing
+- [x] 1.2 NUL-separated staged read; physical path-mode resolution with outside-repo exit 0; decision 0008
+- [x] 1.3 Bites for #61 and #59; /bin/bash 3.2 runs
 
 ## 2. Tool configs and records (#37, #47, #38, #40, #53)
 
-- [ ] 2.1 Red: boundaries cases b1–b3 and duplicate-code cases d2–d4
-- [ ] 2.2 `.dependency-cruiser.cjs` rule, `constraints.yaml` mirrors, `package.json` duplicate-code script, `stryker.config.mjs` plugin
-- [ ] 2.3 Move and narrow decision 0006; update AGENTS.md (branch protection, Branch model strict, duplicate-code row if needed)
-- [ ] 2.4 Bites for #37 and #47; local `pnpm mutation` run
+- [x] 2.1 Red: boundaries cases b1–b3 and duplicate-code cases d2–d4
+- [x] 2.2 `.dependency-cruiser.cjs` rule, `constraints.yaml` mirrors, `package.json` duplicate-code script, `stryker.config.mjs` plugin
+- [x] 2.3 Move and narrow decision 0006; update AGENTS.md (branch protection, Branch model strict, duplicate-code row if needed)
+- [x] 2.4 Bites for #37 and #47; local `pnpm mutation` run
 
 ## 3. Lockfile guard (#49)
 
-- [ ] 3.1 Red: cases l1–l8
-- [ ] 3.2 `scripts/check-lockfile-pairs.sh`, `.github/workflows/lockfile-guard.yml`, remove the job from `ci.yml`, AGENTS.md row, create the `lockfile-refresh` label
-- [ ] 3.3 Bites for #49; live probe PR
+- [x] 3.1 Red: cases l1–l8
+- [x] 3.2 `scripts/check-lockfile-pairs.sh`, `.github/workflows/lockfile-guard.yml`, remove the job from `ci.yml`, AGENTS.md row, create the `lockfile-refresh` label
+- [x] 3.3 Bites for #49; live probe PR
 
 ## 4. Close-out
 
-- [ ] 4.1 `openspec/changes/m1-canvas/design.md` 0006 path reference; all gates; archive this change before the final review round
+- [x] 4.1 `openspec/changes/m1-canvas/design.md` 0006 path reference; all gates; archive this change before the final review round
 
 ## Risk packs — issues #61, #38, #37, #47, #49, #59, #40, #53
 
