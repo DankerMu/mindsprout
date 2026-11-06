@@ -34,6 +34,10 @@ describe('component-test tier', () => {
     expect(screen.getByRole('button').textContent).toBe('1');
   });
 
+  it('marks the run as a React act environment', () => {
+    expect(globalThis.IS_REACT_ACT_ENVIRONMENT).toBe(true);
+  });
+
   it('installs a ResizeObserver that never invokes its callback', () => {
     const callback = vi.fn<ResizeObserverCallback>();
     const observer = new ResizeObserver(callback);

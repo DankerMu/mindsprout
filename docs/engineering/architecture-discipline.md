@@ -62,7 +62,8 @@ Skipping red-first because "the change is small" is exactly when discipline matt
 - Render and query through `@testing-library/react` (`render`, `screen`, `fireEvent`).
 - The `dom` project's setup file `tests/support/dom-shims.ts` installs inert `ResizeObserver`, `matchMedia` and `DOMMatrixReadOnly`/`DOMMatrix` (identity, so React Flow reads zoom 1). Each is installed only when the environment lacks it, and none behaves like a browser. A test that needs real geometry or measurement adds its own per-test setup.
 - The same setup file registers Testing Library `cleanup` after each test. Vitest globals are off, so the library's own auto-cleanup never registers.
-- Coverage applies: every `src/**/*.tsx` source is held to the same 90% per-file gate as `.ts`.
+- It also marks the run as a React act environment (`globalThis.IS_REACT_ACT_ENVIRONMENT = true`). An update triggered outside React, such as an observer callback, a timer or a store write, must be wrapped in `act(...)`; otherwise React logs a "not wrapped in act" error.
+- Coverage applies: every `src/**/*.tsx` source is held to the same 90% per-file gate as `.ts`, except the route components exempted in `constraints.yaml` `exemptions`.
 
 ### Isolation and flakiness
 

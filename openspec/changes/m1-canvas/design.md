@@ -780,3 +780,137 @@ Issue acceptance criteria mapped to the deviations:
   - "knip clean": pnpm dead-code exit 0 with knip.json unchanged
 Review focus: node tests unaffected (no shims, no jsdom); coverage settings unchanged; shims inert and install-if-absent; knip clean without new ignores; Stryker and check:fast still work with projects; dependency versions, licences and release age; the three deviations are justified
 ```
+
+## Fixture — issue #15 (task 6.1)
+
+```text
+Change surface (all new under src/components/canvas/ unless noted):
+  - MindMapCanvas.tsx ('use client'): export function MindMapCanvas({ map }: { map: MindMap }). It wraps ReactFlowProvider around the view and imports '@xyflow/react/dist/style.css'.
+  - MindNodeView.tsx: the custom node, memo-wrapped. Node styles go in a colocated CSS Module, but the contract classes are plain literal strings on the element (see MindNodeView below). A Module class name is hashed in Next and in Vitest (`_<name>_<hash>` proxy), so a Module may only add its own scoped class or style the literals through :global(...).
+  - flow-elements.ts: pure toFlowElements(map, layout). Paired test is flow-elements.test.ts (node env).
+  - node-sizes.ts: pure mergeNodeSizes(current, measurements). Paired test is node-sizes.test.ts (node env).
+  - Component tests: MindMapCanvas.test.tsx and MindNodeView.test.tsx (dom project). Shared React Flow test setup goes in tests/support/ if more than one file needs it.
+  - tests/support/dom-shims.ts: also sets globalThis.IS_REACT_ACT_ENVIRONMENT = true (typed global declaration), plus one smoke case asserting it (#14 handoff).
+  - docs/engineering/architecture-discipline.md: the coverage bullet adds "except the route components exempted in constraints.yaml exemptions" (#14 handoff). The shim bullet adds that the setup marks the run as a React act environment, so updates triggered outside React (observer callbacks, timers, store writes) must be wrapped in act(...).
+  - package.json + pnpm-lock.yaml: @xyflow/react as a runtime dependency. Use 12.12.1 (published 2026-11-02) or an older 12.x; MIT.
+  - Imports stay within domain types and application/layout. No store, no infrastructure, no route.
+Must preserve:
+  - layoutForest and contentBounds are used as-is; no change to application/layout.
+  - The coordinate convention: top-left positions, React Flow's default nodeOrigin [0, 0].
+  - The node-environment tests: pure helpers run in the node project.
+  - The existing smoke cases.
+Must add:
+  - toFlowElements(map, layout) returns { nodes, edges }:
+    - nodes: one per layout.positions entry, in that order:
+      - { id, type: 'mindNode', position: layout.positions.get(id) (the same values), data: MindNodeData }
+      - never width, height, style or measured fields taken from layout.sizes (#8 handoff: writing sizes back stops the layout from converging)
+      - `measured: { width, height }` is set from the canvas's own measured sizes (the measurement state, never layout.sizes estimates), and only for ids whose measurement has a positive, finite width and height (the same test layoutForest uses to accept a size; a 0×0 measurement from a hidden container would otherwise mark the node visible at its estimate). toFlowElements takes them as a third argument.
+        Reason (Phase 2 audit of PR #69): in xyflow, adoptUserNodes gives every new user-node object `measured` copied from the user node, and parseHandles drops handleBounds when `measured` is absent. A changed node object without `measured` therefore goes visibility: hidden and is re-observed, so every layout change makes the changed nodes blink for a frame. With `measured` present, handleBounds are kept, and React Flow's own observer still updates them when the element's size changes.
+    - MindNodeData = { text: string; color: ColorToken | null; hasNote: boolean; hiddenCount: number }
+      - hiddenCount is the number of all descendants in the map when the node is collapsed, else 0. It is counted from the map, because the layout drops hidden descendants.
+      - hasNote is true when node.note is a non-empty string.
+    - edges: one per layout.edges entry, { id: target, source, target }
+    - a pure function, which throws on nothing: the layout already validated the map
+  - mergeNodeSizes(current: ReadonlyMap<NodeId, NodeSize>, measurements: readonly { id: NodeId; width: number; height: number }[]) returns ReadonlyMap:
+    - it returns `current` itself (same identity) when every measurement equals the stored entry;
+    - otherwise it returns one new Map: all current entries plus the changed or new ones; later duplicates in one batch win.
+    - It does not filter values (layoutForest already treats invalid sizes as estimates).
+  - MindMapCanvas:
+    - layout = layoutForest(map, { direction: 'LR', nodeSize: sizes }), with sizes held in React state, initially an empty Map.
+    - The nodes and edges handed to <ReactFlow> are derived from map + layout on every render (useMemo allowed). React Flow's internal node state is never read back.
+    - It renders nodesDraggable, nodesConnectable and elementsSelectable all false (read-only until 7.x/8.x), minZoom 0.25, maxZoom 2, and panOnDrag [1] (middle button). Space+drag panning keeps React Flow's default Space activation key. Wheel zoom is on.
+    - nodeTypes is a module-level constant, which avoids React Flow's new-object warning.
+    - Measurement: one ResizeObserver per canvas instance, shared by every node; nodes register through a React context.
+      - Each callback batch maps entries to { id, width: borderBoxSize[0].inlineSize, height: borderBoxSize[0].blockSize } (offsetWidth/offsetHeight when borderBoxSize is absent), then calls setSizes(prev => mergeNodeSizes(prev, batch)) once.
+      - Measuring never uses getBoundingClientRect, because it scales with zoom.
+      - A node unobserves on unmount, and the observer disconnects when the canvas unmounts.
+    - Fit-to-content: a button whose accessible name is "适应画布". It calls fitBounds with contentBounds(layout) converted to { x: minX, y: minY, width: maxX - minX, height: maxY - minY } and a padding. It is disabled when contentBounds is undefined (never for a valid map).
+  - MindNodeView:
+    - a box whose className contains the literal strings "mind-node" and, when color is set, "mind-node--color-<token>". These are the contract read by 9.2 and the e2e walk.
+    - the title text
+    - a collapse indicator, rendered only when hiddenCount > 0: text = hiddenCount, accessible name "已折叠 <n> 个节点", display only (no onClick, no map change)
+    - a note indicator, rendered only when hasNote, with accessible name "有备注"
+    - non-connectable target (Left) and source (Right) handles, so edges render. They are hidden with opacity or visibility, never display: none, because React Flow places edge ends from each handle's getBoundingClientRect.
+    - The CSS Module sizes the box close to estimateNodeSize: 12 px horizontal padding, 32 px height, 14 px font, single line. Indicators sit inside the box so they are measured.
+Governing invariant: the rendered nodes and edges are a pure function of (map, measured sizes). Each node's rendered position is layout.positions for those inputs. A measurement batch that changes nothing produces no new size map, so no new layout runs.
+Sibling surfaces:
+  - 6.2: the route mounts MindMapCanvas, owns the store viewport and the e2e scenarios (render without overlap, measured size, fit, zoom, space-drag).
+  - 7.x: selection, editing and keyboard enable elementsSelectable and swap the title for an input.
+  - 8.x: drag enables nodesDraggable and hit-tests layout rects.
+  - 8.3: memoisation and the 500-node budget.
+  - 9.1: the collapse menu item toggles `collapsed`.
+  - 9.2: color theme variables style mind-node--color-<token>.
+  - 9.3: the note panel.
+  - layoutForest and contentBounds (3.1/3.2): their sizes fallback is what handles invalid measurements.
+Seams under test:
+  - toFlowElements and mergeNodeSizes (pure, node env)
+  - MindMapCanvas and MindNodeView through Testing Library in jsdom. A per-test controllable ResizeObserver is installed with vi.stubGlobal and restored afterwards. Per-test container dimensions are stubbed as React Flow needs and restored afterwards.
+  - React Flow internals are never mocked.
+Required evidence:
+  - flow-elements.test.ts (node):
+    - sampleMap-style input: node ids and positions toStrictEqual layout.positions in order
+    - without measurements, every node has exactly the keys id, type, position and data (no width, height or style). With a valid measurement for id x, only x also carries measured equal to that measurement. A 0, NaN or Infinity measurement never becomes measured. Other nodes and layout-only (estimated) sizes never appear as measured.
+    - a node with note → hasNote true; with note '' or absent → false
+    - color 'blue' → data.color 'blue'; none → null
+    - collapsed with 4 descendants across 2 levels → hiddenCount 4 and none of the 4 ids among the nodes; expanded → 0
+    - a floating root's node position toStrictEqual its stored position
+    - edges toStrictEqual a literal list with id equal to target
+  - node-sizes.test.ts (node):
+    - identical measurements → the same Map identity (toBe)
+    - one changed → a new Map that holds the old entries plus the changed one, while the input Map is unchanged
+    - three entries in one batch → one new Map containing all three
+    - duplicate id in a batch → the last value wins
+  - MindNodeView / MindMapCanvas tests (dom), all with zero console.error and console.warn calls (spy, asserted in afterEach).
+    - That spy cannot see React Flow's own devWarn: it prints only when NODE_ENV === 'development', which hides error002 (new nodeTypes object), error004 (container size) and error013 (missing styles). The nodeTypes constant and the stylesheet import are therefore review-only here, and 6.2's e2e captures console.warn.
+    - Observer callbacks fired by a test run inside act(...).
+    - Elements inside a node are queried with getByLabelText / getByText, or getByRole with { hidden: true }, because unmeasured React Flow node wrappers are visibility: hidden.
+    - Rendered x/y are parsed as numbers from the node wrapper's transform. React Flow writes `translate(${x}px,${y}px)`, so the string is never compared verbatim.
+    - The canvas observer is the one stubbed ResizeObserver instance that observed `.mind-node` elements; React Flow's own observers are ignored.
+    - a collapsed node with 4 descendants shows "4" with the label "已折叠 4 个节点", and none of the 4 descendants' titles are in the document. Clicking the indicator leaves the rendered map unchanged.
+    - only a node with a note shows "有备注".
+    - a node with color 'blue' has class mind-node--color-blue; a node without color has no mind-node--color-* class.
+    - measured feedback, with a controllable observer and a map of root r with child a:
+      - before any callback, a's rendered x (from the node wrapper transform) = estimateNodeSize(r.text).width + DEFAULT_GAP
+      - after one callback batch with r measured at width 300, a's x = 300 + DEFAULT_GAP
+      - wrap the canvas in <Profiler>, fire the identical batch 3 more times → the commit count grows by at most 1 in total (bite iii grows it by 3)
+      - exactly one stubbed observer instance observed `.mind-node` elements, and it observed every rendered node's element
+      - an entry without borderBoxSize, with offsetWidth stubbed to 200 on r's element → a's x = 200 + DEFAULT_GAP
+      - rerender with r collapsed → a's element is unobserved by the canvas observer
+      - unmount → that instance's disconnect is called
+      - the measured-feedback case passes again when rendered inside <StrictMode> (double mount: the observer must exist for the remount's registrations and must not stay disconnected)
+    - zoom clamp: wheel events far past the limits on the pane → the .react-flow__viewport transform scale is exactly 2 after zooming in and exactly 0.25 after zooming out
+    - floating root at (300, 200) → its node wrapper's parsed translate is (300, 200). A rerender with the root at (500, 200) → (500, 200), and the primary nodes' parsed positions are unchanged.
+    - fit: with the container stubbed at 800×600 and a map with a floating subtree at (2000, 1000), click "适应画布" → under the resulting viewport transform, every rendered node box (layout position and size) lies inside [0, 800] × [0, 600]
+    - props are the source of truth: rerender with a node's text changed → the new text is rendered and the old text is gone
+    - no blink: after a measurement batch, every node wrapper is visibility: visible. A rerender with a changed map that moves nodes (a child added) keeps every previously measured node's wrapper visible (fails without measured, see bite viii)
+    - a map with roots: [] (no laid-out node) → "适应画布" is disabled
+  - smoke.test.tsx: one added case, globalThis.IS_REACT_ACT_ENVIRONMENT === true
+  - bites (each applied, shown red, then restored):
+    (i) hiddenCount counted from the layout instead of the map → the hiddenCount case fails
+    (ii) layout.sizes written as node width/height → the no-size-keys case fails
+    (iii) mergeNodeSizes always returns a new Map → the identity case fails
+    (iv) minZoom/maxZoom removed → the zoom clamp case fails
+    (v) fit over the primary tree only → the fit case fails
+    (vi) sizes not passed to layoutForest → the measured-feedback case fails
+    (vii) the act flag line removed → the smoke flag case fails
+    (viii) measured omitted from the nodes → the no-blink case fails
+  - red run: the new tests failing before the implementation exists
+  - Stryker (#14 handoff): a scoped `pnpm mutation --mutate 'src/components/canvas/*.{ts,tsx}'` (excluding tests), run once, shows the dom-project component tests executing under the vitest runner (non-zero tests for the canvas files) and reports the score. The weekly run stays advisory.
+  - gates: pnpm test:unit (each new src file ≥90%), typecheck, lint, boundaries, dead-code, duplicate-code, fmt:check, docs:check and install --frozen-lockfile all exit 0
+  - @xyflow/react: resolved version, npm publish time (≥3 days old), licence
+Non-goals:
+  - the route, the store and viewport persistence (6.2)
+  - the e2e scenarios (6.2)
+  - selection, editing, keyboard, drag and menu (7.x–9.x)
+  - color theme values (9.2)
+  - memoisation beyond nodeTypes/useMemo, and the 500-node profile (8.3)
+  - an initial fit or initial viewport (6.2 owns the viewport)
+Review focus:
+  - the measure→layout loop converges: shared observer, borderBoxSize, identity-preserving merge, sizes never written back
+  - hiddenCount comes from the map
+  - read-only flags, zoom limits and the pan buttons
+  - fit uses contentBounds, including floating trees
+  - zero console noise
+  - boundaries (no store or infrastructure imports)
+  - dependency version, licence and release age
+```

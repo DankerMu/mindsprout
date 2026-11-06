@@ -5,6 +5,7 @@ import {
   contentBounds,
   DEFAULT_GAP,
   estimateNodeSize,
+  isValidNodeSize,
   layoutForest,
   type ForestLayout,
   type LayoutOptions,
@@ -588,6 +589,27 @@ describe('contentBounds', () => {
     const broken = { positions, sizes: sizesOf([['r', { width: 48, height: 32 }]]), edges: [] };
 
     expect(() => contentBounds(broken)).toThrow(/lost/);
+  });
+});
+
+// The acceptance test layoutForest applies to a measured size; the canvas reuses it (#15).
+describe('isValidNodeSize', () => {
+  it('accepts a size whose width and height are both positive and finite', () => {
+    expect(isValidNodeSize({ width: 120, height: 32 })).toBe(true);
+    expect(isValidNodeSize({ width: Number.MIN_VALUE, height: 0.5 })).toBe(true);
+  });
+
+  it.each([
+    ['zero width', { width: 0, height: 32 }],
+    ['zero height', { width: 120, height: 0 }],
+    ['negative width', { width: -5, height: 32 }],
+    ['negative height', { width: 120, height: -1 }],
+    ['NaN width', { width: Number.NaN, height: 32 }],
+    ['NaN height', { width: 120, height: Number.NaN }],
+    ['infinite width', { width: Number.POSITIVE_INFINITY, height: 32 }],
+    ['infinite height', { width: 120, height: Number.POSITIVE_INFINITY }],
+  ])('rejects a size with %s', (_case, size) => {
+    expect(isValidNodeSize(size)).toBe(false);
   });
 });
 
