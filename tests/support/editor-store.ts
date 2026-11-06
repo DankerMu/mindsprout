@@ -39,7 +39,7 @@ export function collapsedMap(): MindMap {
 }
 
 // Ids handed out by createNode in order; running out is a test bug, not a store behaviour.
-function scriptedIds(...ids: NodeId[]): () => NodeId {
+export function scriptedIds(...ids: NodeId[]): () => NodeId {
   const queue = [...ids];
   return () => {
     const next = queue.shift();

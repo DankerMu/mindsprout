@@ -1,8 +1,10 @@
 import { nanoid } from 'nanoid';
 import { createStore, type StoreApi } from 'zustand/vanilla';
+import type { MapRepository } from '../../domain/map-repository';
 import type { TreeOp } from '../../domain/tree-op';
 import type { MindMap, NodeId } from '../../domain/types';
 import { GroupCancelledError, History } from '../history/history';
+import { createAutosave, type Autosave } from './autosave';
 import {
   findNode,
   prune,
@@ -13,6 +15,7 @@ import {
 } from './selection';
 
 export type { Editing } from './selection';
+export { AUTOSAVE_DELAY_MS } from './autosave';
 
 // The editor store (design D3, D10; decision 0003): the map changes only through History.dispatch
 // → applyOp, metadata only through load and rename. The History is private to the store; its
@@ -21,6 +24,9 @@ export type { Editing } from './selection';
 // The selection / editing / menu slice (design D3, D5; "Fixture — issue #35") only ever references
 // nodes that exist (the selection: visible ones) — it is pruned in the same set() as every map
 // change, and node creation is one History group owned by the inline edit until commit / cancel.
+// Autosave (design D7, "Fixture — issue #13") runs only when a repository is injected: it writes
+// the stable map (state.map observed while no group is open) after a change of identity, treats
+// load as a new baseline, and reports failures through storageUnavailable and the notice.
 
 export interface Viewport {
   readonly x: number;
@@ -50,6 +56,7 @@ export interface EditorState extends SelectionSlice {
   readonly groupOpen: boolean;
   readonly viewport: Viewport;
   readonly notice: string | null;
+  readonly storageUnavailable: boolean;
   load(map: MindMap): void;
   dispatch(op: TreeOp): void;
   undo(): void;
@@ -74,6 +81,7 @@ export interface EditorState extends SelectionSlice {
   startEdit(id: NodeId): void;
   commitTitle(text: string): void;
   cancelEdit(): void;
+  flush(): Promise<void>;
 }
 
 type SelectionSnapshot = Pick<SelectionSlice, 'selectedIds' | 'primaryId'>;
@@ -87,8 +95,33 @@ const EMPTY_SLICE: SelectionSlice = Object.freeze({
 
 const CREATION_LABEL = 'add node';
 
+const SAVE_FAILED = '保存失败';
+
+// Feeds the autosave every stable map the store publishes. Session state, not map state:
+// storageUnavailable survives load, and a repeated failure does not republish the notice.
+function attachAutosave(
+  api: StoreApi<EditorState>,
+  repository: MapRepository,
+  now: () => Date,
+): Autosave {
+  const autosave = createAutosave({
+    repository,
+    now,
+    onUnavailable: () => {
+      api.setState({ storageUnavailable: true });
+    },
+    onFailed: () => {
+      if (api.getState().notice !== SAVE_FAILED) api.setState({ notice: SAVE_FAILED });
+    },
+  });
+  api.subscribe(({ map, groupOpen }) => {
+    if (map !== null && !groupOpen) autosave.observe(map);
+  });
+  return autosave;
+}
+
 export function createEditorStore(
-  options: { now?: () => Date; newId?: () => NodeId } = {},
+  options: { now?: () => Date; newId?: () => NodeId; repository?: MapRepository } = {},
 ): StoreApi<EditorState> {
   const now = options.now ?? (() => new Date());
   const newId = options.newId ?? (() => nanoid());
@@ -98,7 +131,10 @@ export function createEditorStore(
   // The selection createNode replaced; restored when the creation is abandoned.
   let beforeCreation: SelectionSnapshot = EMPTY_SLICE;
 
-  return createStore<EditorState>()((set, get) => {
+  return createStore<EditorState>()((set, get, api) => {
+    const autosave =
+      options.repository === undefined ? undefined : attachAutosave(api, options.repository, now);
+
     const requireMap = (action: string): MindMap => {
       const { map } = get();
       if (map === null) {
@@ -217,9 +253,12 @@ export function createEditorStore(
       groupOpen: false,
       viewport: DEFAULT_VIEWPORT,
       notice: null,
+      storageUnavailable: false,
       ...EMPTY_SLICE,
 
+      // Not an edit: a pending save of the previous map starts first, then map is the baseline.
       load(map) {
+        autosave?.rebase(map);
         history = new History();
         set({
           map,
@@ -400,6 +439,10 @@ export function createEditorStore(
         const map = requireMap('cancelEdit');
         if (requireEditing('cancelEdit').created) closeCreation(map);
         else set({ editing: null });
+      },
+
+      flush() {
+        return autosave?.flush() ?? Promise.resolve();
       },
     };
   });
