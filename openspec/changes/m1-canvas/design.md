@@ -804,6 +804,8 @@ Must add:
     - nodes: one per layout.positions entry, in that order:
       - { id, type: 'mindNode', position: layout.positions.get(id) (the same values), data: MindNodeData }
       - never width, height, style or measured fields taken from layout.sizes (#8 handoff: writing sizes back stops the layout from converging)
+      - `measured: { width, height }` is set from the canvas's own measured sizes (the measurement state, never layout.sizes estimates), and only for ids whose measurement has a positive, finite width and height (the same test layoutForest uses to accept a size; a 0×0 measurement from a hidden container would otherwise mark the node visible at its estimate). toFlowElements takes them as a third argument.
+        Reason (Phase 2 audit of PR #69): in xyflow, adoptUserNodes gives every new user-node object `measured` copied from the user node, and parseHandles drops handleBounds when `measured` is absent. A changed node object without `measured` therefore goes visibility: hidden and is re-observed, so every layout change makes the changed nodes blink for a frame. With `measured` present, handleBounds are kept, and React Flow's own observer still updates them when the element's size changes.
     - MindNodeData = { text: string; color: ColorToken | null; hasNote: boolean; hiddenCount: number }
       - hiddenCount is the number of all descendants in the map when the node is collapsed, else 0. It is counted from the map, because the layout drops hidden descendants.
       - hasNote is true when node.note is a non-empty string.
@@ -847,7 +849,7 @@ Seams under test:
 Required evidence:
   - flow-elements.test.ts (node):
     - sampleMap-style input: node ids and positions toStrictEqual layout.positions in order
-    - every node has exactly the keys id, type, position and data (no width, height or style)
+    - without measurements, every node has exactly the keys id, type, position and data (no width, height or style). With a valid measurement for id x, only x also carries measured equal to that measurement. A 0, NaN or Infinity measurement never becomes measured. Other nodes and layout-only (estimated) sizes never appear as measured.
     - a node with note → hasNote true; with note '' or absent → false
     - color 'blue' → data.color 'blue'; none → null
     - collapsed with 4 descendants across 2 levels → hiddenCount 4 and none of the 4 ids among the nodes; expanded → 0
@@ -880,6 +882,7 @@ Required evidence:
     - floating root at (300, 200) → its node wrapper's parsed translate is (300, 200). A rerender with the root at (500, 200) → (500, 200), and the primary nodes' parsed positions are unchanged.
     - fit: with the container stubbed at 800×600 and a map with a floating subtree at (2000, 1000), click "适应画布" → under the resulting viewport transform, every rendered node box (layout position and size) lies inside [0, 800] × [0, 600]
     - props are the source of truth: rerender with a node's text changed → the new text is rendered and the old text is gone
+    - no blink: after a measurement batch, every node wrapper is visibility: visible. A rerender with a changed map that moves nodes (a child added) keeps every previously measured node's wrapper visible (fails without measured, see bite viii)
     - a map with roots: [] (no laid-out node) → "适应画布" is disabled
   - smoke.test.tsx: one added case, globalThis.IS_REACT_ACT_ENVIRONMENT === true
   - bites (each applied, shown red, then restored):
@@ -890,6 +893,7 @@ Required evidence:
     (v) fit over the primary tree only → the fit case fails
     (vi) sizes not passed to layoutForest → the measured-feedback case fails
     (vii) the act flag line removed → the smoke flag case fails
+    (viii) measured omitted from the nodes → the no-blink case fails
   - red run: the new tests failing before the implementation exists
   - Stryker (#14 handoff): a scoped `pnpm mutation --mutate 'src/components/canvas/*.{ts,tsx}'` (excluding tests), run once, shows the dom-project component tests executing under the vitest runner (non-zero tests for the canvas files) and reports the score. The weekly run stays advisory.
   - gates: pnpm test:unit (each new src file ≥90%), typecheck, lint, boundaries, dead-code, duplicate-code, fmt:check, docs:check and install --frozen-lockfile all exit 0
