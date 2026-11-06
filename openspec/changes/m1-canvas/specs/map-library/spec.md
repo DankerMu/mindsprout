@@ -47,6 +47,15 @@ Opening `/maps/<id>` for an id not in storage SHALL show a not-found state with 
 - **WHEN** the user opens `/maps/does-not-exist`
 - **THEN** the page shows "找不到这张导图" and a link to `/`
 
+### Requirement: Unreadable map shows an error state
+
+Opening `/maps/<id>` for a stored map that cannot be read or rendered SHALL show an error state with a link back to the library. It SHALL never show the not-found state or a blank page, and SHALL modify nothing.
+
+#### Scenario: Corrupt record
+
+- **WHEN** the stored record for `/maps/<id>` holds a floating root without a position
+- **THEN** the page shows "无法打开这张导图" and a link to `/`, and not "找不到这张导图"
+
 ### Requirement: Library works without storage
 
 When browser storage is unavailable the library SHALL show the same "未保存到浏览器" banner as the editor, list the maps created in this session from the shared in-memory repository, and 新建导图 SHALL still open a working editor; a full reload of such an editor URL SHALL show the not-found state together with the banner.

@@ -209,3 +209,36 @@ Also carried here, as #14 review handoffs (comment on #15):
   - tests/support/dom-shims.ts sets IS_REACT_ACT_ENVIRONMENT
   - the architecture-discipline coverage bullet names the route-component exemption
 ```
+
+## Fixture triage — issue #16 (task 6.2)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (override). This issue adds:
+  - the composition root's session-wide repository provider (shared state, persisted-state access);
+  - the public `/maps/[id]` route and its error states;
+  - the flush-on-leave path for persisted edits;
+  - the e2e seed infrastructure that #18–#20 reuse.
+  These are the persisted-state, shared-entrypoint and public-surface expanded triggers.
+Blast radius:
+  - a map that silently shows not-found when it actually failed to load, or a crash instead of an error state;
+  - opening a map that rewrites it;
+  - edits lost when the user leaves the page or navigates away;
+  - a second repository instance per page;
+  - a canvas with zero height or React Flow warnings in dev.
+Selected risk packs:
+  - Public API / CLI / script entry
+  - Concurrency / shared state / ordering
+  - Error handling / rollback / partial outputs
+  - File IO / path safety / overwrite (scoped to "opening never writes" in browser storage)
+  - Release / packaging / dependency compatibility (first pnpm build of the canvas)
+Evidence floor:
+  - pnpm test:unit (dom tests for the provider, MapEditor, EditorSession, EditorView and MapStatus; ≥ 90% per non-route file)
+  - pnpm e2e (the named scenarios with zero console errors and warnings)
+  - pnpm build
+  - pnpm typecheck, lint, boundaries, dead-code, duplicate-code, fmt:check, docs:check
+Scope notes:
+  - The provider's open failure renders the error state until 6.3 (#17) replaces it with the fallback. #17's text "the provider (6.2) always resolves IndexedDB" describes exactly this.
+  - Also folds in the #15 handoff: the "Fixture — issue #15" header now reads toFlowElements(map, layout, measured).
+```

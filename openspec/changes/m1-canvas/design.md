@@ -800,7 +800,7 @@ Must preserve:
   - The node-environment tests: pure helpers run in the node project.
   - The existing smoke cases.
 Must add:
-  - toFlowElements(map, layout) returns { nodes, edges }:
+  - toFlowElements(map, layout, measured) returns { nodes, edges }:
     - nodes: one per layout.positions entry, in that order:
       - { id, type: 'mindNode', position: layout.positions.get(id) (the same values), data: MindNodeData }
       - never width, height, style or measured fields taken from layout.sizes (#8 handoff: writing sizes back stops the layout from converging)
@@ -913,4 +913,181 @@ Review focus:
   - zero console noise
   - boundaries (no store or infrastructure imports)
   - dependency version, licence and release age
+```
+
+## Fixture — issue #16 (task 6.2)
+
+```text
+Change surface:
+  - src/app/providers/MapRepositoryProvider.tsx ('use client') + MapRepositoryProvider.test.tsx (dom):
+    - The session repository context. It is mounted by src/app/layout.tsx around {children}.
+  - src/app/maps/[id]/page.tsx (route file, coverage-exempt):
+    - An async Server Component. It awaits params (Next 16: params is a Promise; read node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/dynamic-routes.md) and renders <MapEditor key={id} id={id} />.
+  - src/app/maps/[id]/error.tsx (route file, coverage-exempt):
+    - A 'use client' segment error boundary. It shows the error state (below), never not-found.
+    - Its props follow node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/error.md.
+  - src/app/maps/[id]/MapEditor.tsx ('use client') + MapEditor.test.tsx (dom): load and the state machine.
+  - src/app/maps/[id]/MapStatus.tsx + its test: the one component for the not-found, future-version and error messages. error.tsx reuses it.
+  - src/components/editor/EditorSession.tsx ('use client') + EditorSession.test.tsx (dom):
+    - It owns the editor store, the context and the flush wiring.
+    - 7.x–9.x read the store through it.
+  - src/components/editor/EditorView.tsx (+ a CSS Module) + EditorView.test.tsx (dom):
+    - The header, the canvas area and the ready marker.
+  - .changeset/<name>.md: a minor changeset for the root package. This is the first user-visible route, and the repository rules (the AGENTS file) say a changeset accompanies every user-visible change.
+  - e2e/map-editor.spec.ts + e2e/support/seed.ts:
+    - Seed helpers. #18, #19 and #20 reuse them.
+  - Unchanged: e2e/smoke.spec.ts and constraints.yaml (6.4); src/app/page.tsx (10.1).
+  - No new dependency. fake-indexeddb (already a dev dependency) may be used in dom tests.
+Must preserve:
+  - `/` keeps rendering data-testid="app-ready", so the smoke walk stays green.
+  - Editor store, autosave, the canvas and the IndexedDB adapter are used as-is.
+  - Boundaries:
+    - src/components never imports infrastructure; the repository reaches EditorSession as a MapRepository prop typed by the domain port;
+    - only src/app imports infrastructure;
+    - nothing imports src/app.
+Must add:
+  - MapRepositoryProvider({ children, open = openSessionRepository }) exposes useMapRepository(): RepositoryState.
+    - RepositoryState = { status: 'opening' } | { status: 'ready'; repository: MapRepository } | { status: 'failed' }.
+    - openSessionRepository() returns one module-level promise per session: `session ??= openIndexedDbMapRepository()`. It is called only from an effect, never at module level or during render, because SSR evaluates the module (#11 handoff). A rejected open stays rejected for the session.
+    - In 6.2 an open failure (StorageUnavailableError or anything else) is the `failed` state, and the route shows the error state. The in-memory fallback and banner are 6.3 (#17), which changes this provider.
+    - useMapRepository outside the provider throws.
+  - MapEditor({ id }):
+    - The repository state is opening → render the loading state.
+    - It is failed → render the error state.
+    - It is ready → in an effect, call repository.get(id), with a cancelled flag on unmount so no state update follows an unmount.
+    - The result of get decides what renders:
+      - undefined → not-found.
+      - UnsupportedSchemaVersionError → future-version. Nothing is written.
+      - Any other rejection (StorageUnavailableError included until 6.3) → the error state. Never not-found.
+      - A map → <EditorSession map repository><EditorView /></EditorSession>.
+  - MapStatus messages. Each one carries a link "返回导图列表" to "/":
+    - not-found: "找不到这张导图" (spec map-library "Stale link")
+    - future-version: "此导图由更新版本创建" (spec map-persistence "Future version")
+    - error: "无法打开这张导图"
+    - loading: "正在打开…" (no link)
+  - error.tsx renders the error message. It catches render-time throws below the segment, such as layoutForest's "floating root <id> has no finite position" for a corrupt stored record (#9/#11 handoff).
+  - EditorSession({ map, repository, children }):
+    - It creates the store once per mount: useState initializer `createEditorStore({ repository })`, then `load(map)`. load is not an edit, so nothing is written on open.
+    - It provides the store through EditorStoreContext.
+    - useEditorStore(selector) is the React binding (`useStore` from 'zustand'). Used outside the session, it throws.
+    - Effect: `addEventListener('pagehide', onPageHide)`, where onPageHide calls `void store.getState().flush()`.
+    - Cleanup: remove the listener and call `void store.getState().flush()`. Client-side navigation fires no pagehide (#10 handoff).
+    - flush reaches repository.put synchronously, with no await before it (#11 handoff; the store already guarantees this).
+  - EditorView:
+    - The root element carries data-testid="map-editor-ready" and fills the viewport height.
+    - The header has <h1 data-testid="editor-title">{map.title}</h1>, read from the store. It shows the title, never the primary root text.
+    - The canvas area has an explicit height (flex: 1 inside a 100dvh column), so React Flow's container is never 0 high (its error004).
+    - <MindMapCanvas map={map from the store} />.
+  - The e2e seed helper (e2e/support/seed.ts) writes raw IndexedDB records in the page context through the real browser IndexedDB, with no in-memory shortcut.
+    - It uses the adapter's exported MAP_DB_NAME / MAP_DB_VERSION / MAP_STORE / MAP_SCHEMA_VERSION. It never retypes them.
+    - It writes the envelope exactly as the adapter stores it, so it can also seed { schemaVersion: 2, map } and corrupt records.
+    - It reads raw records back for the not-modified assertions.
+    - Seeding protocol: the root-layout provider opens the DB on every page, so seeding never runs on an app page.
+      1. Navigate to a same-origin page without the provider (/api/healthz).
+      2. Open MAP_DB_NAME at MAP_DB_VERSION with an upgrade that creates MAP_STORE exactly as the adapter's upgrade does.
+      3. Write the records.
+      4. Close the connection.
+      5. Navigate to /maps/<id>.
+Governing invariant:
+  - Every stored map either opens in the editor, exactly as stored, or ends in exactly one visible state (not-found, future-version or error).
+  - Opening a map never writes to storage.
+  - Leaving the editor by pagehide or by unmount starts a pending save synchronously.
+  - Because that put's transaction is created before the next MapEditor effect calls get, IndexedDB orders the later read after the write. This satisfies the #13 handoff ("load only a map fetched after any earlier save has finished") and is evidenced by the synchronous-put cases.
+Sibling surfaces:
+  - 6.3 (#17): provider fallback, `storageUnavailable`, banner and toast; it changes the failed path.
+    - Handoff comment on #17 (posted at merge): a `get` that rejects with StorageUnavailableError shows the error state in 6.2. 6.3 turns it into the banner state (#10 handoff).
+  - 6.4 (#18): smoke walk on the ready marker and seed helper.
+  - 7.x (#19–#23): read and dispatch through useEditorStore; #19 and #20 run the reload scenarios with the seed helper.
+  - 10.1/10.2 (#30, #31): read data-testid="editor-title"; the library shares the provider.
+  - 4.2 adapter: the envelope and error contract.
+  - 5.2 autosave: flush.
+  - 6.1 canvas: needs a container height.
+  - Root layout: wraps every route.
+Seams under test:
+  - dom component tests through Testing Library:
+    - the provider, with an injected open, plus openSessionRepository through fake-indexeddb;
+    - MapEditor, with an InMemoryMapRepository or a stub repository, inside the provider with an injected open;
+    - EditorSession, with a RecordingRepository-style stub and a probe child that dispatches through useEditorStore;
+    - EditorView.
+    The canvas test setup (tests/support/canvas.ts) is reused where the canvas mounts.
+  - Playwright against `pnpm dev`, through the real browser IndexedDB.
+Required evidence:
+  - dom (zero console.error/warn, via failOnConsoleNoise):
+    - provider:
+      - opening, then ready with the injected repository;
+      - the injected open rejects with StorageUnavailableError → failed, and with a plain Error → failed;
+      - openSessionRepository returns the same promise on a second call, and under fake-indexeddb that promise resolves to a working repository (put then get round-trips one map);
+      - useMapRepository outside the provider throws.
+    - MapEditor:
+      - loading text first;
+      - seeded map → header shows the map title "标题A" while the root text is "根节点B"; the ready marker is present; the root text is rendered by the canvas;
+      - unknown id → "找不到这张导图" with a link href "/";
+      - get rejects UnsupportedSchemaVersionError → "此导图由更新版本创建", and the repository received no put;
+      - get rejects a plain Error and get rejects StorageUnavailableError → each shows "无法打开这张导图", never "找不到这张导图";
+      - provider failed → error state;
+      - stale-effect guard: under <StrictMode>, the discarded first effect's get rejects with an Error after the live effect's get has resolved with the map. The editor stays ready and never shows "无法打开这张导图". Removing the cancelled flag makes it fail.
+    - EditorSession:
+      - the probe sees the loaded map;
+      - opening and waiting 1 s on fake timers → zero puts;
+      - dispatch an op through the probe, then fire `pagehide` on window → put is called synchronously (before any await or timer advance) with the edited roots;
+      - with no pending save, pagehide → no put;
+      - after a dispatch, unmount → put is called synchronously;
+      - listener removed: capture dispatch through the probe, unmount (its flush puts), dispatch again on the captured dispatch, then fire pagehide → no synchronous put;
+      - useEditorStore outside the session throws.
+    - EditorView: the header testid text equals map.title; the ready marker is present.
+    - MapStatus: each variant's text and link.
+  - e2e, Chromium against pnpm dev. Each named scenario asserts zero console messages of type error and warning, plus zero pageerror. React Flow's devWarn goes to console.warn (#15 handoff). Each scenario saves a screenshot to .run/ui-evidence/<scenario>.png.
+    - Stale link (spec map-library): /maps/does-not-exist shows "找不到这张导图", and a link to / navigates to /.
+    - Future version (spec map-persistence): seed { schemaVersion: 2, map } under id v2 → "此导图由更新版本创建". After 1 s the raw record deep-equals the seed.
+    - Seeded render:
+      - a map with title "标题A", primary root "根节点B" with 2 children, and a floating root at (300, 200) with 1 child;
+      - the header testid shows "标题A";
+      - the primary root's React Flow wrapper translate parses to (0, 0) and the floating root's to (300, 200) in flow coordinates;
+      - every node is visible;
+      - after measurement no two node boxes overlap on screen;
+      - edges attach to the measured handles (#15 handoff on handle bounds), in screen coordinates. React Flow's handle is 6 px wide and shifted out by translate(50%), so an edge meets the handle's outer side, not the node edge:
+        - each path starts within 1 px of its source handle's bounding-rect right-middle and ends within 1 px of its target handle's left-middle;
+        - each handle's centre is within 1 px of its node's right (source) or left (target) edge, at the node's vertical middle;
+      - after 1 s the raw record deep-equals the seed (opening is not an edit).
+    - Fit to content (spec canvas-layout):
+      - a floating subtree at (1600, 900), within about 4× the 1280×720 viewport so the 25% floor can frame it (#9 handoff);
+      - before the click, at least one node lies outside the viewport;
+      - after clicking 适应画布, every node's bounding box lies inside the viewport.
+    - Zoom clamps (spec canvas-layout): wheel-zoom in over the pane until the scale stops → the .react-flow__viewport scale is 2; then out → 0.25.
+    - Space-drag pans (spec canvas-layout):
+      - hold Space and drag 100 px right, starting over a node;
+      - the viewport translate x grows by 100 (±1);
+      - every node's flow-coordinate translate is unchanged;
+      - no node has the .selected class.
+    - Corrupt record:
+      - seed a v1 map whose floating root has no position;
+      - the page shows "无法打开这张导图" with a link to /, never "找不到这张导图";
+      - this scenario allows only console errors whose text contains "has no finite position" (Next's caught-error report includes the thrown error), and asserts at least one was seen;
+      - after 1 s the raw record deep-equals the seed (spec: SHALL modify nothing).
+  - bites, each applied, shown red, then restored:
+    (i) not-found returned for every rejection → the dom "never not-found on error" cases fail
+    (ii) pagehide listener not registered → the EditorSession pagehide case fails
+    (iii) no flush on unmount → the unmount case fails
+    (iv) header shows the primary root text → the dom header case and the e2e seeded-render header assertion fail
+    (v) the canvas area without an explicit height → the e2e console-warning assertion (React Flow error004) or the render assertions fail
+    (vi) openSessionRepository without `??=` (a new open per call) → the identity case fails
+  - red run: the new dom tests and e2e failing before the implementation.
+  - pnpm changeset status lists the new changeset (exit 0).
+  - gates, all exit 0: pnpm test:unit (every new non-route src file ≥ 90%), typecheck, lint, boundaries, dead-code, duplicate-code, fmt:check, docs:check, pnpm build (first build that compiles the canvas, its stylesheet import and CSS Modules), pnpm e2e (the smoke walk plus the new spec).
+Non-goals:
+  - the in-memory fallback, banner and toast (6.3);
+  - smoke registration and constraints.yaml (6.4);
+  - any editing interaction, and so the reload-after-edit scenarios, no-blink across an edit and edge endpoints after a rename (#19 and #20; handed off);
+  - the library page (10.x);
+  - viewport persistence (not specified for M1; the store's viewport stays unused until a task needs it);
+  - validating stored maps on load (the error boundary covers the crash path; canonicalise-on-load stays with the #4 follow-up).
+Review focus:
+  - the session-singleton open (client only, once per session);
+  - the never-not-found-on-error classification;
+  - flush is synchronous on pagehide and on unmount, and the listener is cleaned up;
+  - no write on open;
+  - the error boundary covers corrupt records;
+  - container height and zero console warnings in dev;
+  - seed helper fidelity to the adapter envelope and constants;
+  - boundaries (components never import infrastructure).
 ```

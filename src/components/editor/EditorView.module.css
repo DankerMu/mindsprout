@@ -1,0 +1,28 @@
+/* The editor fills the viewport: a header, then the canvas area taking the rest. Fixed at inset 0
+ * so the body's default margin cannot push the 100dvh column past the window. The canvas area's
+ * height comes from flex: 1 (min-height: 0 lets it shrink); React Flow's container is 100% of it
+ * and warns (error004) when that is 0. */
+.editor {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+.header {
+  flex: none;
+  padding: 8px 16px;
+  border-bottom: 1px solid #d0d7de;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 28px;
+}
+
+.canvas {
+  flex: 1;
+  min-height: 0;
+}
