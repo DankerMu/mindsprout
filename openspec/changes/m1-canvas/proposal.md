@@ -135,3 +135,14 @@ Blast radius: a port or contract that allows stamping, shares mutable state with
 Selected risk packs: Public API / CLI / script entry; Schema / columns / units / field names; Concurrency / shared state / ordering; Error handling / rollback / partial outputs
 Evidence floor: pnpm test:unit (contract suite against InMemoryMapRepository, error classes, type assertions, ≥90% per file); pnpm boundaries; pnpm typecheck; pnpm lint; pnpm dead-code; pnpm duplicate-code; pnpm fmt:check; import inventory (domain files import only ./types; adapter imports only ../../domain/*)
 ```
+
+## Fixture triage — issue #11 (task 4.2)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (persisted state and a versioned file format)
+Blast radius: this is the only durable store in M1 — a wrong envelope, a lost or reinterpreted record, an error mapped to the wrong class (open failure not surfacing as StorageUnavailableError, a corrupt record read as "not found") or a list that breaks on one bad record loses user maps or hides them from the library; the schemaVersion 1 envelope is the format M2 sync must read
+Selected risk packs: Public API / CLI / script entry; Schema / columns / units / field names; File IO / path safety / overwrite; Error handling / rollback / partial outputs; Release / packaging / dependency compatibility; Legacy compatibility / examples
+Evidence floor: pnpm test:unit (contract suite under fake-indexeddb, envelope shape, reopen round-trip, version and corrupt-record paths, three open-failure paths, list tolerance; ≥90% per file); pnpm typecheck; pnpm lint; pnpm boundaries; pnpm dead-code (idb used, fake-indexeddb used by tests); pnpm duplicate-code; pnpm fmt:check; pnpm install --frozen-lockfile; licence review (ISC, Apache-2.0 on the allowlist; no CI licence audit)
+```
