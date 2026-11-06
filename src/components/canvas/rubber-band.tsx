@@ -41,24 +41,26 @@ export function useRubberBand(
   select: (ids: NodeId[]) => void,
 ) {
   const { screenToFlowPosition } = useReactFlow();
-  const start = useRef<XYPosition | null>(null);
+  const start = useRef<(XYPosition & { pointerId: number }) | null>(null);
   const [rectangle, setRectangle] = useState<Rectangle | null>(null);
 
   function onPointerDownCapture(event: PointerEvent<HTMLDivElement>): void {
     if (
       event.button !== 0 ||
+      event.pointerType !== 'mouse' ||
+      !event.isPrimary ||
       blocked(event.target) ||
       !(event.target instanceof Element) ||
       !event.target.classList.contains('react-flow__pane')
     )
       return;
-    start.current = { x: event.clientX, y: event.clientY };
+    start.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
     event.currentTarget.setPointerCapture(event.pointerId);
     event.currentTarget.focus();
   }
 
   function onPointerMoveCapture(event: PointerEvent<HTMLDivElement>): void {
-    if (start.current === null) return;
+    if (start.current?.pointerId !== event.pointerId) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const rect = rectangleBetween(start.current, { x: event.clientX, y: event.clientY });
     setRectangle({ ...rect, left: rect.left - bounds.left, top: rect.top - bounds.top });
@@ -70,7 +72,7 @@ export function useRubberBand(
   }
 
   function onPointerUpCapture(event: PointerEvent<HTMLDivElement>): void {
-    if (start.current === null) return;
+    if (start.current?.pointerId !== event.pointerId) return;
     const origin = start.current;
     cancel();
     event.currentTarget.releasePointerCapture(event.pointerId);
@@ -82,12 +84,16 @@ export function useRubberBand(
     select(enclosedIds(layout, area));
   }
 
+  function onPointerCancel(event: PointerEvent<HTMLDivElement>): void {
+    if (start.current?.pointerId === event.pointerId) cancel();
+  }
+
   return {
     rectangle,
     onPointerDownCapture,
     onPointerMoveCapture,
     onPointerUpCapture,
-    onPointerCancel: cancel,
-    onLostPointerCapture: cancel,
+    onPointerCancel,
+    onLostPointerCapture: onPointerCancel,
   };
 }

@@ -30,13 +30,17 @@ function setup() {
   return { store, region, pane, repository };
 }
 
+function pointerDown(target: Element, options: PointerEventInit = {}) {
+  fireEvent.pointerDown(target, { pointerType: 'mouse', isPrimary: true, ...options });
+}
+
 describe('canvas rubber band', () => {
   it('selects exactly fully enclosed visible nodes and replaces the prior selection', () => {
     const { store, region, pane } = setup();
     fireEvent.click(nodeWrapper('f'));
     const a = renderedPosition('a');
     const c = renderedPosition('c');
-    fireEvent.pointerDown(pane, { button: 0, pointerId: 1, clientX: a.x - 5, clientY: a.y - 5 });
+    pointerDown(pane, { button: 0, pointerId: 1, clientX: a.x - 5, clientY: a.y - 5 });
     fireEvent.pointerMove(region, { pointerId: 1, clientX: c.x + 100, clientY: c.y + 40 });
     fireEvent.pointerUp(region, { pointerId: 1, clientX: c.x + 100, clientY: c.y + 40 });
     expect(store.getState().selectedIds).toEqual(['a', 'b', 'c']);
@@ -49,7 +53,7 @@ describe('canvas rubber band', () => {
     const a = renderedPosition('a');
     const b = renderedPosition('b');
     const drag = (x: number, y: number, endX: number, endY: number) => {
-      fireEvent.pointerDown(pane, { button: 0, pointerId: 1, clientX: x, clientY: y });
+      pointerDown(pane, { button: 0, pointerId: 1, clientX: x, clientY: y });
       fireEvent.pointerMove(region, { pointerId: 1, clientX: endX, clientY: endY });
       fireEvent.pointerUp(region, { pointerId: 1, clientX: endX, clientY: endY });
     };
@@ -65,18 +69,83 @@ describe('canvas rubber band', () => {
     const before = store.getState();
     fireEvent.pointerMove(region, { clientX: 500, clientY: 500 });
     fireEvent.pointerUp(region, { clientX: 500, clientY: 500 });
-    fireEvent.pointerDown(pane, { button: 0, pointerId: 1, clientX: 0, clientY: 0 });
+    pointerDown(pane, { button: 0, pointerId: 1, clientX: 0, clientY: 0 });
     fireEvent.pointerUp(region, { pointerId: 1, clientX: 0, clientY: 0 });
-    fireEvent.pointerDown(pane, { button: 0, pointerId: 1, clientX: 0, clientY: 0 });
-    fireEvent.pointerCancel(region);
+    pointerDown(pane, { button: 0, pointerId: 1, clientX: 0, clientY: 0 });
+    fireEvent.pointerCancel(region, { pointerId: 1 });
     fireEvent.pointerUp(region, { pointerId: 1, clientX: 500, clientY: 500 });
-    fireEvent.pointerDown(nodeWrapper('a'), { button: 0 });
-    fireEvent.pointerDown(pane, { button: 1 });
-    fireEvent.keyDown(region, { key: ' ' });
-    fireEvent.pointerDown(pane, { button: 0 });
+    pointerDown(nodeWrapper('a'), { button: 0 });
+    pointerDown(pane, { button: 1 });
+    fireEvent.keyDown(region, { key: ' ', code: 'Space' });
+    pointerDown(pane, { button: 0 });
     fireEvent.click(nodeWrapper('b'));
-    fireEvent.keyUp(region, { key: ' ' });
+    fireEvent.keyUp(region, { key: ' ', code: 'Space' });
     expect(store.getState()).toBe(before);
+  });
+
+  it.each(['window', 'region'])(
+    'keeps %s Space out of band and click selection, then resets on window blur',
+    (target) => {
+      const { store, region, pane } = setup();
+      fireEvent.click(nodeWrapper('a'));
+      if (target === 'window') {
+        act(() => {
+          region.blur();
+        });
+        expect(document.activeElement).toBe(document.body);
+      }
+      fireEvent.keyDown(target === 'window' ? window : region, { key: ' ', code: 'Space' });
+      pointerDown(pane, { button: 0, pointerId: 1, clientX: 700, clientY: 700 });
+      fireEvent.pointerMove(region, { pointerId: 1, clientX: 800, clientY: 750 });
+      expect.soft(region.querySelector(':scope > [aria-hidden="true"]')).toBeNull();
+      fireEvent.pointerUp(region, { pointerId: 1, clientX: 800, clientY: 750 });
+      expect.soft(store.getState().selectedIds).toEqual(['a']);
+      fireEvent.click(nodeWrapper('b'));
+      expect.soft(store.getState().selectedIds).toEqual(['a']);
+      fireEvent.blur(window);
+      fireEvent.click(nodeWrapper('b'));
+      expect(store.getState().selectedIds).toEqual(['b']);
+    },
+  );
+
+  it.each([
+    { pointerType: 'touch', isPrimary: true, button: 0 },
+    { pointerType: 'mouse', isPrimary: false, button: 0 },
+    { pointerType: 'mouse', isPrimary: true, button: 2 },
+  ])(
+    'does not select for a $pointerType pointer with primary=$isPrimary button=$button',
+    (pointer) => {
+      const { store, region, pane } = setup();
+      const setPointerCapture = vi.spyOn(region, 'setPointerCapture');
+      fireEvent.click(nodeWrapper('a'));
+      pointerDown(pane, { ...pointer, pointerId: 1, clientX: 700, clientY: 700 });
+      fireEvent.pointerMove(region, { pointerId: 1, clientX: 800, clientY: 750 });
+      fireEvent.pointerUp(region, { pointerId: 1, clientX: 800, clientY: 750 });
+      expect(store.getState().selectedIds).toEqual(['a']);
+      expect(region.querySelector(':scope > [aria-hidden="true"]')).toBeNull();
+      expect(setPointerCapture).not.toHaveBeenCalled();
+    },
+  );
+
+  it('ignores another pointer while the originating mouse owns the band', () => {
+    const { store, region, pane } = setup();
+    fireEvent.click(nodeWrapper('f'));
+    const a = renderedPosition('a');
+    const c = renderedPosition('c');
+    pointerDown(pane, { pointerId: 1, clientX: a.x - 5, clientY: a.y - 5 });
+    fireEvent.pointerMove(region, { pointerId: 1, clientX: c.x + 100, clientY: c.y + 40 });
+    const rectangle = region.querySelector(':scope > [aria-hidden="true"]')?.getAttribute('style');
+    pointerDown(pane, { pointerType: 'touch', pointerId: 2, clientX: 700, clientY: 700 });
+    fireEvent.pointerMove(region, { pointerId: 2, clientX: 800, clientY: 750 });
+    expect(region.querySelector(':scope > [aria-hidden="true"]')?.getAttribute('style')).toBe(
+      rectangle,
+    );
+    fireEvent.pointerUp(region, { pointerId: 2, clientX: 800, clientY: 750 });
+    fireEvent.pointerCancel(region, { pointerId: 2 });
+    fireEvent.lostPointerCapture(region, { pointerId: 2 });
+    expect(store.getState().selectedIds).toEqual(['f']);
+    fireEvent.pointerUp(region, { pointerId: 1, clientX: c.x + 100, clientY: c.y + 40 });
+    expect(store.getState().selectedIds).toEqual(['a', 'b', 'c']);
   });
 
   it('ignores pointer selection and canvas keys during composition, text focus or editing', () => {
@@ -86,7 +155,7 @@ describe('canvas rubber band', () => {
     fireEvent.compositionStart(region);
     fireEvent.keyDown(region, { key: 'a', ctrlKey: true });
     fireEvent.click(nodeWrapper('b'));
-    fireEvent.pointerDown(pane, { button: 0 });
+    pointerDown(pane, { button: 0 });
     expect(store.getState()).toBe(before);
     fireEvent.compositionEnd(region);
     fireEvent.keyDown(region, { key: 'a', ctrlKey: true, isComposing: true });
@@ -94,10 +163,20 @@ describe('canvas rubber band', () => {
     const input = document.createElement('input');
     document.body.append(input);
     input.focus();
+    const space = new KeyboardEvent('keydown', {
+      key: ' ',
+      code: 'Space',
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(input, space);
+    expect(space.defaultPrevented).toBe(false);
     fireEvent.click(nodeWrapper('b'));
-    fireEvent.pointerDown(pane, { button: 0 });
+    pointerDown(pane, { button: 0 });
     expect(store.getState()).toBe(before);
     input.remove();
+    fireEvent.click(nodeWrapper('b'));
+    expect(store.getState().selectedIds).toEqual(['b']);
     act(() => {
       store.getState().startEdit('a');
     });
@@ -109,7 +188,7 @@ describe('canvas rubber band', () => {
 
   it('drops a band if editing starts before release and lost capture cancels it', () => {
     const { store, region, pane } = setup();
-    fireEvent.pointerDown(pane, { button: 0, pointerId: 1, clientX: 0, clientY: 0 });
+    pointerDown(pane, { button: 0, pointerId: 1, clientX: 0, clientY: 0 });
     act(() => {
       store.getState().startEdit('a');
     });
@@ -118,8 +197,8 @@ describe('canvas rubber band', () => {
     act(() => {
       store.getState().cancelEdit();
     });
-    fireEvent.pointerDown(pane, { button: 0, pointerId: 1 });
-    fireEvent.lostPointerCapture(region);
+    pointerDown(pane, { button: 0, pointerId: 1 });
+    fireEvent.lostPointerCapture(region, { pointerId: 1 });
     fireEvent.pointerUp(region, { pointerId: 1, clientX: 500, clientY: 500 });
     expect(store.getState().selectedIds).toEqual([]);
   });

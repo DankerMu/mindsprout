@@ -166,6 +166,51 @@ test.describe('canvas-editing selection', () => {
     await capture(page, 'escape');
   });
 
+  test('Space pan from header BODY focus preserves exact selection without a band', async ({
+    page,
+  }) => {
+    await nodeAt(page, 'a').click();
+    await nodeAt(page, 'b').click({ modifiers: ['Shift'] });
+    await nodeAt(page, 'c').click({ modifiers: ['Shift'] });
+    await selected(page, ['a', 'b', 'c']);
+    await page.getByTestId('editor-title').click();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe('BODY');
+    const viewport = page.locator('.react-flow__viewport');
+    const translation = () =>
+      viewport.evaluate((element) => {
+        const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+        return { x: matrix.e, y: matrix.f, zoom: matrix.a };
+      });
+    const before = await translation();
+    const pane = page.locator('.react-flow__pane');
+    const box = await pane.boundingBox();
+    if (box === null) throw new Error('missing pane');
+    const start = { x: box.x + 30, y: box.y + box.height - 100 };
+    expect(
+      await page.evaluate(
+        ({ x, y }) => document.elementFromPoint(x, y)?.classList.contains('react-flow__pane'),
+        start,
+      ),
+    ).toBe(true);
+    await page.keyboard.down('Space');
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 100, start.y + 50, { steps: 12 });
+    await expect
+      .soft(
+        page.getByRole('region', { name: '思维导图画布' }).locator(':scope > [aria-hidden="true"]'),
+      )
+      .toHaveCount(0);
+    await page.mouse.up();
+    await page.keyboard.up('Space');
+    const after = await translation();
+    expect(after.x - before.x).toBeCloseTo(100);
+    expect(after.y - before.y).toBeCloseTo(50);
+    expect(after.zoom).toBe(before.zoom);
+    await selected(page, ['a', 'b', 'c']);
+    await capture(page, 'body-space-pan');
+  });
+
   test('Space and middle pan over selected nodes preserve selection', async ({ page }) => {
     await nodeAt(page, 'a').click();
     await nodeAt(page, 'b').click({ modifiers: ['Shift'] });

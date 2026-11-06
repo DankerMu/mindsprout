@@ -1,7 +1,14 @@
 'use client';
 
 import '@xyflow/react/dist/style.css';
-import { Panel, ReactFlow, ReactFlowProvider, useReactFlow, type NodeTypes } from '@xyflow/react';
+import {
+  Panel,
+  ReactFlow,
+  ReactFlowProvider,
+  useKeyPress,
+  useReactFlow,
+  type NodeTypes,
+} from '@xyflow/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   contentBounds,
@@ -123,7 +130,9 @@ interface CanvasProps {
 
 function CanvasView({ map, selection }: CanvasProps) {
   const composing = useRef(false);
-  const space = useRef(false);
+  const space = useKeyPress('Space', {
+    target: typeof window === 'undefined' ? null : window,
+  });
   const [sizes, measurer] = useNodeSizes();
   const layout = useMemo(
     () => layoutForest(map, { direction: 'LR', nodeSize: sizes }),
@@ -139,9 +148,7 @@ function CanvasView({ map, selection }: CanvasProps) {
   const { rectangle, ...rubberBand } = useRubberBand(
     layout,
     (target) =>
-      selection === undefined ||
-      space.current ||
-      selectionBlocked(selection, target, composing.current),
+      selection === undefined || space || selectionBlocked(selection, target, composing.current),
     (ids) => selection?.setSelection(ids),
   );
   return (
@@ -159,16 +166,11 @@ function CanvasView({ map, selection }: CanvasProps) {
           composing.current = false;
         }}
         onKeyDownCapture={(event) => {
-          if (event.key === ' ') space.current = true;
           if (selection !== undefined && !composing.current) {
             handleSelectionKey(event.nativeEvent, map, selection);
           }
         }}
-        onKeyUpCapture={(event) => {
-          if (event.key === ' ') space.current = false;
-        }}
         onBlur={() => {
-          space.current = false;
           composing.current = false;
         }}
       >
@@ -186,7 +188,7 @@ function CanvasView({ map, selection }: CanvasProps) {
           onNodeClick={(event, node) => {
             if (
               selection === undefined ||
-              space.current ||
+              space ||
               selectionBlocked(selection, event.target, composing.current)
             )
               return;
