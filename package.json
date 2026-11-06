@@ -25,7 +25,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:contract": "vitest run --config vitest.contract.config.ts",
     "dead-code": "knip --reporter compact",
-    "duplicate-code": "jscpd --threshold 2 src",
+    "duplicate-code": "jscpd --config jscpd.json src",
     "anti-drift": "pnpm dead-code && pnpm duplicate-code",
     "docs:check": "node scripts/check-docs.mjs",
     "decisions:check": "node scripts/check-decisions.mjs",

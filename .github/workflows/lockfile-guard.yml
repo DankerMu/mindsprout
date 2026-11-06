@@ -1,0 +1,39 @@
+name: Lockfile guard
+
+# Separate from ci.yml so label changes re-run only this job; ci.yml cancels and restarts in full.
+# No `if:` anywhere: GitHub counts a skipped required check as passing, so every PR event runs
+# the guard to completion and reads the PR's live labels instead of the event payload.
+# No `needs:` either, and `shell: bash` runs with -e: a failed label lookup fails the check
+# instead of skipping it.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+# Only the newest run per PR completes, so an older run cannot report a stale verdict last.
+concurrency:
+  group: lockfile-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lockfile-consistency:
+    name: Lockfile–manifest consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Check lockfile–manifest pairs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          labels=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.labels[].name')
+          export PR_LABELS="$labels"
+          bash scripts/check-lockfile-pairs.sh "$BASE_SHA"

@@ -1,14 +1,14 @@
 ---
 id: 0006
-title: Test files are exempt from layer rules
+title: Test files are exempt from domain-is-pure
 kind: testing
 status: implemented
 date: 2026-11-05
 ---
 
-# Test files are exempt from layer rules
+# Test files are exempt from domain-is-pure
 
-Status: active — partially refines 0005 (zod stays the one package domain production code may import; see [0005](0005-zod-in-domain.md))
+Status: active — partially refines 0005 (zod stays the one package domain production code may import; see [0005](../architecture/0005-zod-in-domain.md))
 
 ## Problem
 
@@ -16,7 +16,8 @@ Status: active — partially refines 0005 (zod stays the one package domain prod
 
 ## Decision
 
-- Test files are not domain code. Files whose name ends in `.test.ts` or `.test.tsx` are exempt from layer rules: they may import the test runner and sibling fixtures.
+- Test files are not domain code. Files whose name ends in `.test.ts` or `.test.tsx` are exempt from `domain-is-pure` only: they may import the test runner and sibling fixtures.
+- Every other boundary rule applies to test files: `no-circular`, the `no-cross-context-*` rules, `application-not-infrastructure`, `no-framework-in-domain-or-application`, `components-and-shared-not-infrastructure` and `nothing-imports-app-routes`.
 - The exemption is applied to `domain-is-pure` as `from.pathNot: ['\\.test\\.tsx?$']`; the rule's `path` and its `to` allowance (itself, `src/shared`, zod) are unchanged.
 - The exemption is mirrored in `constraints.yaml` `module_boundaries.allowed_dependency_directions`.
 

@@ -231,6 +231,70 @@ expect_accept --what "$archive_ok without constraints.yaml" "scratchpad exemptio
 expect_reject "scratchpad exemption (k) fallback src/archive/x.ts" "naming violation (write-time)" \
   in_dir "$tmp/naming-nofile" bash .git-hooks/check-naming.sh src/archive/x.ts
 rm -rf "$tmp/naming-invalid" "$tmp/naming-nokey" "$tmp/naming-nofile"
+
+# 2b. Staged paths are judged by their real bytes (#61): without -z, git C-quotes a path that
+# holds non-ASCII or control bytes, and the quoted form slips past both anchored regexes.
+staged_case() { # staged_case <case> <label> <path> <reason> <exact output line>
+  probe_staged "$3"
+  expect_reject --line "$5" "naming staged ($1) $2" "$4" bash "$naming_hook"
+  drop_staged "$3"
+}
+staged_case n1 "tmp/é.md" "tmp/é.md" "scratchpad directory" "  scratchpad directory:    tmp/é.md"
+staged_case n2 "tmp/x<LF>y.md" "$(printf 'tmp/x\ny.md')" "scratchpad directory" \
+  "  scratchpad directory:    tmp/x"
+staged_case n3 "note_é_new" "note_é_new" "forbidden naming suffix" "  forbidden naming suffix: note_é_new"
+staged_case n4 "docs é/Backup" "docs é/Backup" "forbidden naming suffix" \
+  "  forbidden naming suffix: docs é/Backup"
+p="openspec/changes/archive/2026-01-01-probe/说明.md"
+probe_staged "$p"
+# The accept only means something if the probe is really staged under its exact bytes.
+expect_accept --what "$p staged" "naming staged (n5) probe is staged" \
+  sh -c 'git diff --cached --name-only -z | tr "\0" "\n" | grep -qxF -- "$1"' sh "$p"
+expect_accept --what "$p" "naming staged (n5) $p" bash "$naming_hook"
+drop_staged "$p"
+p="openspec/changes/archive/2026-01-01-probe/tmp/说明.md"
+staged_case n6 "$p" "$p" "scratchpad directory" "  scratchpad directory:    $p"
+rm -rf tmp "docs é" openspec/changes/archive/2026-01-01-probe
+rmdir openspec/changes/archive 2>/dev/null
+
+# 2c. Path mode judges an absolute path by where it physically is (#59, decision 0008): outside
+# the worktree → accepted; inside, also through a symlink → the repo-relative verdict; a `..`
+# segment never earns the outside verdict.
+path_reject() { # path_reject <case> <label> <path argument>
+  expect_reject --line "naming violation (write-time): $3 — see AGENTS.md § Code Canonicality" \
+    "naming path mode ($1) $2" "naming violation (write-time)" bash "$naming_hook" "$3"
+}
+mkdir -p "$tmp/outside/scratch"
+ln -s "$wt" "$tmp/wt-link"
+ln -s "$wt/src" "$tmp/l"
+expect_accept --what "a path outside the repository" \
+  "naming path mode (p1) \$tmp/outside/scratch/notes_old.md" bash "$naming_hook" "$tmp/outside/scratch/notes_old.md"
+expect_accept --what "a path outside the repository" \
+  "naming path mode (p1) /tmp/scratch-probe/x_old.md" bash "$naming_hook" /tmp/scratch-probe/x_old.md
+expect_accept --what "a non-existent path outside the repository" \
+  "naming path mode (p2) /nonexistent-mindsprout-probe/notes_old.md" \
+  bash "$naming_hook" /nonexistent-mindsprout-probe/notes_old.md
+path_reject p3 "\$wt/scratch/x.md" "$wt/scratch/x.md"
+path_reject p3 "\$wt/foo_v2.ts" "$wt/foo_v2.ts"
+path_reject p4 "\$tmp/wt-link/scratch/x.md" "$tmp/wt-link/scratch/x.md"
+expect_accept --what "an exempt path reached through a symlink" \
+  "naming path mode (p4) \$tmp/wt-link/$archive_ok" bash "$naming_hook" "$tmp/wt-link/$archive_ok"
+path_reject p5 "scratch/x.md" "scratch/x.md"
+path_reject p5 "foo_v2.ts" "foo_v2.ts"
+path_reject p6 "\$tmp/nope/../wt/foo_v2.ts" "$tmp/nope/../wt/foo_v2.ts"
+path_reject p6 "\$tmp/nope/../wt/scratch/x.md" "$tmp/nope/../wt/scratch/x.md"
+path_reject p6 "\$tmp/l/../foo_v2.ts (\$tmp/l -> \$wt/src)" "$tmp/l/../foo_v2.ts"
+# p7: another spelling of the same directory (here case; also firmlinks, Unicode normalisation)
+# must not read as outside. Needs a case-insensitive filesystem (default macOS APFS).
+wt_upper="$(printf '%s' "$wt" | tr '[:lower:]' '[:upper:]')"
+if [ "$wt_upper" != "$wt" ] && [ -d "$wt_upper" ] && [ "$wt_upper" -ef "$wt" ]; then
+  path_reject p7 "\$WT/scratch/x.md (upper-cased \$wt)" "$wt_upper/scratch/x.md"
+  path_reject p7 "\$WT/foo_v2.ts (upper-cased \$wt)" "$wt_upper/foo_v2.ts"
+else
+  skip "naming path mode (p7) upper-cased \$wt" "filesystem is case-sensitive, so no case alias of \$wt exists"
+fi
+rm -rf "$tmp/outside"
+rm -f "$tmp/wt-link" "$tmp/l"
 git checkout --quiet -- constraints.yaml
 
 # 3. Secret guard — a credential-shaped token in a staged addition.
@@ -264,11 +328,13 @@ expect_reject "decisions gate (unknown kind)" "unknown kind" \
 rm -f decisions/proposed/9999-fixture.md
 
 # 7. Boundaries guard — domain-is-pure admits zod (decision 0005) and nothing else;
-# test files are exempt from it (decision 0006).
-# depcruise reads the worktree's committed .dependency-cruiser.cjs and must resolve the
-# probed packages. A symlink to the root node_modules would resolve to real paths
-# outside the worktree (matching no rule path), so mirror only zod, react and vitest into the
-# worktree, keeping pnpm's .pnpm/<pkg>@<ver>/node_modules/<pkg> layout when present.
+# test files are exempt from it (decision 0006). no-framework-in-domain-or-application rejects
+# next/react/react-dom/drizzle-orm/postgres/@supabase in domain/ and application/ (#37).
+# depcruise reads the repo root's .dependency-cruiser.cjs, copied into the worktree for this
+# section (restored at the end) so the uncommitted version is the one tested, and must resolve
+# the probed packages. A symlink to the root node_modules would resolve to real paths
+# outside the worktree (matching no rule path), so mirror only zod, react, vitest and postgres
+# into the worktree, keeping pnpm's .pnpm/<pkg>@<ver>/node_modules/<pkg> layout when present.
 mirror_package() {
   pkg="$1"
   nm="$(cd "$repo_root/node_modules" && pwd -P)" || return 1
@@ -284,11 +350,13 @@ mirror_package() {
 }
 depcruise_bin="$repo_root/node_modules/.bin/depcruise"
 mkdir -p "$wt/node_modules"
-if [ ! -x "$depcruise_bin" ] || [ ! -f .dependency-cruiser.cjs ]; then
+if [ ! -x "$depcruise_bin" ] || [ ! -f "$repo_root/.dependency-cruiser.cjs" ]; then
   skip "boundaries guard" "depcruise not installed at $depcruise_bin or no .dependency-cruiser.cjs"
-elif ! mirror_package zod || ! mirror_package react || ! mirror_package vitest; then
-  skip "boundaries guard" "could not mirror zod/react/vitest from $repo_root/node_modules"
+elif ! mirror_package zod || ! mirror_package react || ! mirror_package vitest ||
+  ! mirror_package postgres; then
+  skip "boundaries guard" "could not mirror zod/react/vitest/postgres from $repo_root/node_modules"
 else
+  cp "$repo_root/.dependency-cruiser.cjs" .dependency-cruiser.cjs
   mkdir -p src/contexts/map/domain
   printf "import { z } from 'zod';\nexport const probe = z.string();\n" > src/contexts/map/domain/zod-probe.ts
   expect_accept "boundaries guard (zod in domain)" \
@@ -300,10 +368,87 @@ else
   printf "import 'react';\n" > src/contexts/map/domain/react-probe.ts
   expect_reject "boundaries guard (react in domain)" "domain-is-pure" \
     "$depcruise_bin" src --config .dependency-cruiser.cjs
+  expect_reject "boundaries guard (b3) react in domain also names the framework rule" \
+    "no-framework-in-domain-or-application" "$depcruise_bin" src --config .dependency-cruiser.cjs
   rm -f src/contexts/map/domain/zod-probe.ts src/contexts/map/domain/zod-probe.test.ts \
     src/contexts/map/domain/react-probe.ts
+  mkdir -p src/contexts/map/application
+  printf "import 'react';\n" > src/contexts/map/application/react-probe.ts
+  expect_reject "boundaries guard (b1) react in application" "no-framework-in-domain-or-application" \
+    "$depcruise_bin" src --config .dependency-cruiser.cjs
+  rm -f src/contexts/map/application/react-probe.ts
+  printf "import 'postgres';\n" > src/contexts/map/application/postgres-probe.ts
+  expect_reject "boundaries guard (b2) postgres in application" "no-framework-in-domain-or-application" \
+    "$depcruise_bin" src --config .dependency-cruiser.cjs
+  rm -f src/contexts/map/application/postgres-probe.ts
+  git checkout --quiet -- .dependency-cruiser.cjs
 fi
 rm -rf "$wt/node_modules"
+
+# 7a. Duplicate-code gate — the working-tree package.json scripts.duplicate-code (read at runtime,
+# not retyped) must load jscpd.json, so test files count as neither clones nor lines (#47); and
+# jscpd.json's threshold, the only one that runs, must equal constraints.yaml
+# anti_drift.duplicate_code_threshold_percent. The gate runs in throwaway dirs under $tmp,
+# outside the worktree, each holding a copy of the working-tree jscpd.json.
+dup_script=$(node -e 'process.stdout.write(require(process.argv[1]).scripts["duplicate-code"] || "")' \
+  "$repo_root/package.json")
+dup_clone() { # dup_clone <file> — writes one block far above jscpd's minimum clone size
+  cat > "$1" <<'CLONE'
+export function probeTotal(items: readonly number[]): number {
+  let total = 0;
+  for (const item of items) {
+    if (item > 10) {
+      total += item * 2;
+    } else if (item > 5) {
+      total += item + 3;
+    } else {
+      total -= item;
+    }
+  }
+  const scaled = total * 7 + items.length;
+  return scaled > 100 ? scaled - 100 : scaled + 100;
+}
+CLONE
+}
+dup_dir() { # dup_dir <dir> — a fresh dir with src/ and the working-tree jscpd.json
+  rm -rf "$1" && mkdir -p "$1/src" && cp "$repo_root/jscpd.json" "$1/jscpd.json"
+}
+dup_run() { # dup_run <dir> — runs the working-tree duplicate-code script in <dir>
+  (cd "$1" && PATH="$repo_root/node_modules/.bin:$PATH" sh -c "$dup_script")
+}
+# dup_parity <jscpd.json> <constraints.yaml> — the runtime threshold equals the canonical one.
+dup_parity() {
+  j=$(node -e 'const t = require(process.argv[1]).threshold; process.stdout.write(t === undefined ? "" : String(t))' \
+    "$1") || return 1
+  c=$(awk 'prev ~ /^  duplicate_code_threshold_percent:$/ && /^    value: / { print $2 } { prev = $0 }' "$2")
+  if [ -z "$j" ] || [ -z "$c" ] || [ "$j" != "$c" ]; then
+    echo "duplicate-code threshold drift: jscpd.json threshold '${j}' != constraints.yaml anti_drift.duplicate_code_threshold_percent '${c}'"
+    return 1
+  fi
+}
+if [ -z "$dup_script" ] || [ ! -x "$repo_root/node_modules/.bin/jscpd" ]; then
+  skip "duplicate-code gate" "no scripts.duplicate-code in package.json or jscpd not installed"
+else
+  dup_dir "$tmp/dup-tests"
+  dup_clone "$tmp/dup-tests/src/a.test.ts"
+  dup_clone "$tmp/dup-tests/src/b.test.ts"
+  printf 'export const probeName = "duplicate-code gate";\n' > "$tmp/dup-tests/src/probe.ts"
+  expect_accept --what "a clone between two *.test.ts files" \
+    "duplicate-code gate (d2) clone between test files" dup_run "$tmp/dup-tests"
+  dup_dir "$tmp/dup-prod"
+  dup_clone "$tmp/dup-prod/src/a.ts"
+  dup_clone "$tmp/dup-prod/src/b.ts"
+  expect_reject "duplicate-code gate (d3) clone between production files" "too many duplicates" \
+    dup_run "$tmp/dup-prod"
+  rm -rf "$tmp/dup-tests" "$tmp/dup-prod"
+fi
+expect_accept --what "the working-tree jscpd.json and constraints.yaml" \
+  "duplicate-code gate (d4) threshold parity" dup_parity "$repo_root/jscpd.json" "$repo_root/constraints.yaml"
+node -e 'const f = process.argv[1]; const c = require(f); c.threshold += 1;
+  require("fs").writeFileSync(process.argv[2], JSON.stringify(c))' "$repo_root/jscpd.json" "$tmp/jscpd-drift.json"
+expect_reject "duplicate-code gate (d4) mismatched jscpd.json threshold" "threshold drift" \
+  dup_parity "$tmp/jscpd-drift.json" "$repo_root/constraints.yaml"
+rm -f "$tmp/jscpd-drift.json"
 
 # 8. Commit-message guard — non-conventional message (commitlint needs node_modules → run from repo root).
 badmsg="$tmp/badmsg"
@@ -388,6 +533,53 @@ expect_reject --absent "Changed lines" "diff guard (git diff fails: no merge bas
 
 if [ "$(git rev-parse HEAD)" != "$diff_base" ] || [ -n "$(git status --porcelain)" ]; then
   echo "FAIL  diff guard fixtures left the worktree off $diff_base or dirty:"
+  git status --short | sed 's/^/        /'
+  fail=$((fail + 1))
+fi
+
+# 9a. Lockfile guard — rejects a PR that changes pnpm-lock.yaml without package.json, honours an
+# exact lockfile-refresh line in PR_LABELS, and fails closed when it cannot list the changed files
+# (#49). Same harness as section 9: the repo root's script runs with the worktree as cwd, fixture
+# commits use plumbing only, and every case restores the worktree to $diff_base.
+lock_guard="$repo_root/scripts/check-lockfile-pairs.sh"
+lock_msg="pnpm-lock.yaml changed but package.json did not."
+
+echo "# lockfile guard fixture" >> pnpm-lock.yaml
+commit_fixture pnpm-lock.yaml
+expect_reject --line "::error::$lock_msg Lockfile-only changes are unreviewed dependency-resolution drift. Revert the lockfile, or add the 'lockfile-refresh' label with a justification." \
+  "lockfile guard (l1: lockfile only, no label)" "lockfile-refresh" \
+  env -u PR_LABELS bash "$lock_guard" "$diff_base"
+expect_accept --what "an exempt lockfile-only PR" "lockfile guard (l2: lockfile only, lockfile-refresh label)" \
+  env PR_LABELS=$'bug\nlockfile-refresh' bash "$lock_guard" "$diff_base"
+expect_reject "lockfile guard (l3: lockfile only, near-miss label)" "$lock_msg" \
+  env PR_LABELS=$'bug\nnot-lockfile-refresh' bash "$lock_guard" "$diff_base"
+# A resolvable base with no merge base makes git diff itself fail; LC_ALL=C pins git's message.
+# Labels are present but not exempt, so the label check must run and fall through to the diff.
+expect_reject --absent "label present" "lockfile guard (l8: git diff fails: no merge base)" "no merge base" \
+  env PR_LABELS=$'bug\nnot-lockfile-refresh' LC_ALL=C bash "$lock_guard" "$unrelated_base"
+restore_fixture
+
+echo "# lockfile guard fixture" >> pnpm-lock.yaml
+echo "" >> package.json
+commit_fixture pnpm-lock.yaml package.json
+expect_accept --what "a lockfile change with its manifest" "lockfile guard (l4: lockfile + package.json)" \
+  env -u PR_LABELS bash "$lock_guard" "$diff_base"
+restore_fixture
+
+echo "lockfile guard fixture" > lockfile-guard-fixture.txt
+commit_fixture lockfile-guard-fixture.txt
+expect_accept --what "a PR touching neither file" "lockfile guard (l5: neither changed)" \
+  env -u PR_LABELS bash "$lock_guard" "$diff_base"
+restore_fixture
+
+expect_reject "lockfile guard (l6: unresolvable base)" "base ref '$missing_base'" \
+  env -u PR_LABELS bash "$lock_guard" "$missing_base"
+
+expect_reject "lockfile guard (l7: no base argument)" "usage: check-lockfile-pairs.sh <base-ref>" \
+  env -u PR_LABELS bash "$lock_guard"
+
+if [ "$(git rev-parse HEAD)" != "$diff_base" ] || [ -n "$(git status --porcelain)" ]; then
+  echo "FAIL  lockfile guard fixtures left the worktree off $diff_base or dirty:"
   git status --short | sed 's/^/        /'
   fail=$((fail + 1))
 fi

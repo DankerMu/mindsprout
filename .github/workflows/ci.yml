@@ -160,27 +160,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: semgrep scan --config p/default --config p/typescript --error --metrics=off
 
-  # Standalone: needs its own full-depth checkout; runs only on pull_request events.
-  lockfile-consistency:
-    name: Lockfile–manifest consistency
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          fetch-depth: 0
-      - name: Check lockfile–manifest pairs
-        if: "!contains(github.event.pull_request.labels.*.name, 'lockfile-refresh')"
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
-          if echo "$changed" | grep -qx "pnpm-lock.yaml" && ! echo "$changed" | grep -qx "package.json"; then
-            echo "::error::pnpm-lock.yaml changed but package.json did not. Lockfile-only changes are unreviewed dependency-resolution drift. Revert the lockfile, or add the 'lockfile-refresh' label with a justification."
-            exit 1
-          fi
-
   # Branch protection requires ONLY this check. GitHub treats a skipped required
   # check as PASSING, so `if: always()` is load-bearing: this job always runs and
   # fails on any failed, cancelled, or skipped required job.

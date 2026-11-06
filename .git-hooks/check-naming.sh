@@ -20,7 +20,16 @@ DEFAULT_FORBIDDEN_SUFFIX_RE='(_v[0-9]+|_new|_old|_backup|_temp|_copy|_final|_rea
 DEFAULT_SCRATCH_DIR_RE='(^|/)(tmp|scratch|backup|_old|deprecated|archive|wip)(/|$)'
 DEFAULT_SCRATCH_EXEMPT_PREFIX='openspec/changes/archive/'
 
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+# physical_pwd: the current directory as the kernel names it (getcwd). The builtin `pwd -P`
+# only resolves symlinks and keeps the caller's spelling of every other component, so on
+# macOS a case variant, the /System/Volumes/Data firmlink or an NFD spelling of the repo
+# would not compare equal to git's toplevel (decision 0008).
+physical_pwd() {
+  /bin/pwd -P
+}
+
+# Canonical, like git's toplevel, so path mode can compare resolved paths (decision 0008).
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || physical_pwd)"
 constraints_file="$repo_root/constraints.yaml"
 
 yaml_get() {
@@ -145,11 +154,39 @@ check_path() {
   fi
 }
 
+# physical_path <absolute path>: the deepest existing ancestor directory, resolved with
+# `cd` + physical_pwd, followed by the non-existent remainder verbatim. Callers never pass a `..`
+# segment: `cd` drops `..` as text while the filesystem follows a symlinked ancestor.
+physical_path() {
+  local dir="$1" rest="" resolved
+  while [ ! -d "$dir" ]; do
+    rest="/${dir##*/}$rest"
+    dir="${dir%/*}"
+    [ -z "$dir" ] && dir="/"
+  done
+  resolved="$(cd "$dir" && physical_pwd)" || return 1
+  printf '%s%s\n' "${resolved%/}" "$rest"
+}
+
 # Path-argument mode (agent write-time check): validate one path directly
-# instead of reading the staged index. A path inside the repo is made repo-relative
-# first, so it gets the same verdict as the staged check.
+# instead of reading the staged index. An absolute path is resolved physically first
+# (decision 0008): inside the repo it is made repo-relative, so it gets the same verdict as
+# the staged check; outside the repo it can never be committed and is accepted. An absolute
+# path with a `..` segment, one equal to the repo root, or one that cannot be resolved is
+# checked as given. Relative paths are checked as given.
 if [ "$#" -gt 0 ]; then
   f="$1"
+  case "$f/" in
+    */../*) ;;
+    /*)
+      resolved="$(physical_path "$f")" || resolved=""
+      if [[ -n "$resolved" && "$resolved" == "$repo_root/"* ]]; then
+        f="${resolved:$((${#repo_root} + 1))}"
+      elif [ -n "$resolved" ] && [ "$resolved" != "$repo_root" ]; then
+        exit 0
+      fi
+      ;;
+  esac
   if [[ "$f" == "$repo_root/"* ]]; then
     f="${f:$((${#repo_root} + 1))}"
   fi
@@ -161,12 +198,12 @@ if [ "$#" -gt 0 ]; then
   exit 0
 fi
 
-# Read added or renamed files (cached).
+# Read added or renamed files (cached), NUL-separated: without -z git C-quotes any path with
+# non-ASCII or control bytes, and the quoted form would slip past the anchored regexes.
 # Avoid `mapfile` so the script works on macOS default bash 3.2 as well as bash 4+.
-while IFS= read -r f; do
-  [[ -z "$f" ]] && continue
+while IFS= read -r -d '' f; do
   check_path "$f"
-done < <(git diff --cached --name-only --diff-filter=AR 2>/dev/null || true)
+done < <(git diff --cached --name-only -z --diff-filter=AR 2>/dev/null || true)
 
 if [ "${#violations[@]}" -gt 0 ]; then
   cat <<EOF2
