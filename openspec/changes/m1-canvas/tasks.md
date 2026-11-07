@@ -305,3 +305,13 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: inline rename, selection, pan and notices retained. Evidence: existing full browser suite and owning DOM coverage.
 - Documentation / migration notes — selected: changeset, consequence and approved #23 scenario handoff. Evidence: docs:check/decisions:check; both issue comments record owner approval.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, schema, credential, cap or dependency change.
+
+## Risk packs — issue #23 (task 7.5)
+
+- Public API / CLI / script entry — selected: undo/redo keyboard and toolbar. Evidence: original five named scenarios, real-store flags and both modifier mappings.
+- Concurrency / shared state / ordering — selected: pointerdown→blur→click may change editing and history availability. Evidence: first click cancels unnamed creation without undoing prior rename; second click works; redo and cancelled-pointer boundaries.
+- Error handling / rollback / partial outputs — selected: unfinished creation must close before any history action, never group-open or unrelated rollback. Evidence: exact-map cancellation/history assertions and zero browser exceptions.
+- File IO / path safety / overwrite — selected: reload preserves the saved map but discards session history. Evidence: real IndexedDB public edit/reload/raw content and disabled buttons, no autosave change.
+- Legacy compatibility / examples — selected: static canvas, creation/naming, selection and native text undo preserved. Evidence: owning DOM coverage and full existing e2e.
+- Documentation / migration notes — selected: changeset and ownership consequence; transferred #20 scenarios completed here. Evidence: docs:check, decisions:check and named browser proof.
+- Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, envelope, credential, cap or dependency changes.

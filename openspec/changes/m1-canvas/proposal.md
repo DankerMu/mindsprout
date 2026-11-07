@@ -307,3 +307,15 @@ Evidence floor: genuine red→green real-store DOM integration, ≥90% per-file 
 Scope: creation shortcuts over existing createNode/commitTitle/cancelEdit, no new store semantics or undo UI.
 Owner-approved scenario ownership: #23 executes public Cmd/Ctrl+Z portions of Name a new node and Tab on a collapsed node, plus empty-create→toolbar Undo protection. #20 proves complete history/collapse invariants with real-store DOM and public creation behavior. Spec/task wording unchanged; approvals posted on both issues.
 ```
+
+## Fixture triage — issue #23 (task 7.5)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Reason above suggested compact: toolbar pointerdown→blur→click crosses the live creation group and earlier history; owner-transferred public undo scenarios require cross-surface state evidence.
+Blast radius: one gesture cancels a provisional node and accidentally undoes an unrelated entry; shortcuts steal native text undo or invoke history while a group is open.
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; File IO / path safety / overwrite; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: genuine red→green real-store DOM tests, ≥90% per-file coverage, original five browser scenarios plus owner-transferred creation/collapse/cancel regressions, real IndexedDB reload, screenshots/zero browser noise, existing full e2e and scoped checks.
+Scope: task 7.5 UI adapters only; reuse store undo/redo and shared keyboard/input gates. No history, persistence or creation semantics changes.
+```
