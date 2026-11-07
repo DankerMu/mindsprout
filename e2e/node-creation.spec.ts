@@ -113,7 +113,9 @@ test.describe('keyboard node creation', () => {
     await expect(nodeAt(page, id)).toHaveText('最后一个孩子');
   });
 
-  test('Tab on a collapsed node — expansion focus and naming', async ({ page }) => {
+  test('Tab on a collapsed node — naming then undo restores the collapsed parent', async ({
+    page,
+  }) => {
     const id = await createFrom(page, 'b');
     await expect(nodeAt(page, 'h1')).toBeVisible();
     await expect(nodeAt(page, 'h2')).toBeVisible();
@@ -123,6 +125,18 @@ test.describe('keyboard node creation', () => {
     await nameNode(page, '第三个孩子');
     await expect(nodeAt(page, id)).toHaveText('第三个孩子');
     await capture(page, 'collapsed-named');
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect(nodeAt(page, id)).toHaveCount(0);
+    await expect(nodeAt(page, 'h1')).toHaveCount(0);
+    await expect(nodeAt(page, 'h2')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '撤销', exact: true })).toBeDisabled();
+    await expect.poll(() => readRecord(page, MAP.id)).toMatchObject({ map: { roots: MAP.roots } });
+    await capture(page, 'collapsed-undone');
+    await page.keyboard.press('ControlOrMeta+Shift+z');
+    await expect(nodeAt(page, id)).toHaveText('第三个孩子');
+    await expect(nodeAt(page, 'h1')).toHaveText('隐藏一');
+    await expect(nodeAt(page, 'h2')).toHaveText('隐藏二');
+    await expectOrder(page, ['h1', 'h2', id]);
   });
 
   test('Enter on the primary root', async ({ page }) => {
@@ -151,13 +165,19 @@ test.describe('keyboard node creation', () => {
     await capture(page, 'floating-root');
   });
 
-  test('Name a new node — creation and naming', async ({ page }) => {
+  test('Name a new node — one shortcut undoes creation and naming', async ({ page }) => {
     const id = await createFrom(page, 'a');
     await nameNode(page, '想法');
     await expect(nodeAt(page, id)).toHaveText('想法');
     await expectChild(page, 'a', id);
     await expect(page.locator('.react-flow__node')).toHaveCount(6);
     await capture(page, 'named');
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect(nodeAt(page, id)).toHaveCount(0);
+    await expect(page.locator('.react-flow__node')).toHaveCount(5);
+    await expect(page.getByRole('button', { name: '撤销', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: '重做', exact: true })).toBeEnabled();
+    await capture(page, 'named-undone');
   });
 
   test('Empty new node is discarded', async ({ page }) => {

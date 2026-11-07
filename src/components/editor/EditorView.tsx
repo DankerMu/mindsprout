@@ -58,7 +58,12 @@ export function EditorView({ storageUnavailable = false }: { storageUnavailable?
         }}
       />
       <div className={styles.canvas}>
-        <MindMapCanvas map={map} selection={selection} titleEditing={titleEditing} />
+        <MindMapCanvas
+          map={map}
+          selection={selection}
+          titleEditing={titleEditing}
+          history={selection}
+        />
       </div>
     </div>
   );
