@@ -22,9 +22,7 @@ test.describe('storage fallback', () => {
     expect(noise).toEqual([]);
   });
 
-  test('Private mode retains inline edits across SPA reopen, but not a full reload', async ({
-    page,
-  }) => {
+  test('Create with storage blocked', async ({ page }) => {
     await page.addInitScript(() => {
       IDBFactory.prototype.open = () => {
         throw new DOMException('Private mode', 'SecurityError');
@@ -32,6 +30,8 @@ test.describe('storage fallback', () => {
     });
     await page.goto('/');
     await expect(page.getByRole('button', { name: '新建导图' })).toBeEnabled();
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
+    await page.screenshot({ path: `${EVIDENCE}/storage-private-home.png` });
     const documents: string[] = [];
     page.on('request', (request) => {
       if (request.resourceType() === 'document') documents.push(request.url());
@@ -39,7 +39,7 @@ test.describe('storage fallback', () => {
     await page.getByRole('button', { name: '新建导图' }).click();
     await expect(page.getByTestId('map-editor-ready')).toBeVisible();
     const editorUrl = page.url();
-    const root = page.locator('.react-flow__node');
+    const root = page.locator('.react-flow__node').first();
     await expect(root).toBeVisible();
     await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
     await page.clock.install();
@@ -47,27 +47,56 @@ test.describe('storage fallback', () => {
     const input = page.getByRole('textbox', { name: '节点标题' });
     await input.fill('仅保存在本次会话');
     await input.press('Enter');
+    await expect(root).toHaveText('仅保存在本次会话');
+    await root.click();
+    await page.keyboard.press('Tab');
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue('');
+    await input.fill('会话中的孩子');
+    await input.press('Enter');
+    await expect(input).toHaveCount(0);
+    const child = page.locator('.react-flow__node').filter({ hasText: '会话中的孩子' });
+    await expect(child).toBeVisible();
     // Cross the specified 500 ms save window before inspecting or leaving the editor.
     await page.clock.runFor(600);
     await expect(root).toHaveText('仅保存在本次会话');
     await expect(root).toBeVisible();
-    await expect(page.getByText('未保存到浏览器', { exact: true })).toBeVisible();
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
     await expect(page.getByText('保存失败', { exact: true })).toHaveCount(0);
     await page.screenshot({ path: `${EVIDENCE}/storage-private-renamed.png` });
 
     await page.goBack();
     await expect(page.getByTestId('app-ready')).toBeVisible();
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
+    await expect(page.getByRole('link', { name: '新导图', exact: true })).toBeVisible();
+    await page.screenshot({ path: `${EVIDENCE}/storage-private-library.png` });
     await page.getByRole('link', { name: '新导图', exact: true }).click();
     await expect(page).toHaveURL(editorUrl);
     await expect(page.getByTestId('map-editor-ready')).toBeVisible();
     await expect(root).toHaveText('仅保存在本次会话');
-    await expect(page.getByText('未保存到浏览器', { exact: true })).toBeVisible();
+    await expect(child).toBeVisible();
+    await expect(page.locator('.react-flow__node')).toHaveCount(2);
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
     expect(documents).toEqual([]);
     await page.screenshot({ path: `${EVIDENCE}/storage-private-reopened.png` });
+  });
+
+  test('Reload with storage blocked', async ({ page }) => {
+    await page.addInitScript(() => {
+      IDBFactory.prototype.open = () => {
+        throw new DOMException('Private mode', 'SecurityError');
+      };
+    });
+    await page.goto('/');
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
+    await page.getByRole('button', { name: '新建导图' }).click();
+    await expect(page.getByTestId('map-editor-ready')).toBeVisible();
+    const editorUrl = page.url();
 
     await page.reload();
+    await expect(page).toHaveURL(editorUrl);
     await expect(page.getByText('找不到这张导图', { exact: true })).toBeVisible();
-    await expect(page.getByText('未保存到浏览器', { exact: true })).toBeVisible();
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
     await expect(page.getByRole('link', { name: '返回导图列表' })).toHaveAttribute('href', '/');
     await expect(page.getByTestId('map-editor-ready')).toHaveCount(0);
     await page.screenshot({ path: `${EVIDENCE}/storage-private-reloaded.png` });

@@ -88,7 +88,7 @@ Minimal mergeable slice: 9.1 - the registry and the six ops-only items work with
 
 - [x] 10.1 Replace the placeholder home page with the library over the shared repository provider: list ordered by `updatedAt` desc, empty state, 新建导图 calling `createMindMap` (title and primary root "新导图"), saving and navigating to the editor (keep `data-testid="app-ready"`); verify (unit, jsdom) the list renders summaries in order and the empty state; verify (e2e) spec map-library "Create from the empty state" and "Ordering".
 - [ ] 10.2 Rename (application-layer title update stamping `updatedAt`, independent of the primary root text) and delete with confirmation; verify (e2e) spec map-library "Rename from the list", "Delete with confirmation".
-- [ ] 10.3 Library under storage-unavailable: banner on `/`, session maps listed from the shared in-memory fallback, create → editor works, reload shows not-found plus banner; verify (e2e, IndexedDB blocked) spec map-library "Create with storage blocked" and "Reload with storage blocked".
+- [x] 10.3 Library under storage-unavailable: banner on `/`, session maps listed from the shared in-memory fallback, create → editor works, reload shows not-found plus banner; verify (e2e, IndexedDB blocked) spec map-library "Create with storage blocked" and "Reload with storage blocked".
 
 Suggested fixture level: compact - page over the repository port.
 Minimal mergeable slice: 10.1 - list + create is a complete flow; rename/delete is a second PR; 10.3 depends on 6.3.
