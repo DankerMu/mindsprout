@@ -403,3 +403,15 @@ Selected risk packs: Resource limits / large input / discovery; Public API / CLI
 Evidence floor: exact500-node deterministic fixture used in real e2e seed; qualified native Performance recording, three retained two-second samples with p50≤16.7ms/p95≤33ms and named environment; no CI timing gate. Production changes require semantic regression coverage first.
 Scope: task8.3 only. Existing caching is measured before any optimization; issue handoff corrects D11 cache inputs to map/nodeSize/gap. No budget relaxation.
 ```
+
+## Fixture triage — issue #28 (task 9.2)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Reason above suggested compact: the shared registry gains submenus, focus ownership crosses nested menus, and selected-node updates share one persisted history group.
+Blast radius: parent selection hides child colors, a stale submenu updates the wrong map, keyboard input leaks to canvas actions, or selected styling masks the chosen token.
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; File IO / path safety / overwrite; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: chronological real-store and DOM red→green, three named browser scenarios, native submenu keyboard/dismissal and light/dark rendering, exact one-step undo/persistence, affected per-file≥90% and full browser regression.
+Scope: task9.2 only; six fixed semantic tokens plus clearing. Notes, free-form colors, a theme-switching UI and the independent existing disabled-menu focus defect remain separate.
+```

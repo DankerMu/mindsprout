@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { StoreApi } from 'zustand/vanilla';
 import {
@@ -27,14 +27,14 @@ const MAP = mapOf(
   ]),
   node('f', [node('fc')], { position: { x: 700.25, y: 200.75 } }),
 );
-function setup() {
+function setup(map = MAP) {
   let store: StoreApi<EditorState>;
   function Probe() {
     store = useEditorStoreApi();
     return null;
   }
   const view = render(
-    <EditorSession map={MAP} repository={new RecordingRepository()}>
+    <EditorSession map={map} repository={new RecordingRepository()}>
       <Probe />
       <EditorView />
       <button type="button">外部</button>
@@ -57,7 +57,6 @@ describe('context menu through the editor', () => {
     });
     open('a');
     expect(state().selectedIds).toEqual(['a', 'b', 'c']);
-    expect(screen.getAllByRole('menuitem')).toHaveLength(6);
     fireEvent.click(item('折叠'));
     expect(state().map?.roots[0]?.children.map((child) => child.collapsed === true)).toEqual([
       true,
@@ -75,6 +74,243 @@ describe('context menu through the editor', () => {
     expect(state().canUndo).toBe(false);
     expect(renderedPosition('aa').x).toBeGreaterThan(0);
   });
+});
+
+it('applies blue to the complete nested selection in one undoable history group', () => {
+  const initial = mapOf(
+    node('r', [
+      node('a', [node('aa'), node('ab', [], { color: 'green' })], { color: 'red' }),
+      node('b', [], { color: 'purple' }),
+      node('c', [], { color: 'orange' }),
+    ]),
+  );
+  const before = structuredClone(initial);
+  const { state } = setup(initial);
+  act(() => {
+    state().setSelection(['a', 'aa', 'b']);
+  });
+  open('a');
+  expect(state().canUndo).toBe(false);
+  fireEvent.click(item('设置颜色'));
+  expect(state().map).toStrictEqual(before);
+  expect(state().canUndo).toBe(false);
+  fireEvent.click(item('blue'));
+
+  expect(state().map).toStrictEqual(
+    mapOf(
+      node('r', [
+        node('a', [node('aa', [], { color: 'blue' }), node('ab', [], { color: 'green' })], {
+          color: 'blue',
+        }),
+        node('b', [], { color: 'blue' }),
+        node('c', [], { color: 'orange' }),
+      ]),
+    ),
+  );
+  expect(state().selectedIds).toEqual(['a', 'aa', 'b']);
+  expect(state().canUndo).toBe(true);
+  expect(state().groupOpen).toBe(false);
+  expect(screen.queryByRole('menu')).toBeNull();
+  act(() => {
+    state().undo();
+  });
+  expect(state().map).toStrictEqual(before);
+  expect(state().canUndo).toBe(false);
+  expect(state().canRedo).toBe(true);
+});
+
+it('owns submenu keyboard focus without dispatching or adding history', () => {
+  const { state } = setup();
+  open('a');
+  const trigger = item('设置颜色');
+  trigger.focus();
+
+  for (const back of ['ArrowLeft', 'Escape']) {
+    fireEvent.keyDown(trigger, { key: 'ArrowRight' });
+    const child = screen.getByRole('menu', { name: '设置颜色' });
+    const red = within(child).getByRole('menuitem', { name: 'red' });
+    const orange = within(child).getByRole('menuitem', { name: 'orange' });
+    const clear = within(child).getByRole('menuitem', { name: '无颜色' });
+    expect(document.activeElement).toBe(red);
+    fireEvent.keyDown(red, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(orange);
+    fireEvent.keyDown(orange, { key: 'End' });
+    expect(document.activeElement).toBe(clear);
+    fireEvent.keyDown(clear, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(red);
+    expect(state().map).toBe(MAP);
+    expect(state().canUndo).toBe(false);
+
+    fireEvent.keyDown(red, { key: back });
+    expect(screen.queryByRole('menu', { name: '设置颜色' })).toBeNull();
+    expect(screen.getByRole('menu', { name: '节点菜单' })).toBeDefined();
+    expect(document.activeElement).toBe(trigger);
+    expect(state().menuTargetId).toBe('a');
+    expect(state().map).toBe(MAP);
+    expect(state().canUndo).toBe(false);
+    expect(state().groupOpen).toBe(false);
+  }
+
+  fireEvent.keyDown(trigger, { key: 'Escape' });
+  expect(screen.queryByRole('menu')).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole('region'));
+  expect(state().menuTargetId).toBeNull();
+  expect(state().map).toBe(MAP);
+  expect(state().canUndo).toBe(false);
+});
+
+it('clears mixed nested colors in one reversible history entry', () => {
+  const initial = mapOf(
+    node('r', [
+      node('a', [node('aa', [], { color: 'purple' })], { color: 'red' }),
+      node('b'),
+      node('c', [], { color: 'orange' }),
+    ]),
+  );
+  const cleared = mapOf(
+    node('r', [node('a', [node('aa')]), node('b'), node('c', [], { color: 'orange' })]),
+  );
+  const { state } = setup(initial);
+  act(() => {
+    state().setSelection(['a', 'aa', 'b']);
+  });
+  open('a');
+  fireEvent.click(item('设置颜色'));
+  fireEvent.click(item('无颜色'));
+  expect(state().map).toStrictEqual(cleared);
+  expect(state().selectedIds).toEqual(['a', 'aa', 'b']);
+  expect(state().canUndo).toBe(true);
+  expect(state().groupOpen).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+  expect(state().map).toStrictEqual(initial);
+  expect(state().canUndo).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: '重做' }));
+  expect(state().map).toStrictEqual(cleared);
+  expect(state().canRedo).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+  expect(state().map).toStrictEqual(initial);
+  expect(state().canUndo).toBe(false);
+});
+
+it('colors unselected primary and floating roots without replacing the selection', () => {
+  const root = node('r', [node('a', [], { color: 'red' }), node('b')]);
+  const floating = node('f', [node('fc')], { position: { x: 700, y: 200 } });
+  const initial = mapOf(root, floating);
+  const { state } = setup(initial);
+  act(() => {
+    state().setSelection(['a', 'b']);
+  });
+  for (const [id, expected] of [
+    ['r', mapOf({ ...root, color: 'purple' }, floating)],
+    ['f', mapOf(root, { ...floating, color: 'purple' })],
+  ] as const) {
+    open(id);
+    fireEvent.click(item('设置颜色'));
+    fireEvent.click(item('purple'));
+    expect(state().map).toStrictEqual(expected);
+    expect(state().selectedIds).toEqual(['a', 'b']);
+    fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+    expect(state().map).toStrictEqual(initial);
+    expect(state().canUndo).toBe(false);
+  }
+});
+
+it('uses the selection at child activation rather than submenu opening', () => {
+  const initial = mapOf(node('r', [node('a', [node('aa')]), node('b'), node('c')]));
+  const { state } = setup(initial);
+  act(() => {
+    state().setSelection(['a', 'b']);
+  });
+  open('a');
+  fireEvent.click(item('设置颜色'));
+  const blue = item('blue');
+  act(() => {
+    state().setSelection(['a', 'aa', 'c']);
+    fireEvent.click(blue);
+  });
+  expect(state().map).toStrictEqual(
+    mapOf(
+      node('r', [
+        node('a', [node('aa', [], { color: 'blue' })], { color: 'blue' }),
+        node('b'),
+        node('c', [], { color: 'blue' }),
+      ]),
+    ),
+  );
+  expect(state().selectedIds).toEqual(['a', 'aa', 'c']);
+  fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+  expect(state().map).toStrictEqual(initial);
+  expect(state().canUndo).toBe(false);
+});
+
+it.each(['map replacement', 'editing', 'new target'])(
+  'refuses a stale color child after %s before React renders',
+  (reason) => {
+    const { state } = setup();
+    open('a');
+    fireEvent.click(item('设置颜色'));
+    const stale = item('blue');
+    act(() => {
+      if (reason === 'map replacement') state().load({ ...MAP, id: 'replacement' });
+      if (reason === 'editing') state().startEdit('b');
+      if (reason === 'new target') state().openMenu('b');
+      const before = state();
+      fireEvent.click(stale);
+      expect(state()).toBe(before);
+    });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(state().canUndo).toBe(false);
+    expect(state().groupOpen).toBe(false);
+    if (reason === 'new target') expect(state().menuTargetId).toBe('b');
+  },
+);
+
+it('isolates child input gates, activates Space once and dismisses both levels outside', () => {
+  const { state } = setup();
+  open('a');
+  item('设置颜色').focus();
+  fireEvent.keyDown(item('设置颜色'), { key: 'Enter' });
+  const red = item('red');
+  for (const modifiers of [
+    { ctrlKey: true },
+    { metaKey: true },
+    { altKey: true },
+    { shiftKey: true },
+    { isComposing: true },
+    { keyCode: 229 },
+    { repeat: true },
+  ]) {
+    fireEvent.keyDown(red, { key: 'Enter', ...modifiers });
+    fireEvent.keyDown(red, { key: 'ArrowDown', ...modifiers });
+    expect(document.activeElement).toBe(red);
+    expect(state().map).toBe(MAP);
+    expect(state().canUndo).toBe(false);
+  }
+  fireEvent.keyDown(red, { key: ' ' });
+  fireEvent.keyUp(red, { key: ' ' });
+  fireEvent.click(red);
+  expect(nodeIn(state().map ?? MAP, 'a').color).toBe('red');
+  expect(screen.queryByRole('menu')).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole('region'));
+  fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+  expect(state().map).toStrictEqual(MAP);
+  expect(state().canUndo).toBe(false);
+
+  open('a');
+  item('设置颜色').focus();
+  fireEvent.keyDown(item('设置颜色'), { key: ' ' });
+  fireEvent.keyDown(item('red'), { key: 'Tab' });
+  expect(screen.queryByRole('menu')).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole('region'));
+  open('a');
+  fireEvent.click(item('设置颜色'));
+  const stale = item('blue');
+  fireEvent.pointerDown(screen.getByRole('button', { name: '外部' }));
+  fireEvent.click(stale);
+  expect(screen.queryByRole('menu')).toBeNull();
+  expect(state().map).toStrictEqual(MAP);
+  expect(state().canUndo).toBe(false);
+  expect(state().groupOpen).toBe(false);
 });
 
 it('isolates modified and IME keys, then activates exactly once with plain Enter', () => {
@@ -195,8 +431,13 @@ it('navigates enabled items, activates with Space once and expands without reord
   const { state } = setup();
   const order = ['aa', 'ab', 'aba', 'abb'].map((id) => renderedPosition(id));
   open('r');
+  item('添加子节点').focus();
   fireEvent.keyDown(item('添加子节点'), { key: 'ArrowUp' });
-  expect(document.activeElement).toBe(item('折叠'));
+  expect(document.activeElement).toBe(item('设置颜色'));
+  item('重命名').focus();
+  fireEvent.keyDown(item('重命名'), { key: 'ArrowUp' });
+  expect(document.activeElement).toBe(item('添加子节点'));
+  item('折叠').focus();
   fireEvent.keyDown(item('折叠'), { key: 'Home' });
   expect(document.activeElement).toBe(item('添加子节点'));
   fireEvent.keyDown(item('添加子节点'), { key: 'ArrowDown' });
@@ -206,8 +447,8 @@ it('navigates enabled items, activates with Space once and expands without reord
   open('a');
   fireEvent.keyDown(item('添加子节点'), { key: 'End' });
   expect(document.activeElement).toBe(item('脱离为浮动节点'));
-  fireEvent.keyDown(item('脱离为浮动节点'), { key: 'ArrowUp' });
   const collapse = item('折叠');
+  collapse.focus();
   fireEvent.keyDown(collapse, { key: ' ', repeat: true });
   expect(state().map).toBe(MAP);
   fireEvent.keyDown(collapse, { key: ' ' });

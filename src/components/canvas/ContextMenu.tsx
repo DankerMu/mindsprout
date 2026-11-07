@@ -121,15 +121,25 @@ function menuKeyBlocked(event: KeyboardEvent): boolean {
   );
 }
 
+function activatesMenuItem(key: string, button: HTMLButtonElement | undefined): boolean {
+  return (
+    key === 'Enter' ||
+    key === ' ' ||
+    (key === 'ArrowRight' && button?.getAttribute('aria-haspopup') === 'menu')
+  );
+}
+
 function navigateMenu(menu: HTMLElement, key: string): void {
-  const buttons = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+  const buttons = Array.from(
+    menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
+  ).filter((button) => button.closest('[role="menu"]') === menu);
   const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
   let next = index;
   if (key === 'ArrowDown') next = (index + 1) % buttons.length;
   if (key === 'ArrowUp') next = (index - 1 + buttons.length) % buttons.length;
   if (key === 'Home') next = 0;
   if (key === 'End') next = buttons.length - 1;
-  if (key === 'Enter' || key === ' ') buttons[index]?.click();
+  if (activatesMenuItem(key, buttons[index])) buttons[index]?.click();
   else buttons[next]?.focus();
 }
 
@@ -145,6 +155,7 @@ function ContextMenu({
   close: (focus?: boolean) => void;
 }) {
   const element = useRef<HTMLDivElement>(null);
+  const [submenu, setSubmenu] = useState<string | null>(null);
   const entries = current === undefined ? [] : nodeMenu.list(current);
   useLayoutEffect(() => {
     const menu = element.current;
@@ -152,8 +163,17 @@ function ContextMenu({
     const box = menu.getBoundingClientRect();
     menu.style.left = `${Math.max(0, Math.min(session.point.x, window.innerWidth - box.width)).toString()}px`;
     menu.style.top = `${Math.max(0, Math.min(session.point.y, window.innerHeight - box.height)).toString()}px`;
-    menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  }, [session, submenu]);
+  useLayoutEffect(() => {
+    element.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
   }, [session]);
+  useLayoutEffect(() => {
+    if (submenu === null) return;
+    element.current
+      ?.querySelector<HTMLElement>('[role="menu"]')
+      ?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+      ?.focus();
+  }, [submenu]);
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (event.target instanceof Node && !element.current?.contains(event.target)) close();
@@ -163,6 +183,16 @@ function ContextMenu({
       document.removeEventListener('pointerdown', outside, true);
     };
   }, [close]);
+  function activate(entry: (typeof entries)[number]) {
+    const ctx = context();
+    if (ctx === undefined || !entry.isEnabled(ctx)) return;
+    if ('children' in entry) {
+      setSubmenu(entry.id);
+      return;
+    }
+    close(true);
+    entry.run(ctx);
+  }
   if (current === undefined) return null;
   return createPortal(
     <div
@@ -198,34 +228,66 @@ function ContextMenu({
         event.stopPropagation();
         event.preventDefault();
         if (menuKeyBlocked(event.nativeEvent)) return;
-        if (event.key === 'Escape' || event.key === 'Tab') {
+        const activeMenu =
+          event.target instanceof Element
+            ? event.target.closest<HTMLElement>('[role="menu"]')
+            : null;
+        if (activeMenu === null) return;
+        if (
+          activeMenu !== event.currentTarget &&
+          (event.key === 'Escape' || event.key === 'ArrowLeft')
+        ) {
+          const trigger = event.currentTarget.querySelector<HTMLButtonElement>(
+            '[aria-haspopup="menu"][aria-expanded="true"]',
+          );
+          setSubmenu(null);
+          trigger?.focus();
+        } else if (event.key === 'Escape' || event.key === 'Tab') {
           close(true);
-          return;
+        } else {
+          navigateMenu(activeMenu, event.key);
         }
-        navigateMenu(event.currentTarget, event.key);
       }}
     >
       {entries.map((entry) => (
-        <button
-          key={entry.id}
-          type="button"
-          role="menuitem"
-          disabled={!entry.isEnabled(current)}
-          onClick={() => {
-            const ctx = context();
-            if (ctx === undefined || !entry.isEnabled(ctx)) return;
-            close(true);
-            entry.run(ctx);
-          }}
-          style={{ textAlign: 'left', padding: '6px 12px' }}
-        >
-          {entry.label}
-          {entry.shortcut !== undefined && (
-            <span aria-hidden="true" style={{ float: 'right', marginLeft: 24 }}>
-              {entry.shortcut}
-            </span>
+        <div key={entry.id} role="none" style={{ display: 'grid' }}>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!entry.isEnabled(current)}
+            aria-haspopup={'children' in entry ? 'menu' : undefined}
+            aria-expanded={'children' in entry ? submenu === entry.id : undefined}
+            onClick={() => {
+              activate(entry);
+            }}
+            style={{ textAlign: 'left', padding: '6px 12px' }}
+          >
+            {entry.label}
+            {entry.shortcut !== undefined && (
+              <span aria-hidden="true" style={{ float: 'right', marginLeft: 24 }}>
+                {entry.shortcut}
+              </span>
+            )}
+          </button>
+          {'children' in entry && submenu === entry.id && (
+            <div role="menu" aria-label={entry.label} style={{ display: 'grid', paddingLeft: 12 }}>
+              {entry.children.map((child) => (
+                <button
+                  key={child.id}
+                  type="button"
+                  role="menuitem"
+                  disabled={!entry.isEnabled(current) || !child.isEnabled(current)}
+                  onClick={() => {
+                    activate(child);
+                  }}
+                  style={{ textAlign: 'left', padding: '6px 12px' }}
+                >
+                  {child.label}
+                </button>
+              ))}
+            </div>
           )}
-        </button>
+        </div>
       ))}
     </div>,
     document.body,

@@ -1,4 +1,4 @@
-import type { MindMap, NodeId, Position } from '../../domain/types';
+import type { ColorToken, MindMap, NodeId, Position } from '../../domain/types';
 import type { EditorState } from '../editor-store/editor-store';
 import { findNode, parentOf, visibleIds } from '../editor-store/selection';
 
@@ -9,16 +9,40 @@ export interface MenuContext {
   readonly positions: ReadonlyMap<NodeId, Position>;
   readonly actions: Pick<
     EditorState,
-    'createNode' | 'startEdit' | 'select' | 'deleteSelection' | 'dispatch'
+    'createNode' | 'startEdit' | 'select' | 'deleteSelection' | 'dispatch' | 'runGrouped'
   >;
 }
 
-export interface MenuItem {
+interface MenuFields {
   readonly id: string;
   readonly label: string | ((ctx: MenuContext) => string);
   readonly shortcut?: string;
   isEnabled(ctx: MenuContext): boolean;
+}
+
+interface MenuAction extends MenuFields {
   run(ctx: MenuContext): void;
+}
+
+interface MenuSubmenu extends MenuFields {
+  readonly children: readonly MenuAction[];
+}
+
+export type MenuItem = MenuAction | MenuSubmenu;
+
+function resolveAction(item: MenuAction, ctx: MenuContext, parent?: MenuSubmenu) {
+  return {
+    ...item,
+    label: typeof item.label === 'function' ? item.label(ctx) : item.label,
+    run(context: MenuContext): void {
+      if (
+        visibleIds(context.map).includes(context.target) &&
+        item.isEnabled(context) &&
+        (parent === undefined || parent.isEnabled(context))
+      )
+        item.run(context);
+    },
+  };
 }
 
 export function createMenuRegistry() {
@@ -30,14 +54,15 @@ export function createMenuRegistry() {
       items.push(item);
     },
     list(ctx: MenuContext) {
-      return items.map((item) => ({
-        ...item,
-        label: typeof item.label === 'function' ? item.label(ctx) : item.label,
-        run(context: MenuContext): void {
-          if (visibleIds(context.map).includes(context.target) && item.isEnabled(context))
-            item.run(context);
-        },
-      }));
+      return items.map((item) =>
+        'children' in item
+          ? {
+              ...item,
+              label: typeof item.label === 'function' ? item.label(ctx) : item.label,
+              children: item.children.map((child) => resolveAction(child, ctx, item)),
+            }
+          : resolveAction(item, ctx),
+      );
     },
   };
 }
@@ -97,6 +122,24 @@ nodeMenu.register({
       collapsed: findNode(ctx.map, ctx.target)?.collapsed !== true,
     });
   },
+});
+nodeMenu.register({
+  id: 'color',
+  label: '设置颜色',
+  isEnabled: () => true,
+  children: (['red', 'orange', 'yellow', 'green', 'blue', 'purple', null] as const).map(
+    (color: ColorToken | null) => ({
+      id: color ?? 'clear',
+      label: color ?? '无颜色',
+      isEnabled: () => true,
+      run: (ctx: MenuContext) => {
+        const ids = ctx.selection.includes(ctx.target) ? ctx.selection : [ctx.target];
+        ctx.actions.runGrouped('color', () => {
+          for (const id of ids) ctx.actions.dispatch({ op: 'update_node', id, color });
+        });
+      },
+    }),
+  ),
 });
 nodeMenu.register({
   id: 'detach',

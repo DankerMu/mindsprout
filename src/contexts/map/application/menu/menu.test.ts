@@ -24,14 +24,14 @@ function setup(target = 'a') {
   };
   const run = (id: string) => {
     const entry = nodeMenu.list(ctx()).find((item) => item.id === id);
-    if (entry === undefined) throw new Error(`missing menu item ${id}`);
+    if (entry === undefined || !('run' in entry)) throw new Error(`missing menu action ${id}`);
     entry.run(ctx());
   };
   return { store, ctx, run };
 }
 
 describe('node menu registry', () => {
-  it('lists six ordered operations with precise root enablement', () => {
+  it('enables operations according to the targeted root', () => {
     for (const [target, disabled] of [
       ['r', ['add-sibling', 'delete', 'detach']],
       ['f', ['add-sibling', 'detach']],
@@ -39,14 +39,6 @@ describe('node menu registry', () => {
     ] as const) {
       const { ctx } = setup(target);
       const items = nodeMenu.list(ctx());
-      expect(items.map((item) => item.label)).toEqual([
-        '添加子节点',
-        '添加兄弟节点',
-        '重命名',
-        '删除',
-        '折叠',
-        '脱离为浮动节点',
-      ]);
       expect(items.filter((item) => !item.isEnabled(ctx())).map((item) => item.id)).toEqual(
         disabled,
       );
@@ -68,7 +60,10 @@ describe('node menu registry', () => {
       },
     });
     expect(registry.list(ctx()).map((item) => item.id)).toEqual(['grow']);
-    registry.list(ctx())[0]?.run(ctx());
+    const extension = registry.list(ctx())[0];
+    if (extension === undefined || !('run' in extension))
+      throw new Error('missing menu action grow');
+    extension.run(ctx());
     expect(store.getState().map?.roots[0]?.children[0]?.children.map((child) => child.id)).toEqual([
       'aa',
       'grown',
@@ -168,15 +163,59 @@ it('refuses protected roots, missing positions and missing or hidden targets wit
     store.getState().dispatch({ op: 'update_node', id: 'a', collapsed: true });
     const before = store.getState();
     for (const entry of nodeMenu.list(ctx())) {
-      if (!entry.isEnabled(ctx()) || target === 'missing' || target === 'aa') entry.run(ctx());
+      if ('run' in entry && (!entry.isEnabled(ctx()) || target === 'missing' || target === 'aa'))
+        entry.run(ctx());
     }
     expect(store.getState()).toBe(before);
   }
   const { store, ctx } = setup('b');
   const before = store.getState();
-  nodeMenu
-    .list(ctx())
-    .find((entry) => entry.id === 'detach')
-    ?.run(ctx());
+  const detach = nodeMenu.list(ctx()).find((entry) => entry.id === 'detach');
+  if (detach === undefined || !('run' in detach)) throw new Error('missing menu action detach');
+  detach.run(ctx());
   expect(store.getState()).toBe(before);
+});
+
+it('resolves extension child labels and enforces both enablement gates at execution', () => {
+  const registry = createMenuRegistry();
+  const { ctx, store } = setup();
+  registry.register({
+    id: 'annotate',
+    label: (context) => `标记 ${nodeIn(context.map, context.target).text}`,
+    isEnabled: (context) => context.selection.includes('a'),
+    children: [
+      {
+        id: 'name',
+        label: (context) => `命名 ${nodeIn(context.map, context.target).text}`,
+        isEnabled: (context) => context.selection.includes('b'),
+        run: (context) => {
+          context.actions.dispatch({ op: 'update_node', id: context.target, text: '标记结果' });
+        },
+      },
+    ],
+  });
+  const entry = registry.list(ctx())[0];
+  if (entry === undefined || !('children' in entry)) throw new Error('missing annotation submenu');
+  const child = entry.children[0];
+  if (child === undefined) throw new Error('missing annotation action');
+  expect(entry.label).toBe('标记 A');
+  expect(child.label).toBe('命名 A');
+  store.getState().setSelection(['b']);
+  child.run(ctx());
+  expect(store.getState().map).toBe(MAP);
+  store.getState().setSelection(['a']);
+  child.run(ctx());
+  expect(store.getState().map).toBe(MAP);
+  expect(store.getState().canUndo).toBe(false);
+  store.getState().setSelection(['a', 'b']);
+  child.run(ctx());
+  expect(store.getState().map).toStrictEqual(
+    mapOf(
+      node('r', [node('a', [node('aa')], { text: '标记结果' }), node('b'), node('c')]),
+      node('f', [node('fc')], { position: { x: 700.25, y: 200.75 } }),
+    ),
+  );
+  store.getState().undo();
+  expect(store.getState().map).toStrictEqual(MAP);
+  expect(store.getState().canUndo).toBe(false);
 });
