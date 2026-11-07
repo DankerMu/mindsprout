@@ -335,6 +335,10 @@ test.describe('node context menu', () => {
     await trigger.focus();
     await page.keyboard.press('ArrowRight');
     await expect(item(page, 'red')).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(item(page, '无颜色')).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(item(page, 'red')).toBeFocused();
     for (const name of ['节点菜单', '设置颜色']) {
       const box = await page.getByRole('menu', { name, exact: true }).boundingBox();
       if (box === null) throw new Error(`missing menu geometry for ${name}`);
