@@ -315,3 +315,12 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: static canvas, creation/naming, selection and native text undo preserved. Evidence: owning DOM coverage and full existing e2e.
 - Documentation / migration notes — selected: changeset and ownership consequence; transferred #20 scenarios completed here. Evidence: docs:check, decisions:check and named browser proof.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, envelope, credential, cap or dependency changes.
+
+## Risk packs — issue #32 (task 10.3)
+
+- Public API / CLI / script entry — selected: home unavailable banner and public create/open. Evidence: real-provider DOM and Create with storage blocked.
+- Concurrency / shared state / ordering — selected, unchanged ownership: reuse one session repository across SPA navigation. Evidence: no document requests, list/reopen retains renamed root and Tab-created child.
+- Error handling / rollback / partial outputs — selected: unavailable storage stays visibly nondurable; generic errors remain errors. Evidence: real open-rejection DOM distinction and Reload with storage blocked.
+- Legacy compatibility / examples — selected: normal library and #17 rename/quota failure remain intact. Evidence: retained assertions and full e2e.
+- Documentation / migration notes — selected: user-visible banner changeset. Evidence: docs:check and review; mechanical wiring exempt from new decision.
+- File IO; Schema; Config; Auth; Resource limits; Release / packaging — not selected: no new IO behavior, persisted shape, config, credentials, limits or dependencies; underlying fallback semantics already landed in #17.
