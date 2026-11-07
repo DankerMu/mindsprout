@@ -77,6 +77,7 @@ export interface EditorState extends SelectionSlice {
   openMenu(id: NodeId): void;
   closeMenu(): void;
   topmostSelected(): NodeId[];
+  deleteSelection(): void;
   createNode(parentId: NodeId, index?: number): NodeId;
   startEdit(id: NodeId): void;
   commitTitle(text: string): void;
@@ -391,6 +392,25 @@ export function createEditorStore(
 
       topmostSelected() {
         return topmost(requireMap('topmostSelected'), get().selectedIds);
+      },
+
+      deleteSelection() {
+        const map = requireMap('deleteSelection');
+        requireIdle('deleteSelection');
+        const store = get();
+        const rootId = map.roots[0]?.id;
+        const rootSelected = store.selectedIds.some((id) => id === rootId);
+        // Protect only the root itself; selected descendants remain deletion candidates (decision 0004).
+        const targets = topmost(
+          map,
+          store.selectedIds.filter((id) => id !== rootId),
+        );
+        if (targets.length > 0) {
+          store.runGrouped('delete', () => {
+            for (const id of targets) store.dispatch({ op: 'delete_node', id });
+          });
+        }
+        if (rootSelected) store.showNotice('主根不能删除');
       },
 
       // Tab / Enter / 添加子节点 (design D3): open the creation group, expand a collapsed parent

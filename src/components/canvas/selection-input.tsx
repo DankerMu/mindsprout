@@ -16,6 +16,20 @@ export type CanvasSelection = Pick<
 
 export type CanvasHistory = Pick<EditorState, 'undo' | 'redo' | 'canUndo' | 'canRedo' | 'editing'>;
 
+export type CanvasDeletion = Pick<EditorState, 'deleteSelection'>;
+
+export function handleDeletionKey(
+  event: KeyboardEvent,
+  selection: CanvasSelection,
+  controls: CanvasDeletion | undefined,
+): void {
+  if (controls === undefined || (event.key !== 'Delete' && event.key !== 'Backspace')) return;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (selectionBlocked(selection, event.target, isCompositionKey(event))) return;
+  event.preventDefault();
+  controls.deleteSelection();
+}
+
 export function handleHistoryKey(
   event: KeyboardEvent,
   selection: CanvasSelection,

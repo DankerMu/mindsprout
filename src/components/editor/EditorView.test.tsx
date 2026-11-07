@@ -405,3 +405,115 @@ describe('keyboard creation through EditorSession', () => {
     expect(selectMap(state()).roots[0]?.children[1]?.children).toHaveLength(3);
   });
 });
+
+describe('canvas delete selection', () => {
+  it.each(['Delete', 'Backspace'])(
+    '%s deletes selected subtrees, prunes selection and undoes once',
+    (key) => {
+      const { state, map } = creationEditor();
+      fireEvent.click(nodeWrapper('b'));
+      fireEvent.click(nodeWrapper('f'), { shiftKey: true });
+      expect(fireEvent.keyDown(screen.getByRole('region'), { key })).toBe(false);
+      expect(state().map).toStrictEqual(mapOf(node('r', [node('a'), node('c')])));
+      expect(state().selectedIds).toEqual([]);
+      expect(state().primaryId).toBeNull();
+      expect(screen.queryByText('F')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+      expect(state().map).toStrictEqual(map);
+      expect(state().canUndo).toBe(false);
+      expect(state().canRedo).toBe(true);
+    },
+  );
+
+  it('keeps the selected root, displays one notice and dismisses it without changing history', () => {
+    const { state, map } = creationEditor();
+    fireEvent.click(nodeWrapper('r'));
+    fireEvent.keyDown(screen.getByRole('region'), { key: 'a', ctrlKey: true });
+    fireEvent.keyDown(screen.getByRole('region'), { key: 'Delete' });
+    expect(state().map).toStrictEqual(mapOf(node('r')));
+    expect(state().selectedIds).toEqual(['r']);
+    expect(state().primaryId).toBe('r');
+    expect(nodeWrapper('r').querySelector('[aria-pressed="true"]')).not.toBeNull();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByRole('alert').textContent).toContain('主根不能删除');
+    fireEvent.click(screen.getByRole('button', { name: '关闭提示' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(state().notice).toBeNull();
+    expect(state().canUndo).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+    expect(state().map).toStrictEqual(map);
+  });
+
+  it.each(['Delete', 'Backspace'])(
+    'keeps modified %s and IME native until an unmodified key',
+    (key) => {
+      const { state } = creationEditor();
+      fireEvent.click(nodeWrapper('a'));
+      const region = screen.getByRole('region');
+      const before = state();
+      for (const options of [
+        { altKey: true },
+        { ctrlKey: true },
+        { metaKey: true },
+        { shiftKey: true },
+        { isComposing: true },
+        { keyCode: 229 },
+      ]) {
+        expect(fireEvent.keyDown(region, { key, ...options })).toBe(true);
+        expect(state()).toBe(before);
+      }
+      fireEvent.compositionStart(region);
+      expect(fireEvent.keyDown(region, { key })).toBe(true);
+      expect(state()).toBe(before);
+      fireEvent.compositionEnd(region);
+      expect(fireEvent.keyDown(region, { key })).toBe(false);
+      expect(screen.queryByText('A')).toBeNull();
+    },
+  );
+
+  it.each(['input', 'textarea', 'select', 'div'])(
+    'keeps %s text focus and targets native',
+    (tag) => {
+      const { state } = creationEditor();
+      fireEvent.click(nodeWrapper('a'));
+      const region = screen.getByRole('region');
+      const field = document.createElement(tag);
+      if (tag === 'div') field.setAttribute('contenteditable', 'true');
+      field.tabIndex = 0;
+      region.append(field);
+      const target = tag === 'div' ? field.appendChild(document.createElement('span')) : field;
+      const before = state();
+      for (const key of ['Delete', 'Backspace']) {
+        expect(fireEvent.keyDown(target, { key })).toBe(true);
+        field.focus();
+        expect(fireEvent.keyDown(region, { key })).toBe(true);
+        expect(state()).toBe(before);
+        field.blur();
+      }
+      field.remove();
+      expect(fireEvent.keyDown(region, { key: 'Delete' })).toBe(false);
+      expect(screen.queryByText('A')).toBeNull();
+    },
+  );
+
+  it.each(['rename', 'creation'])(
+    'keeps both deletion keys native during %s, including unfocused editing',
+    (mode) => {
+      const { state } = creationEditor();
+      fireEvent.click(nodeWrapper('a'));
+      if (mode === 'rename') fireEvent.keyDown(screen.getByRole('region'), { key: 'F2' });
+      else fireEvent.keyDown(screen.getByRole('region'), { key: 'Tab' });
+      const input = screen.getByLabelText('节点标题');
+      const before = state();
+      for (const key of ['Delete', 'Backspace']) {
+        expect(fireEvent.keyDown(input, { key })).toBe(true);
+        expect(fireEvent.keyDown(screen.getByRole('region'), { key })).toBe(true);
+        expect(state()).toBe(before);
+      }
+      fireEvent.keyDown(input, { key: 'Escape' });
+      fireEvent.click(nodeWrapper('a'));
+      expect(fireEvent.keyDown(screen.getByRole('region'), { key: 'Backspace' })).toBe(false);
+      expect(screen.queryByText('A')).toBeNull();
+    },
+  );
+});

@@ -63,6 +63,7 @@ export function EditorView({ storageUnavailable = false }: { storageUnavailable?
           selection={selection}
           titleEditing={titleEditing}
           history={selection}
+          deletion={selection}
         />
       </div>
     </div>
