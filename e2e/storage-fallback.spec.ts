@@ -31,6 +31,7 @@ test.describe('storage fallback', () => {
     await page.goto('/');
     await expect(page.getByRole('button', { name: '新建导图' })).toBeEnabled();
     await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toBeVisible();
     await page.screenshot({ path: `${EVIDENCE}/storage-private-home.png` });
     const documents: string[] = [];
     page.on('request', (request) => {
@@ -42,6 +43,7 @@ test.describe('storage fallback', () => {
     const root = page.locator('.react-flow__node').first();
     await expect(root).toBeVisible();
     await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toBeVisible();
     await page.clock.install();
     await root.dblclick();
     const input = page.getByRole('textbox', { name: '节点标题' });
@@ -62,12 +64,14 @@ test.describe('storage fallback', () => {
     await expect(root).toHaveText('仅保存在本次会话');
     await expect(root).toBeVisible();
     await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toBeVisible();
     await expect(page.getByText('保存失败', { exact: true })).toHaveCount(0);
     await page.screenshot({ path: `${EVIDENCE}/storage-private-renamed.png` });
 
     await page.goBack();
     await expect(page.getByTestId('app-ready')).toBeVisible();
     await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: '新导图', exact: true })).toBeVisible();
     await page.screenshot({ path: `${EVIDENCE}/storage-private-library.png` });
     await page.getByRole('link', { name: '新导图', exact: true }).click();
@@ -77,6 +81,7 @@ test.describe('storage fallback', () => {
     await expect(child).toBeVisible();
     await expect(page.locator('.react-flow__node')).toHaveCount(2);
     await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toBeVisible();
     expect(documents).toEqual([]);
     await page.screenshot({ path: `${EVIDENCE}/storage-private-reopened.png` });
   });
@@ -89,6 +94,7 @@ test.describe('storage fallback', () => {
     });
     await page.goto('/');
     await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: '新建导图' }).click();
     await expect(page.getByTestId('map-editor-ready')).toBeVisible();
     const editorUrl = page.url();
@@ -97,6 +103,7 @@ test.describe('storage fallback', () => {
     await expect(page).toHaveURL(editorUrl);
     await expect(page.getByText('找不到这张导图', { exact: true })).toBeVisible();
     await expect(page.getByText('未保存到浏览器', { exact: true })).toHaveCount(1);
+    await expect(page.getByText('未保存到浏览器', { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: '返回导图列表' })).toHaveAttribute('href', '/');
     await expect(page.getByTestId('map-editor-ready')).toHaveCount(0);
     await page.screenshot({ path: `${EVIDENCE}/storage-private-reloaded.png` });
