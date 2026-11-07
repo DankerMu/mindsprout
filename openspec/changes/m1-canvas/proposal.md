@@ -331,3 +331,15 @@ Selected risk packs: Public API / CLI / script entry; Concurrency / shared state
 Evidence floor: real-provider fallback DOM red→green, two named blocked-storage browser scenarios with public child creation and shared-session reopen, screenshots/zero browser noise, affected coverage and scoped gates.
 Scope: library banner wiring, existing tests and release note; provider/repository/editor/autosave behavior unchanged.
 ```
+
+## Fixture triage — issue #22 (task 7.4)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Reason above suggested compact: destructive grouped store action crosses protected-root filtering, selection normalisation, editing ownership, undo/redo and persistence; owner resolved contradictory algorithm prose.
+Blast radius: selecting the primary root either wrongly protects its selected descendants or deletes unrelated nodes; double-delete rejects a group; partial state or native text keys consume user history.
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; File IO / path safety / overwrite; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: exact-map store/DOM red→green, per-file≥90%, five public browser scenarios with real undo, stable grouped autosave proof, full browser regression and scoped gates.
+Scope: task7.4 only; protect the root itself by excluding it before normalisation, as explicitly selected by owner. Existing scenario outcomes and generic topmostSelected contract unchanged.
+```

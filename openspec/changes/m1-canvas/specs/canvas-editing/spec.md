@@ -74,7 +74,7 @@ Double-click or F2 on a node SHALL open a single-line editor for that node only,
 
 ### Requirement: Delete selection
 
-Delete or Backspace (outside an editor) and the context menu SHALL delete the selection as one undo step. The selection SHALL first be normalised to its top-most nodes (a node whose ancestor is selected is skipped — it goes with its ancestor), the primary root SHALL be skipped with the notice "主根不能删除", and floating roots SHALL be deletable. Nothing is dispatched for the primary root, so the group never hits a reducer rejection.
+Delete or Backspace (outside an editor) and the context menu SHALL delete the selection as one undo step. The primary root SHALL be excluded from the deletion candidates before the remaining selection is normalised to its top-most nodes (a node whose deletable ancestor is selected is skipped — it goes with its ancestor). When the primary root was selected the notice "主根不能删除" SHALL be shown; floating roots SHALL be deletable. Nothing is dispatched for the primary root, so the group never hits a reducer rejection.
 
 #### Scenario: Delete two selected subtrees
 
