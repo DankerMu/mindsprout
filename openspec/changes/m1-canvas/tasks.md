@@ -95,7 +95,7 @@ Minimal mergeable slice: 10.1 - list + create is a complete flow; rename/delete 
 
 ## 11. Integration verification and M1 closure
 
-- [ ] 11.1 End-to-end M1 acceptance walk in Playwright: create map → Tab child → rename → drag-reparent → detach → reload → structure, position and note persist and 撤销 is disabled after the reload (re-asserting the reload-clears-history rule owned by 7.5); verify `pnpm e2e` passes with zero console errors and screenshots land in `.run/ui-evidence/`.
+- [x] 11.1 End-to-end M1 acceptance walk in Playwright: create map → Tab child → rename → drag-reparent → detach → reload → structure, position and note persist and 撤销 is disabled after the reload (re-asserting the reload-clears-history rule owned by 7.5); verify `pnpm e2e` passes with zero console errors and screenshots land in `.run/ui-evidence/`.
 - [ ] 11.2 M1 closure docs: add `## Known Limitations` to `README.md` (no AI, browser-only storage, last-500 ms-burst may be lost on immediate reload, LR layout only, no export), remove the README allowlist entry from `docs/.docgate.json` and the matching `constraints.yaml` exemption; verify `pnpm docs:check` passes without the allowlist and `pnpm test:guardrails` passes; the PR flags the `constraints.yaml` edit.
 
 Suggested fixture level: 11.1 compact - verification only; 11.2 expanded - touches `constraints.yaml` (Critical Path: gate integrity).
@@ -401,3 +401,22 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: seven actions/color submenu, title focus, selection/drag/viewport and note indicator remain. Evidence: affected unit coverage and full native browser regression; no geometry assertion weakening.
 - Documentation / migration notes — selected: changeset, D6/D9 focus seam and existing decision consequence. Evidence: docs/decisions checks, strict validation and review.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no configuration, persisted shape, credentials, new cap or dependency changes. Notes remain literal text, never an HTML/Markdown rendering path.
+
+## Verification fixture — issue #33 (task 11.1)
+
+- Begin with an empty browser database through the existing seed helper, then create the map from the library UI. All nodes and attributes in the accepted result must come from public interactions, not seeded target data or store injection.
+- Use Tab to create two root children and a descendant; rename one branch through the inline editor. Give its descendant a literal multiline note and blur it. Capture generated IDs from the public DOM; author expected parent/order/text/note values independently.
+- Native-drag the renamed branch under the other branch. Assert the complete intermediate forest and rendered parent-child edges before proceeding, so a skipped reparent cannot be hidden by the later detach.
+- Native-drag that subtree onto empty canvas. Assert the primary/floating root identities, order and retained descendant note. Capture the committed floating position and its rendered flow-position witness before reload; this walk proves exact round-trip identity, while the existing drag scenarios own pointer-to-flow accuracy.
+- Wait for actual persisted expected state through the existing raw IndexedDB reader, capture the pre-reload envelope and screenshot, and require Undo enabled. After reload, require a fresh raw IndexedDB read to deep-equal that complete envelope: schema version, map metadata, generated map/node IDs, full hierarchy and root/sibling order, text, multiline note and floating-root position. Use public Fit for the session-only viewport and independently assert restored UI tree/edges, floating flow position and note; Undo and Redo are disabled.
+- Reuse browser helpers and native Playwright input rather than copying private drag-coordinate algorithms. Keep existing feature scenarios and assertions intact. A genuine product failure is routed to its owning feature issue; this test-only slice cannot patch production or relax the oracle.
+- Evidence: screenshots for reparented, detached and reloaded states under `.run/ui-evidence/`, zero console warnings/errors/page errors, fresh production `pnpm e2e` and exact-head CI. No fabricated product red→green claim for verification-only work.
+
+## Risk packs — issue #33 (task 11.1)
+
+- Public API / CLI / script entry — selected, verification only: library/editor public walk and test discovery. Evidence: actual create/navigation/keyboard/menu/native drag path; no production hook.
+- File IO / path safety / overwrite — selected, verification only: existing real IndexedDB autosave/readback/reload. Evidence: explicit expected forests plus unchanged final envelope and restored UI; no new persistence implementation.
+- Concurrency / shared state / ordering — selected, verification only: creation groups, committed note, intermediate reparent, final detach and reload-cleared history. Evidence: stepwise expected state and enabled-before/disabled-after history; timing/rollback fault scenarios remain in their existing owning suites.
+- Legacy compatibility / examples — selected: all existing e2e scenarios remain. Evidence: full `pnpm e2e`, unchanged production source and existing helpers.
+- Documentation / migration notes — selected: task completion and PR Runtime evidence references. Evidence: strict OpenSpec validation and documentation gate; no new product decision or user-visible changeset for this test-only addition.
+- Config; Schema; Auth; Resource limits; Error handling / rollback; Release / packaging — not selected: no changed configuration, shape, credentials, limits, failure policy or dependencies; existing feature fault tests retained. README/closure work remains task11.2.

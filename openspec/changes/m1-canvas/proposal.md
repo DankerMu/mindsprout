@@ -427,3 +427,15 @@ Selected risk packs: Public API / CLI / script entry; Concurrency / shared state
 Evidence floor: real-editor visibility/focus/blur red→green, exact one-step add/clear undo, native text-field keys, two named browser scenarios plus selection/persistence boundaries, affected per-file≥90%, screenshots/zero noise and full browser regression.
 Scope: task9.3 only; plain notes and the eighth registry action. No Markdown, new store mutation protocol, per-keystroke persistence, draft recovery or unrelated menu-focus repair.
 ```
+
+## Fixture triage — issue #33 (task 11.1)
+
+```text
+Issue type: test
+Fixture level: compact
+Upstream suggested compact: agree; one test-only composition of existing public behavior, with no production/configuration/shared-helper contract change or novel metric oracle.
+Blast radius: a walk passes without performing an intermediate mutation, seeds its own expected outcome, or checks storage without proving the reopened UI restored it.
+Selected risk packs: Public API / CLI / script entry; File IO / path safety / overwrite; Concurrency / shared state / ordering (verification only); Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: one public create→Tab→rename→native reparent→native detach→reload walk, explicit intermediate forests, note/position round-trip, enabled-before/disabled-after Undo, real IndexedDB, screenshots/zero noise and full e2e.
+Scope: task11.1 test and evidence only. Existing D3–D9, Sketch seams and canvas-editing/map-persistence/map-undo-history spec deltas remain the oracle; no new design section or production change.
+```
