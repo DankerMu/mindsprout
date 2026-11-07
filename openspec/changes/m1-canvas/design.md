@@ -1500,7 +1500,7 @@ Mode: documentation refresh and gate cutover; executable gate evidence, no produ
 Change surface: README.md Known Limitations; docs/.docgate.json README allowlist; constraints.yaml matching README exemption; docs/TECH.md section7; active-change cache-key prose and closure fixture.
 Governing invariant: README must disclose the shipped canvas limitations and pass the existing required-section gate without an exception; every other gate, exemption and product contract remains unchanged.
 README: add exactly the five required limitation topics in concise Chinese: no AI; browser-only storage; the last at-most500ms edit burst can be lost on immediate reload; LR layout only; no export.
-Storage wording: distinguish normal browser persistence from unavailable-storage session fallback, whose data disappears on full reload. Do not imply cloud backup or guaranteed unload flush.
+Storage wording: distinguish normal browser persistence from session fallback selected only when IndexedDB cannot be opened, whose data disappears on full reload. Later storage errors do not swap repositories. Do not imply cloud backup or guaranteed unload flush.
 Bounded guarantee: preserve D7 and map-persistence timing, not a new500ms performance threshold; do not claim unsaved drafts or failed writes are durable.
 Gate config: remove only the README allowlist object and matching constraints exemption. Keep requiredSections.README.md=["Known Limitations"], existing route coverage exemption, expiry/rules elsewhere and scripts unchanged.
 Sequence: implementer first removes the paired exemptions; parent runs pnpm docs:check and captures missing-section rejection. Then implementer adds limitations and revises TECH7; parent runs docs:check to capture acceptance.
