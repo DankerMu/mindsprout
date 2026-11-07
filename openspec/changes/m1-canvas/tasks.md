@@ -391,3 +391,13 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: six actions, extension registry, node classes, selection/drag/editing and history remain. Evidence: owning unit coverage and full browser suite; fixed incidental item-count assertions removed.
 - Documentation / migration notes — selected: changeset, menu contract and owning decision consequence. Evidence: docs/decisions checks and strict OpenSpec validation.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no configuration, persisted shape, credentials, dependency or runtime-cap changes. Theme is scoped node presentation; no global theme subsystem or new performance claim.
+
+## Risk packs — issue #29 (task 9.3)
+
+- Public API / CLI / script entry — selected: note panel and eighth registry action with a UI focus port. Evidence: public editor visibility/menu focus and both named browser scenarios.
+- Concurrency / shared state / ordering — selected: draft identity, blur versus selection/menu/toolbar, live note refresh and text-focus ownership. Evidence: real-store stale/duplicate blur, target switches, refocus and native text-key scenarios.
+- Error handling / rollback / partial outputs — selected: no stale-target dispatch or duplicate history; existing inverse protocol restores optional notes. Evidence: exact add/clear undo/redo, unchanged blur and removed/replaced-node refusal.
+- File IO / path safety / overwrite — selected, scoped: only committed notes reach existing autosave; raw text and absence survive reload. Evidence: real IndexedDB readback before/after blur and existing debounce/reload, without repository changes.
+- Legacy compatibility / examples — selected: seven actions/color submenu, title focus, selection/drag/viewport and note indicator remain. Evidence: affected unit coverage and full native browser regression; no geometry assertion weakening.
+- Documentation / migration notes — selected: changeset, D6/D9 focus seam and existing decision consequence. Evidence: docs/decisions checks, strict validation and review.
+- Config; Schema; Auth; Resource limits; Release / packaging — not selected: no configuration, persisted shape, credentials, new cap or dependency changes. Notes remain literal text, never an HTML/Markdown rendering path.
