@@ -229,7 +229,7 @@ verification:
     - path: "/"
       status: "covered by e2e/smoke.spec.ts"
     - path: "/maps/[id]"
-      status: "pending — add to e2e/smoke.spec.ts when the editor lands (M1)"
+      status: "covered by e2e/smoke.spec.ts"
   surfaces:
     liveness:
       command: "pnpm dev:status"
