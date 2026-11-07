@@ -344,3 +344,13 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: static canvas, measured geometry, editing, selection, pan/zoom, deletion/undo retained. Evidence: paired coverage and full existing browser suite; multi-selection drag explicitly remains inert until #25.
 - Documentation / migration notes — selected: changeset and decision0003 consequence; downstream #25/#26 handoff. Evidence: docs:check/decisions:check and review against exact coordinate contract.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, shape, credential or dependency change; 500-node budget remains #26, not an invented cap here.
+
+## Risk packs — issue #27 (task 9.1)
+
+- Public API / CLI / script entry — selected: extensible menu registry and public context menu. Evidence: registration execution, root enablement and six actions through real store/UI.
+- Concurrency / shared state / ordering — selected: target versus selected set, creation groups, menu lifetime and focus. Evidence: multi-selection target-only collapse/detach/rename, selected/unselected deletion, stale menu and keyboard/blur boundaries.
+- Error handling / rollback / partial outputs — selected: disabled/stale/dismissed actions must be inert; creation/deletion reuse atomic paths. Evidence: unchanged maps/history for refusal, exact one-step undo, no partial creation persistence.
+- File IO / path safety / overwrite — selected, scoped: accepted destructive/menu changes persist only through existing autosave. Evidence: real IndexedDB accepted/undone content and unchanged dismissed/disabled records; no repository changes.
+- Legacy compatibility / examples — selected: keyboard/selection/drag, static canvas, title editing and public history remain intact. Evidence: owning DOM tests and full existing e2e.
+- Documentation / migration notes — selected: changeset and menu ownership/registry consequence in the appropriate decision record. Evidence: docs:check, decisions:check and review; no new duplicate contract document.
+- Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, persisted shape, credentials, limits or dependency changes; group drag/performance remain separate.
