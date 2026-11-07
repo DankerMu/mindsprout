@@ -75,6 +75,18 @@ async function assertUndo(page: Page, roots: MindNode[]) {
   await expect.poll(() => storedRoots(page)).toEqual(MAP.roots);
 }
 
+async function nativeTouchPoint(page: Page, id: number, point: Position) {
+  const screen = await screenPoint(page, point);
+  return { id, x: Math.trunc(screen.x), y: Math.trunc(screen.y) };
+}
+
+async function expectCancelledDrop(page: Page, id: string, origin: Position) {
+  await expect.poll(() => position(page, id)).toEqual(origin);
+  await expect(undo(page)).toBeDisabled();
+  await page.waitForTimeout(750);
+  expect(await readRecord(page, MAP.id)).toEqual(envelopeOf(MAP).value);
+}
+
 test.describe('single-node drag', () => {
   let noise: string[];
   test.beforeEach(async ({ page }) => {
@@ -181,5 +193,98 @@ test.describe('single-node drag', () => {
     const attached: MindNode = { id: 'f', text: 'Floating', children: F.children };
     await assertUndo(page, [{ ...ROOT, children: [S, C, { ...P, children: [Q, attached] }] }, G]);
     await expect.poll(() => position(page, 'f')).toEqual({ x: 700.25, y: 200.75 });
+  });
+
+  test.describe('native touch ownership', () => {
+    test.use({ hasTouch: true });
+
+    test('Second finger on the pane cancels a moving node and a fresh drag works', async ({
+      page,
+    }) => {
+      const client = await page.context().newCDPSession(page);
+      const origin = await position(page, 'c');
+      const initial = await nativeTouchPoint(page, 1, { x: origin.x + 20, y: origin.y + 10 });
+      const moved = await nativeTouchPoint(page, 1, { x: 420, y: 310 });
+      await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [initial] });
+      await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [moved] });
+      await expect.poll(() => position(page, 'c')).toEqual({ x: 400, y: 300 });
+      const canvas = await page.locator('.react-flow').boundingBox();
+      if (canvas === null) throw new Error('missing canvas');
+      const viewport = () =>
+        page
+          .locator('.react-flow__viewport')
+          .evaluate((element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).e);
+      const beforePan = await viewport();
+      const edge = {
+        id: 1,
+        x: Math.trunc(canvas.x + canvas.width - 5),
+        y: Math.trunc(canvas.y + 300),
+      };
+      await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [edge] });
+      await expect.poll(viewport).toBeLessThan(beforePan);
+      const second = await nativeTouchPoint(page, 2, { x: 800, y: 500 });
+      await client.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [edge, second],
+      });
+      const abortedMove = { ...edge, y: edge.y + 1 };
+      await client.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [abortedMove, second],
+      });
+      await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      const releasedViewport = await viewport();
+      await expectCancelledDrop(page, 'c', origin);
+      expect(await viewport()).toBe(releasedViewport);
+      const freshStart = await nativeTouchPoint(page, 7, { x: origin.x + 20, y: origin.y + 10 });
+      const parentPosition = await position(page, 'p');
+      const freshEnd = await nativeTouchPoint(page, 7, {
+        x: parentPosition.x + 20,
+        y: parentPosition.y + 10,
+      });
+      await client.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [freshStart],
+      });
+      await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [freshEnd] });
+      await expect.poll(() => position(page, 'c')).not.toEqual(origin);
+      await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await assertUndo(page, [{ ...ROOT, children: [S, { ...P, children: [Q, C] }] }, F, G]);
+      await client.detach();
+    });
+
+    for (const touchedId of ['c', 'p']) {
+      test(`Mouse and touch collision on ${touchedId} cannot commit either node`, async ({
+        page,
+      }) => {
+        const client = await page.context().newCDPSession(page);
+        const origin = await begin(page, 'c');
+        const otherOrigin = await position(page, 'p');
+        await movePointer(page, { x: 420, y: 310 });
+        await expect.poll(() => position(page, 'c')).toEqual({ x: 400, y: 300 });
+        const touched = await position(page, touchedId);
+        const initial = await nativeTouchPoint(page, 3, { x: touched.x + 20, y: touched.y + 10 });
+        await client.send('Input.dispatchTouchEvent', {
+          type: 'touchStart',
+          touchPoints: [initial],
+        });
+        const moved = await nativeTouchPoint(page, 3, { x: 620, y: 410 });
+        await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [moved] });
+        await page.mouse.up();
+        await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await expectCancelledDrop(page, 'c', origin);
+        await expect.poll(() => position(page, 'p')).toEqual(otherOrigin);
+        await begin(page, 'c');
+        await movePointer(page, { x: 420, y: 310 });
+        await page.mouse.up();
+        await assertUndo(page, [
+          { ...ROOT, children: [S, P] },
+          F,
+          G,
+          { ...C, position: { x: 400, y: 300 } },
+        ]);
+        await client.detach();
+      });
+    }
   });
 });

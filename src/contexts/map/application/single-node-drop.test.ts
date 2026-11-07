@@ -42,11 +42,19 @@ describe('single-node drop', () => {
     expect(hitDropTarget(boxes, { x: 15, y: 10 }, 'a')).toBe('b');
   });
 
-  it('treats column gaps and hidden descendants as empty', () => {
+  it('removes a formerly hittable descendant when its ancestor collapses', () => {
+    const expanded = layoutForest(mapOf(node('r', [node('h')])), { direction: 'LR' });
+    const child = expanded.positions.get('h');
+    if (child === undefined) throw new Error('expanded child has no position');
+    const point = { x: child.x + 1, y: child.y + 1 };
+    expect(hitDropTarget(expanded, point)).toBe('h');
     const hidden = layoutForest(mapOf(node('r', [node('h')], { collapsed: true })), {
       direction: 'LR',
     });
-    expect(hitDropTarget(hidden, { x: 200, y: 5 })).toBeUndefined();
+    expect(hitDropTarget(hidden, point)).toBeUndefined();
+  });
+
+  it('treats a column gap as empty', () => {
     expect(hitDropTarget(layout, { x: 90, y: 0 })).toBeUndefined();
   });
 

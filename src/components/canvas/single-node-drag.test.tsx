@@ -99,6 +99,271 @@ function stop(x: number, y: number) {
   mouse(window, 'mouseup', x, y);
 }
 
+function touchAt(target: Element, identifier: number, x: number, y: number) {
+  const viewport = viewportTransform();
+  return { identifier, target, clientX: x + viewport.x, clientY: y + viewport.y };
+}
+
+function touchPreview(id: string, identifier = 1) {
+  const target = nodeWrapper(id);
+  const origin = renderedPosition(id);
+  const initial = touchAt(target, identifier, origin.x + 20, origin.y + 10);
+  fireEvent.touchStart(target, { touches: [initial], changedTouches: [initial] });
+  const moved = touchAt(target, identifier, 420, 310);
+  fireEvent.touchMove(target, { touches: [moved], changedTouches: [moved] });
+  expect(renderedPosition(id)).toStrictEqual({ x: 400, y: 300 });
+  return { target, origin, moved };
+}
+
+describe('native drag input ownership', () => {
+  it.each([false, true])(
+    'stops viewport autopan after edge abort (immediate other-node restart=%s)',
+    async (restart) => {
+      const frames = new Map<number, FrameRequestCallback>();
+      let frameId = 0;
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+        frames.set(++frameId, callback);
+        return frameId;
+      });
+      vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+        frames.delete(id);
+      });
+      const advanceFrame = async () => {
+        await act(async () => {
+          const pending = [...frames.values()];
+          frames.clear();
+          for (const callback of pending) callback(performance.now());
+          await Promise.resolve();
+        });
+      };
+      const { store, unmount } = setup();
+      const before = store.getState().map;
+      const target = nodeWrapper('a');
+      const origin = renderedPosition('a');
+      const initial = touchAt(target, 1, origin.x + 20, origin.y + 10);
+      fireEvent.touchStart(target, { touches: [initial], changedTouches: [initial] });
+      const edge = { identifier: 1, target, clientX: 995, clientY: 500 };
+      fireEvent.touchMove(target, { touches: [edge], changedTouches: [edge] });
+      const beforeFrame = viewportTransform();
+      await advanceFrame();
+      const during = viewportTransform();
+      expect(during.x).toBeLessThan(beforeFrame.x);
+      expect(renderedPosition('a')).not.toStrictEqual(origin);
+      const second = { identifier: 2, target: document.body, clientX: 700, clientY: 500 };
+      fireEvent.touchStart(document.body, { touches: [edge, second], changedTouches: [second] });
+      fireEvent.touchMove(target, { touches: [edge, second], changedTouches: [edge] });
+      fireEvent.touchEnd(target, { touches: [second], changedTouches: [edge] });
+      fireEvent.touchEnd(document.body, { touches: [], changedTouches: [second] });
+      expect(renderedPosition('a')).toStrictEqual(origin);
+      expect(store.getState().map).toBe(before);
+      expect(store.getState().canUndo).toBe(false);
+      const released = viewportTransform();
+      if (restart) {
+        const next = nodeWrapper('p');
+        const nextOrigin = renderedPosition('p');
+        const nextTouch = touchAt(next, 7, nextOrigin.x + 20, nextOrigin.y + 10);
+        fireEvent.touchStart(next, { touches: [nextTouch], changedTouches: [nextTouch] });
+        const nextCentre = touchAt(next, 7, 420, 310);
+        fireEvent.touchMove(next, { touches: [nextCentre], changedTouches: [nextCentre] });
+        expect(renderedPosition('p')).toStrictEqual({ x: 400, y: 300 });
+      }
+      await advanceFrame();
+      await advanceFrame();
+      const afterFrames = viewportTransform();
+      expect(afterFrames).toStrictEqual(released);
+      if (restart) {
+        const next = nodeWrapper('p');
+        const nextEdge = { identifier: 7, target: next, clientX: 995, clientY: 500 };
+        fireEvent.touchMove(next, { touches: [nextEdge], changedTouches: [nextEdge] });
+        const beforePan = viewportTransform();
+        await advanceFrame();
+        const afterPan = viewportTransform();
+        expect(afterPan.x - beforePan.x).toBe(during.x - beforeFrame.x);
+        const centre = touchAt(next, 7, 420, 310);
+        fireEvent.touchMove(next, { touches: [centre], changedTouches: [centre] });
+        fireEvent.touchEnd(next, { touches: [], changedTouches: [centre] });
+        expect(store.getState().map?.roots.at(-1)?.id).toBe('p');
+        fireEvent.keyDown(screen.getByRole('region'), { key: 'z', ctrlKey: true });
+        expect(store.getState().map).toStrictEqual(MAP);
+        expect(store.getState().canUndo).toBe(false);
+      }
+      unmount();
+      await advanceFrame();
+    },
+  );
+
+  it('refuses a moving mouse gesture when composition begins before release', () => {
+    const { store } = setup();
+    const before = store.getState().map;
+    const origin = start('a');
+    move(420, 310);
+    expect(renderedPosition('a')).toStrictEqual({ x: 400, y: 300 });
+    fireEvent.compositionStart(screen.getByRole('region'));
+    stop(420, 310);
+    expect(renderedPosition('a')).toStrictEqual(origin);
+    expect(store.getState().map).toBe(before);
+    expect(store.getState().canUndo).toBe(false);
+  });
+
+  it.each(['pane', 'outside', 'source'] as const)(
+    'discards a touch preview when a second finger starts on the %s and recovers',
+    async (location) => {
+      const { store, repository } = setup();
+      const before = store.getState().map;
+      const { target, origin, moved } = touchPreview('a');
+      const pane = document.querySelector('.react-flow__pane');
+      if (pane === null) throw new Error('no pane');
+      const secondTarget =
+        location === 'pane' ? pane : location === 'outside' ? document.body : target;
+      const second = touchAt(secondTarget, 2, 700, 500);
+      const stopBubbling = (event: Event) => {
+        event.stopPropagation();
+      };
+      secondTarget.addEventListener('touchstart', stopBubbling);
+      fireEvent.touchStart(secondTarget, { touches: [moved, second], changedTouches: [second] });
+      secondTarget.removeEventListener('touchstart', stopBubbling);
+      expect(renderedPosition('a')).toStrictEqual(origin);
+      fireEvent.touchMove(target, { touches: [moved, second], changedTouches: [moved] });
+      fireEvent.touchEnd(target, { touches: [second], changedTouches: [moved] });
+      fireEvent.touchEnd(secondTarget, { touches: [], changedTouches: [second] });
+      expect(renderedPosition('a')).toStrictEqual(origin);
+      expect(store.getState().map).toBe(before);
+      expect(store.getState().canUndo).toBe(false);
+      await act(() => store.getState().flush());
+      expect(repository.puts).toStrictEqual([]);
+      const independent = touchPreview('a', 7);
+      fireEvent.touchEnd(independent.target, { touches: [], changedTouches: [independent.moved] });
+      expect(store.getState().map?.roots.at(-1)).toStrictEqual(
+        node('a', [node('d')], { position: { x: 400, y: 300 } }),
+      );
+      fireEvent.keyDown(screen.getByRole('region'), { key: 'z', ctrlKey: true });
+      expect(store.getState().map).toStrictEqual(MAP);
+      expect(store.getState().canUndo).toBe(false);
+    },
+  );
+
+  it.each(['a', 'p'])(
+    'cancels overlapping mouse and touch ownership on %s rather than committing the wrong stop',
+    async (touchedId) => {
+      const { store, repository } = setup();
+      const before = store.getState().map;
+      const originA = start('a');
+      const originP = renderedPosition('p');
+      move(420, 310);
+      expect(renderedPosition('a')).toStrictEqual({ x: 400, y: 300 });
+      const target = nodeWrapper(touchedId);
+      const position = renderedPosition(touchedId);
+      const touch = touchAt(target, 3, position.x + 20, position.y + 10);
+      fireEvent.touchStart(target, { touches: [touch], changedTouches: [touch] });
+      const moved = touchAt(target, 3, 620, 410);
+      fireEvent.touchMove(target, { touches: [moved], changedTouches: [moved] });
+      stop(420, 310);
+      fireEvent.touchEnd(target, { touches: [], changedTouches: [moved] });
+      expect(store.getState().map).toBe(before);
+      expect(renderedPosition('a')).toStrictEqual(originA);
+      expect(renderedPosition('p')).toStrictEqual(originP);
+      expect(store.getState().canUndo).toBe(false);
+      await act(() => store.getState().flush());
+      expect(repository.puts).toStrictEqual([]);
+    },
+  );
+
+  it.each(['a', 'p'])('cancels a touch owner when mouse input overlaps on %s', (id) => {
+    const { store } = setup();
+    const before = store.getState().map;
+    const { target, origin, moved } = touchPreview('a');
+    start(id);
+    move(620, 410);
+    fireEvent.touchEnd(target, { touches: [], changedTouches: [moved] });
+    stop(620, 410);
+    expect(store.getState().map).toBe(before);
+    expect(renderedPosition('a')).toStrictEqual(origin);
+    expect(store.getState().canUndo).toBe(false);
+  });
+
+  it('discards native touch cancellation and accepts a fresh touch identifier', () => {
+    const { store } = setup();
+    const before = store.getState().map;
+    const { target, origin, moved } = touchPreview('a', 9);
+    fireEvent.touchCancel(target, { touches: [], changedTouches: [moved] });
+    expect(renderedPosition('a')).toStrictEqual(origin);
+    expect(store.getState().map).toBe(before);
+    const next = touchPreview('a', 23);
+    fireEvent.touchEnd(next.target, { touches: [], changedTouches: [next.moved] });
+    expect(store.getState().map?.roots.at(-1)?.position).toStrictEqual({ x: 400, y: 300 });
+    fireEvent.keyDown(screen.getByRole('region'), { key: 'z', ctrlKey: true });
+    expect(store.getState().map).toStrictEqual(MAP);
+    expect(store.getState().canUndo).toBe(false);
+  });
+
+  it.each(['mouse-first', 'touch-first'])(
+    'keeps a collision latched until both inputs release (%s)',
+    (order) => {
+      const { store } = setup();
+      const before = store.getState().map;
+      const origin = start('a');
+      move(420, 310);
+      const target = nodeWrapper('p');
+      const position = renderedPosition('p');
+      const touch = touchAt(target, 3, position.x + 20, position.y + 10);
+      fireEvent.touchStart(target, { touches: [touch], changedTouches: [touch] });
+      if (order === 'mouse-first') {
+        stop(420, 310);
+        start('a');
+        move(620, 410);
+        stop(620, 410);
+        expect(store.getState().map).toBe(before);
+        expect(renderedPosition('a')).toStrictEqual(origin);
+        fireEvent.touchEnd(target, { touches: [], changedTouches: [touch] });
+      } else {
+        fireEvent.touchEnd(target, { touches: [], changedTouches: [touch] });
+        const second = touchAt(target, 4, position.x + 20, position.y + 10);
+        fireEvent.touchStart(target, { touches: [second], changedTouches: [second] });
+        const moved = touchAt(target, 4, 620, 410);
+        fireEvent.touchMove(target, { touches: [moved], changedTouches: [moved] });
+        fireEvent.touchEnd(target, { touches: [], changedTouches: [moved] });
+        expect(store.getState().map).toBe(before);
+        expect(renderedPosition('a')).toStrictEqual(origin);
+        stop(420, 310);
+      }
+      expect(store.getState().canUndo).toBe(false);
+      const independent = touchPreview('a', 7);
+      fireEvent.touchEnd(independent.target, { touches: [], changedTouches: [independent.moved] });
+      expect(store.getState().map?.roots.at(-1)?.position).toStrictEqual({ x: 400, y: 300 });
+      fireEvent.keyDown(screen.getByRole('region'), { key: 'z', ctrlKey: true });
+      expect(store.getState().map).toStrictEqual(MAP);
+      expect(store.getState().canUndo).toBe(false);
+    },
+  );
+
+  it('keeps an unmounted collision unchanged while a fresh canvas accepts an independent drag', () => {
+    const previous = setup();
+    const before = previous.store.getState().map;
+    const first = touchPreview('a');
+    const second = touchAt(document.body, 2, 700, 500);
+    fireEvent.touchStart(document.body, {
+      touches: [first.moved, second],
+      changedTouches: [second],
+    });
+    previous.unmount();
+    fireEvent.touchEnd(document.body, { touches: [], changedTouches: [first.moved, second] });
+    expect(previous.store.getState().map).toBe(before);
+    expect(previous.store.getState().canUndo).toBe(false);
+    expect(previous.repository.puts).toStrictEqual([]);
+    const { store } = setup();
+    expect(store.getState().canUndo).toBe(false);
+    const independent = touchPreview('a', 7);
+    fireEvent.touchEnd(independent.target, { touches: [], changedTouches: [independent.moved] });
+    expect(store.getState().map?.roots.at(-1)?.position).toStrictEqual({ x: 400, y: 300 });
+    fireEvent.keyDown(screen.getByRole('region'), { key: 'z', ctrlKey: true });
+    expect(store.getState().map).toStrictEqual(MAP);
+    expect(store.getState().canUndo).toBe(false);
+    expect(previous.store.getState().map).toBe(before);
+    expect(previous.store.getState().canUndo).toBe(false);
+    expect(previous.repository.puts).toStrictEqual([]);
+  });
+});
+
 describe('controlled single-node drag through the editor', () => {
   it('previews only the grabbed node, selects it, then detaches with one undo step', () => {
     const { store } = setup();
