@@ -95,7 +95,7 @@ Minimal mergeable slice: 10.1 - list + create is a complete flow; rename/delete 
 
 ## 11. Integration verification and M1 closure
 
-- [ ] 11.1 End-to-end M1 acceptance walk in Playwright: create map → Tab child → rename → drag-reparent → detach → reload → structure, position and note persist and 撤销 is disabled after the reload (re-asserting the reload-clears-history rule owned by 7.5); verify `pnpm e2e` passes with zero console errors and screenshots land in `.run/ui-evidence/`.
+- [x] 11.1 End-to-end M1 acceptance walk in Playwright: create map → Tab child → rename → drag-reparent → detach → reload → structure, position and note persist and 撤销 is disabled after the reload (re-asserting the reload-clears-history rule owned by 7.5); verify `pnpm e2e` passes with zero console errors and screenshots land in `.run/ui-evidence/`.
 - [ ] 11.2 M1 closure docs: add `## Known Limitations` to `README.md` (no AI, browser-only storage, last-500 ms-burst may be lost on immediate reload, LR layout only, no export), remove the README allowlist entry from `docs/.docgate.json` and the matching `constraints.yaml` exemption; verify `pnpm docs:check` passes without the allowlist and `pnpm test:guardrails` passes; the PR flags the `constraints.yaml` edit.
 
 Suggested fixture level: 11.1 compact - verification only; 11.2 expanded - touches `constraints.yaml` (Critical Path: gate integrity).
