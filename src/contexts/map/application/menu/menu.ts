@@ -7,6 +7,7 @@ export interface MenuContext {
   readonly map: MindMap;
   readonly selection: readonly NodeId[];
   readonly positions: ReadonlyMap<NodeId, Position>;
+  readonly requestNoteFocus: (target: NodeId) => void;
   readonly actions: Pick<
     EditorState,
     'createNode' | 'startEdit' | 'select' | 'deleteSelection' | 'dispatch' | 'runGrouped'
@@ -140,6 +141,15 @@ nodeMenu.register({
       },
     }),
   ),
+});
+nodeMenu.register({
+  id: 'edit-note',
+  label: '编辑备注',
+  isEnabled: () => true,
+  run: (ctx) => {
+    ctx.actions.select(ctx.target);
+    ctx.requestNoteFocus(ctx.target);
+  },
 });
 nodeMenu.register({
   id: 'detach',

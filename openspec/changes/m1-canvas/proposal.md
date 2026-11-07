@@ -415,3 +415,15 @@ Selected risk packs: Public API / CLI / script entry; Concurrency / shared state
 Evidence floor: chronological real-store and DOM red→green, three named browser scenarios, native submenu keyboard/dismissal and light/dark rendering, exact one-step undo/persistence, affected per-file≥90% and full browser regression.
 Scope: task9.2 only; six fixed semantic tokens plus clearing. Notes, free-form colors, a theme-switching UI and the independent existing disabled-menu focus defect remain separate.
 ```
+
+## Fixture triage — issue #29 (task 9.3)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Reason above suggested compact: selection-driven text drafts, menu-to-panel focus, blur dispatch, undo and autosave share editor/session identity.
+Blast radius: a note draft commits twice or to a replacement node/map; typing triggers canvas actions; opening the panel steals title/menu focus or disrupts drag geometry.
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; File IO / path safety / overwrite; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: real-editor visibility/focus/blur red→green, exact one-step add/clear undo, native text-field keys, two named browser scenarios plus selection/persistence boundaries, affected per-file≥90%, screenshots/zero noise and full browser regression.
+Scope: task9.3 only; plain notes and the eighth registry action. No Markdown, new store mutation protocol, per-keystroke persistence, draft recovery or unrelated menu-focus repair.
+```

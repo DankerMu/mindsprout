@@ -10,6 +10,7 @@ import { isCompositionKey } from './selection-input';
 
 export interface CanvasMenu {
   getState(): EditorState;
+  readonly requestNoteFocus: (target: NodeId) => void;
 }
 interface MenuSession {
   target: NodeId;
@@ -25,9 +26,10 @@ function menuContext(
   positions: ReadonlyMap<NodeId, Position>,
   controls: CanvasMenu | undefined,
 ): MenuContext | undefined {
-  const state = controls?.getState();
+  if (controls === undefined) return;
+  const state = controls.getState();
   if (map !== session.map || positions !== session.positions) return;
-  if (state?.map !== session.map || state.editing !== null || state.menuTargetId !== session.target)
+  if (state.map !== session.map || state.editing !== null || state.menuTargetId !== session.target)
     return;
   if (!visibleIds(state.map).includes(session.target)) return;
   return {
@@ -36,6 +38,7 @@ function menuContext(
     selection: state.selectedIds,
     positions,
     actions: state,
+    requestNoteFocus: controls.requestNoteFocus,
   };
 }
 
@@ -203,6 +206,7 @@ function ContextMenu({
         position: 'fixed',
         zIndex: 2000,
         display: 'grid',
+        boxSizing: 'border-box',
         padding: 4,
         background: 'Canvas',
         color: 'CanvasText',

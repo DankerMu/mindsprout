@@ -42,6 +42,8 @@ const nodeAt = (page: Page, id: string) => page.locator(`.react-flow__node[data-
 const item = (page: Page, label: string) =>
   page.getByRole('menuitem', { name: label, exact: true });
 const undo = (page: Page) => page.getByRole('button', { name: '撤销', exact: true });
+const redo = (page: Page) => page.getByRole('button', { name: '重做', exact: true });
+const noteAt = (page: Page) => page.getByRole('textbox', { name: '节点备注' });
 async function nodeStyle(page: Page, id: string) {
   return nodeAt(page, id)
     .locator('.mind-node')
@@ -107,6 +109,181 @@ test.describe('node context menu', () => {
       path: `${EVIDENCE}/menu-${info.title.replaceAll(/[^a-zA-Z0-9]+/g, '-')}.png`,
     });
     expect(noise).toEqual([]);
+  });
+
+  test('Menu on the primary root', async ({ page }) => {
+    await nodeAt(page, 'a').click();
+    await open(page, 'r');
+    const menu = page.getByRole('menu', { name: '节点菜单', exact: true });
+    await expect(menu.getByRole('menuitem')).toHaveCount(8);
+    for (const [index, label] of [
+      '添加子节点',
+      '添加兄弟节点',
+      '重命名',
+      '删除',
+      '折叠',
+      '设置颜色',
+      '编辑备注',
+      '脱离为浮动节点',
+    ].entries())
+      await expect(menu.getByRole('menuitem').nth(index)).toHaveAccessibleName(label);
+    await expect(menu.getByRole('menuitem', { disabled: true })).toHaveCount(3);
+    for (const label of ['添加兄弟节点', '删除', '脱离为浮动节点'])
+      await expect(item(page, label)).toBeDisabled();
+    await expect(item(page, '编辑备注')).toBeEnabled();
+    await expect(nodeAt(page, 'a')).toHaveClass(/selected/);
+    await item(page, '编辑备注').click();
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(1);
+    await expect(nodeAt(page, 'r')).toHaveClass(/selected/);
+    await expect(noteAt(page)).toBeFocused();
+    await expect(noteAt(page)).toHaveValue('');
+    await expect(undo(page)).toBeDisabled();
+    await expect(redo(page)).toBeDisabled();
+    expect(await readRecord(page, MAP.id)).toEqual(envelopeOf(MAP).value);
+  });
+
+  test('Add a note', async ({ page }) => {
+    const text = '  **First** <b>literal</b>\nSecond line  ';
+    const annotated = [{ ...ROOT, children: [{ ...A, note: text }, B, C] }, F];
+    await nodeAt(page, 'b').click();
+    await nodeAt(page, 'c').click({ modifiers: ['Shift'] });
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(2);
+    await expect(noteAt(page)).toHaveCount(0);
+    await open(page, 'a');
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(2);
+    await expect(nodeAt(page, 'a')).not.toHaveClass(/selected/);
+    await item(page, '编辑备注').click();
+    await expect(noteAt(page)).toBeFocused();
+    await expect(nodeAt(page, 'a')).toHaveClass(/selected/);
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(1);
+    await noteAt(page).pressSequentially('  **First** <b>literal</b>');
+    await noteAt(page).press('Enter');
+    await noteAt(page).pressSequentially('Second line  ');
+    await expect(noteAt(page)).toHaveValue(text);
+    await expect(
+      page.getByRole('complementary', { name: '备注' }).locator('b, strong'),
+    ).toHaveCount(0);
+    await expect(nodeAt(page, 'a').getByRole('img', { name: '有备注' })).toHaveCount(0);
+    await expect(undo(page)).toBeDisabled();
+    await page.waitForTimeout(750);
+    expect(await readRecord(page, MAP.id)).toEqual(envelopeOf(MAP).value);
+
+    await nodeAt(page, 'b').click();
+    await expect(nodeAt(page, 'b')).toHaveClass(/selected/);
+    await expect(noteAt(page)).toHaveValue('');
+    await expect(noteAt(page)).not.toBeFocused();
+    await expect(nodeAt(page, 'a').getByRole('img', { name: '有备注' })).toBeVisible();
+    await expect.poll(() => roots(page)).toEqual(annotated);
+    await page.screenshot({ path: `${EVIDENCE}/note-two-lines-committed.png` });
+    await undo(page).click();
+    await expect.poll(() => roots(page)).toEqual(MAP.roots);
+    await expect(nodeAt(page, 'a').getByRole('img', { name: '有备注' })).toHaveCount(0);
+    await expect(undo(page)).toBeDisabled();
+    await redo(page).click();
+    await expect.poll(() => roots(page)).toEqual(annotated);
+    await page.reload();
+    await page.getByRole('button', { name: '适应画布' }).click();
+    await expect(nodeAt(page, 'a').getByRole('img', { name: '有备注' })).toBeVisible();
+    await nodeAt(page, 'a').click();
+    await expect(noteAt(page)).toHaveValue(text);
+    await expect(undo(page)).toBeDisabled();
+    await expect(redo(page)).toBeDisabled();
+
+    await noteAt(page).click();
+    await noteAt(page).press('ControlOrMeta+a');
+    await noteAt(page).press('Backspace');
+    await expect(noteAt(page)).toHaveValue('');
+    expect(await roots(page)).toEqual(annotated);
+    await nodeAt(page, 'b').click();
+    await expect.poll(() => roots(page)).toEqual(MAP.roots);
+    await expect(nodeAt(page, 'a').getByRole('img', { name: '有备注' })).toHaveCount(0);
+    await undo(page).click();
+    await expect.poll(() => roots(page)).toEqual(annotated);
+    await expect(nodeAt(page, 'a').getByRole('img', { name: '有备注' })).toBeVisible();
+    await expect(undo(page)).toBeDisabled();
+    await redo(page).click();
+    await expect.poll(() => roots(page)).toEqual(MAP.roots);
+    await page.reload();
+    await page.getByRole('button', { name: '适应画布' }).click();
+    await nodeAt(page, 'a').click();
+    await expect(noteAt(page)).toHaveValue('');
+    await expect(nodeAt(page, 'a').getByRole('img', { name: '有备注' })).toHaveCount(0);
+    expect(await roots(page)).toEqual(MAP.roots);
+    await expect(undo(page)).toBeDisabled();
+    await expect(redo(page)).toBeDisabled();
+  });
+
+  test('Note textarea keeps native editing and commits only when Tab leaves the field', async ({
+    page,
+  }) => {
+    const initial = {
+      ...MAP,
+      roots: [{ ...ROOT, children: [{ ...A, note: 'Seed' }, B, C] }, F],
+    };
+    await loadMap(page, initial);
+    await nodeAt(page, 'b').dblclick();
+    await page.getByRole('textbox', { name: '节点标题' }).fill('Earlier rename');
+    await page.getByRole('textbox', { name: '节点标题' }).press('Enter');
+    const renamed = [
+      { ...ROOT, children: [{ ...A, note: 'Seed' }, { ...B, text: 'Earlier rename' }, C] },
+      F,
+    ];
+    await expect.poll(() => roots(page)).toEqual(renamed);
+    await open(page, 'a');
+    await item(page, '编辑备注').click();
+    await noteAt(page).press('End');
+    await noteAt(page).pressSequentially('d');
+    await expect(noteAt(page)).toHaveValue('Seedd');
+    await noteAt(page).press('ControlOrMeta+z');
+    await expect(noteAt(page)).toHaveValue('Seed');
+    await expect(undo(page)).toBeEnabled();
+    await expect(redo(page)).toBeDisabled();
+    await noteAt(page).press('End');
+    await noteAt(page).press('Enter');
+    await noteAt(page).pressSequentially('xy');
+    await expect(noteAt(page)).toHaveValue('Seed\nxy');
+    await noteAt(page).press('ArrowLeft');
+    await noteAt(page).press('Delete');
+    await expect(noteAt(page)).toHaveValue('Seed\nx');
+    await noteAt(page).press('Backspace');
+    await noteAt(page).pressSequentially('tail');
+    await expect(noteAt(page)).toHaveValue('Seed\ntail');
+    await noteAt(page).press('ControlOrMeta+a');
+    expect(
+      await noteAt(page).evaluate((element) => {
+        if (!(element instanceof HTMLTextAreaElement)) throw new Error('missing note textarea');
+        return { start: element.selectionStart, end: element.selectionEnd };
+      }),
+    ).toEqual({ start: 0, end: 9 });
+    for (const key of ['ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape', 'F2']) {
+      await noteAt(page).press(key);
+      await expect(noteAt(page)).toBeFocused();
+      await expect(page.locator('.react-flow__node.selected')).toHaveCount(1);
+      await expect(nodeAt(page, 'a')).toHaveClass(/selected/);
+    }
+    await expect(page.locator('.react-flow__node')).toHaveCount(14);
+    await expect(page.getByRole('textbox', { name: '节点标题' })).toHaveCount(0);
+    await page.waitForTimeout(750);
+    expect(await roots(page)).toEqual(renamed);
+    await page.screenshot({ path: `${EVIDENCE}/note-native-keys-draft.png` });
+    await noteAt(page).press('Tab');
+    await expect(noteAt(page)).not.toBeFocused();
+    await expect
+      .poll(() => roots(page))
+      .toEqual([
+        {
+          ...ROOT,
+          children: [{ ...A, note: 'Seed\ntail' }, { ...B, text: 'Earlier rename' }, C],
+        },
+        F,
+      ]);
+    await expect(page.locator('.react-flow__node')).toHaveCount(14);
+    await undo(page).click();
+    await expect.poll(() => roots(page)).toEqual(renamed);
+    await undo(page).click();
+    await expect.poll(() => roots(page)).toEqual(initial.roots);
+    await expect(undo(page)).toBeDisabled();
   });
 
   test('Menu on a floating root', async ({ page }) => {

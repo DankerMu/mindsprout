@@ -142,6 +142,8 @@ Selection, editing state, context-menu state, pan/zoom live in the editor store'
 
 `MenuItem = MenuAction | MenuSubmenu` registered in `application/menu/`; both carry `id`, `label`, optional `shortcut` and `isEnabled(ctx)`. An action has `run(ctx)`; a submenu has executable `children`, not a placeholder action. `ctx` carries the right-clicked target, the selection, and the current layout — `positions` from `layoutForest` (D4) — so actions read laid-out canvas positions without touching React Flow or the UI slice. M1 registers eight items: 添加子节点, 添加兄弟节点, 重命名, 删除, 折叠/展开, 设置颜色 (submenu: six tokens + 无颜色, which dispatches `color: null`), 编辑备注, 脱离为浮动节点. Enablement: 添加兄弟节点 and 脱离为浮动节点 are disabled on every root (primary or floating); 删除 is disabled on the primary root only. 删除 and 设置颜色 act on the whole selection when the target is selected; 重命名, 折叠/展开 and 编辑备注 act on the target node only, whatever the selection (ledger: editing and collapse stay single-node). 脱离为浮动节点 is likewise single-node: on a non-root target it dispatches one ungrouped `move_node { id: target, newParentId: null, position: ctx.positions.get(target) }` (the target's current laid-out canvas position) — the node keeps its place on the canvas and only its parent link is cut, the selection is not consulted, and one undo re-attaches it under its previous parent at its previous index (D2 inverse). M4 registers the four Grow actions without touching the menu component.
 
+编辑备注 selects only its target, then calls the DOM-free `requestNoteFocus(target)` port. The editor host consumes a one-shot request bound to its map and target after the panel renders; application code never owns a textarea or DOM query.
+
 ### D7. Persistence: IndexedDB via `idb`, repository port in domain (grill Q7)
 
 `MapRepository { list(): Promise<MapSummary[]>; get(id): Promise<MindMap | undefined>; put(map): Promise<void>; delete(id): Promise<void> }` with `MapSummary = { id: string; title: string; updatedAt: string }`, plus the errors an adapter may throw — `StorageUnavailableError` (store cannot be opened) and `UnsupportedSchemaVersionError { found, supported }` — are all declared in `src/contexts/map/domain/` (task 4.1) so `application/` consumes them without importing `infrastructure/`. `IndexedDbMapRepository` in `src/contexts/map/infrastructure/persistence/` stores `{ schemaVersion: 1, map }` under key `id` in object store `maps`. `put` stores what it is given; the application stamps `updatedAt` before every `put` and on rename (D1).
@@ -159,6 +161,8 @@ One `MapRepository` instance is resolved once per app session in the composition
 ### D9. Colors and text (grill Q11, Q12)
 
 `ColorToken = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple'`; the theme maps tokens to CSS variables (light/dark); clearing a color dispatches `update_node { color: null }`. Title is single-line, unbounded (the "≤ 40 字" in TECH §5.5 is an AI prompt constraint, not a model constraint), Enter commits; note is a plain `textarea` in a side panel, autosaved via `update_node` on blur; an emptied note dispatches `note: null`.
+
+Exactly one selected node exposes the note field without taking focus; zero or multiple selections hide it. Note text remains a local draft until a dirty blur commits one TreeOp. The draft belongs to the owning map and canonical node instance, so selection replacement, node replacement or a canonical update cannot redirect stale text. Unchanged and repeated blur are inert; undo/redo refresh the field from the map. Native blur to another node commits before selection changes; abrupt navigation before blur does not promise draft recovery.
 
 ### D10. Keyboard and undo affordances (grill Q13)
 
@@ -1429,4 +1433,32 @@ Verification: affected production files each≥90% coverage, typecheck/lint/boun
 Docs: changeset and existing menu/history ownership decision consequence; no duplicate behavior catalog.
 Non-goals: notes/eighth item, free hex input, arbitrary recursive menu framework, persistence/schema changes, dependency or gate changes, new performance claims, and the independent disabled-item/padding focus defect.
 Review focus: all-selected vs topmost scope; atomic group and live-session ownership; submenu keyboard/focus; CSS specificity in both schemes; obsolete fixed menu-count tests removed rather than repinned.
+```
+
+## Fixture — issue #29 (task 9.3)
+
+```text
+Mode: Construction / Standard; existing editor/session/TreeOp behavior is the reference, not a new note subsystem.
+Change surface: canvas NotePanel and paired test, EditorView composition/layout, application/menu note entry and the smallest explicit UI focus seam, browser scenarios.
+What exists: selection is authoritative in EditorState; findNode resolves the node; update_node already stores/clears notes and History owns undo. flow-elements/MindNodeView already project the nonempty-note indicator. Text-field gates already protect textarea input.
+Governing invariant: a dirty note field commits its plain text to its own live node exactly once when it blurs; no draft may migrate to another selection/session or become a canvas command.
+Visibility: render an accessible side panel and plain multiline textarea whenever selectedIds has exactly one existing node; render neither for zero or multiple selection. Ordinary selection exposes the field without focusing it.
+Menu: register 编辑备注 before detach through the existing action registry. Its action selects only the target and requests focus on that target's textarea, even if it was already the sole selection. All eight top-level items remain present; primary-root disabled actions are exactly add sibling, delete and detach.
+Focus seam: application code carries a DOM-free callback/port; EditorView and the panel own the actual textarea ref/focus request. Do not query the DOM from application code, add label/ID switches to generic menu rendering, or create a second persistent selection/editing authority.
+Draft: keep text local while typing; preserve whitespace/newlines literally, never render Markdown/HTML. A dirty blur dispatches one update_node with note equal to the draft, or null for the empty string. An unchanged blur is inert.
+History: one dirty blur is one entry; repeated blur from the same completed draft adds no entry. A later focus/edit/blur can commit again. One undo restores the exact prior note or absence and indicator; redo reapplies.
+Identity: resolve the current store/node before committing. Detached old fields, removed/replaced targets or replaced sessions cannot overwrite a new note or throw unknown-node. Changing the selected node resets the field to that node's note; undo/redo or external note updates must be reflected rather than overwritten by stale local text.
+Leaving the field: ordinary native clicks to another node, toolbar or menu first complete the focused note's blur and then execute their own action. Prove the outgoing draft belongs to the previous node; do not retarget it after selection changes.
+Input: textarea Enter/newlines, deletion, selection, arrows, Tab traversal and native undo remain text behavior while focused. Reuse existing text-focus gates; no canvas action fires from these keys. IME text is not committed per key.
+Composition: selecting a node or mounting the panel must not steal an active inline title editor's focus. Requesting note focus through the menu must survive its normal close-to-canvas focus sequence.
+Geometry: keep a usable canvas and toolbar with the panel visible; do not remount ReactFlow/store or silently reset the viewport on selection. Retain native single/group drag and exact-coordinate regression assertions; panel layout is not permission to weaken them.
+Must preserve: seven existing menu actions, color submenu navigation and themes, root restrictions, title creation/editing, selection/drag/history, stable autosave and literal note-indicator semantics.
+Sibling surfaces: registry extension clients and MenuContext consumers; EditorView/EditorSession ownership; textarea/text-field gates; node measurement/indicator; HistoryToolbar blur ordering; IndexedDB autosave and selection pruning.
+DOM evidence: visibility zero/one/two; menu on an unselected target selects/focuses it and repeated request refocuses; two-line note stays draft until blur; exact one-step add/clear undo/redo; unchanged and duplicate blur inert; switch target, stale field and live note refresh boundaries.
+Browser evidence: Add a note and Menu on the primary root, with all eight semantic actions and exactly three disabled. Also clear/restore note, actual field keyboard/native blur to another node, menu focus from multi-selection and raw IndexedDB reload after the existing debounce.
+Verification: affected production files each≥90% coverage; typecheck/lint/boundaries; fresh production build, health and full e2e; screenshots with zero warnings/errors; docs/decisions and strict OpenSpec validation. Owner-approved production verification remains in effect for independent dev HMR.
+Docs: user-visible changeset and the existing mutation/focus ownership decision consequence after runtime proof. Reconcile D6/D9 descriptions with the delivered seam, not a second behavior catalog.
+Non-goals: Markdown/HTML rendering, formatting toolbar, note limits, text storage on each key, recovery of an unblurred draft after abrupt navigation/termination, new repository/schema/dependency/gate changes, and the independent disabled-item/padding focus defect.
+Rollback: revert panel, menu entry and focus seam together; persisted optional note remains supported by the existing reducer/renderer.
+Review focus: dirty-blur idempotency and identity; menu→selection→focus order; native field versus canvas keys; one-step history/autosave; panel geometry and unchanged consumers.
 ```

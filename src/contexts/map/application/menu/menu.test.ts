@@ -11,6 +11,7 @@ function setup(target = 'a') {
   const store = createEditorStore({ newId: () => 'new' });
   store.getState().load(MAP);
   store.getState().setSelection(['a', 'b', 'c']);
+  const focusRequests: string[] = [];
   const ctx = (): MenuContext => {
     const state = store.getState();
     if (state.map === null) throw new Error('missing map');
@@ -20,6 +21,9 @@ function setup(target = 'a') {
       selection: state.selectedIds,
       positions: new Map([['a', { x: 320.25, y: 88.75 }]]),
       actions: state,
+      requestNoteFocus: (id) => {
+        focusRequests.push(id);
+      },
     };
   };
   const run = (id: string) => {
@@ -27,7 +31,7 @@ function setup(target = 'a') {
     if (entry === undefined || !('run' in entry)) throw new Error(`missing menu action ${id}`);
     entry.run(ctx());
   };
-  return { store, ctx, run };
+  return { store, ctx, run, focusRequests };
 }
 
 describe('node menu registry', () => {
@@ -39,6 +43,10 @@ describe('node menu registry', () => {
     ] as const) {
       const { ctx } = setup(target);
       const items = nodeMenu.list(ctx());
+      expect(items).toHaveLength(8);
+      expect(items.at(-2)?.id).toBe('edit-note');
+      expect(items.at(-1)?.id).toBe('detach');
+      expect(items.find((item) => item.id === 'edit-note')?.isEnabled(ctx())).toBe(true);
       expect(items.filter((item) => !item.isEnabled(ctx())).map((item) => item.id)).toEqual(
         disabled,
       );
