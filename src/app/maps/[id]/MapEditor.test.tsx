@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import { StrictMode, type ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
-import { failOnConsoleNoise, nodeWrapper } from '../../../../tests/support/canvas';
+import { failOnConsoleNoise } from '../../../../tests/support/canvas';
 import { mapOf, node } from '../../../../tests/support/map-domain';
 import { RecordingRepository } from '../../../../tests/support/map-repository-stub';
 import {
@@ -106,7 +106,7 @@ describe('MapEditor', () => {
 
     expect(await screen.findByTestId('map-editor-ready')).toBeTruthy();
     expect(screen.getByTestId('editor-title').textContent).toBe('标题A');
-    expect(nodeWrapper('r').textContent).toBe('根节点B');
+    expect((await screen.findByTestId('rf__node-r')).textContent).toBe('根节点B');
     expect(screen.queryByText(LOADING)).toBeNull();
   });
 

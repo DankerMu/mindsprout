@@ -20,7 +20,12 @@ import type { MindMap, NodeId } from '../../contexts/map/domain/types';
 import { toFlowElements } from './flow-elements';
 import { MindNodeView, NodeMeasurerContext, type NodeMeasurer } from './MindNodeView';
 import { mergeNodeSizes, type NodeMeasurement } from './node-sizes';
-import { handleSelectionKey, selectionBlocked, type CanvasSelection } from './selection-input';
+import {
+  handleCreationKey,
+  handleSelectionKey,
+  selectionBlocked,
+  type CanvasSelection,
+} from './selection-input';
 import { useRubberBand } from './rubber-band';
 import { handleTitleKey, TitleEditingContext, type CanvasEditing } from './InlineTitleInput';
 
@@ -172,6 +177,7 @@ function CanvasView({ map, selection, titleEditing }: CanvasProps) {
             if (selection !== undefined && !composing.current) {
               handleSelectionKey(event.nativeEvent, map, selection);
               handleTitleKey(event.nativeEvent, selection, titleEditing);
+              handleCreationKey(event.nativeEvent, map, selection, titleEditing);
             }
           }}
           onBlur={() => {

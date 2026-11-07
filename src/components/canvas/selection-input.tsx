@@ -1,5 +1,5 @@
 import type { EditorState } from '../../contexts/map/application/editor-store/editor-store';
-import { findNode } from '../../contexts/map/application/editor-store/selection';
+import { findNode, visibleIds } from '../../contexts/map/application/editor-store/selection';
 import type { MindMap, MindNode, NodeId } from '../../contexts/map/domain/types';
 
 export type CanvasSelection = Pick<
@@ -82,4 +82,40 @@ export function handleSelectionKey(
     const target = arrowTarget(map, selection.primaryId, event.key);
     if (target !== undefined) selection.select(target);
   }
+}
+
+function isCreationKey(event: KeyboardEvent): boolean {
+  return (
+    (event.key === 'Tab' || event.key === 'Enter') &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    !event.repeat
+  );
+}
+
+export function isCompositionKey(event: KeyboardEvent): boolean {
+  return (
+    event.isComposing ||
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- decisions/implemented/bug-fix/0010-webkit-ime-keycode-compatibility.md
+    event.keyCode === 229
+  );
+}
+
+export function handleCreationKey(
+  event: KeyboardEvent,
+  map: MindMap,
+  selection: CanvasSelection,
+  controls: Pick<EditorState, 'createNode'> | undefined,
+): void {
+  if (!isCreationKey(event) || controls === undefined) return;
+  if (selectionBlocked(selection, event.target, isCompositionKey(event))) return;
+  if (selection.selectedIds.length !== 1) return;
+  const id = selection.selectedIds[0];
+  if (id === undefined || !visibleIds(map).includes(id)) return;
+  event.preventDefault();
+  const parent = event.key === 'Enter' ? parentOf(map.roots, id) : undefined;
+  if (parent === undefined) controls.createNode(id);
+  else controls.createNode(parent.id, parent.children.findIndex((child) => child.id === id) + 1);
 }

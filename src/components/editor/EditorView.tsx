@@ -33,6 +33,7 @@ export function EditorView({ storageUnavailable = false }: { storageUnavailable?
     startEdit: (id: string) => {
       selection.startEdit(id);
     },
+    createNode: (parentId: string, index?: number) => selection.createNode(parentId, index),
     commitTitle: (text: string) => {
       finishTitle(text);
     },

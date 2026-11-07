@@ -1,10 +1,10 @@
 import { createContext, useLayoutEffect, useRef, useState } from 'react';
 import type { EditorState } from '../../contexts/map/application/editor-store/editor-store';
-import { selectionBlocked, type CanvasSelection } from './selection-input';
+import { isCompositionKey, selectionBlocked, type CanvasSelection } from './selection-input';
 
 export type CanvasEditing = Pick<
   EditorState,
-  'editing' | 'startEdit' | 'commitTitle' | 'cancelEdit'
+  'editing' | 'startEdit' | 'commitTitle' | 'cancelEdit' | 'createNode'
 >;
 
 export const TitleEditingContext = createContext<CanvasEditing | undefined>(undefined);
@@ -22,15 +22,27 @@ export function handleTitleKey(
   controls.startEdit(selection.primaryId);
 }
 
-export function InlineTitleInput({ text, controls }: { text: string; controls: CanvasEditing }) {
+export function InlineTitleInput({
+  text,
+  controls,
+  measured,
+}: {
+  text: string;
+  controls: CanvasEditing;
+  measured: boolean;
+}) {
   const [draft, setDraft] = useState(text);
   const input = useRef<HTMLInputElement>(null);
   const finished = useRef(false);
   const composing = useRef(false);
+  const focused = useRef(false);
   useLayoutEffect(() => {
+    if (focused.current) return;
+    // New React Flow nodes are hidden until measured; a hidden input cannot receive focus.
     input.current?.focus();
     input.current?.select();
-  }, []);
+    focused.current = document.activeElement === input.current;
+  }, [measured]);
   function finish(cancel: boolean, restoreFocus: boolean): void {
     if (finished.current) return;
     finished.current = true;
@@ -58,14 +70,7 @@ export function InlineTitleInput({ text, controls }: { text: string; controls: C
         composing.current = false;
       }}
       onKeyDown={(event) => {
-        // WebKit can end composition before Enter while retaining the IME keyCode 229.
-        if (
-          composing.current ||
-          event.nativeEvent.isComposing ||
-          // eslint-disable-next-line @typescript-eslint/no-deprecated -- decisions/implemented/bug-fix/0010-webkit-ime-keycode-compatibility.md
-          event.nativeEvent.keyCode === 229
-        )
-          return;
+        if (composing.current || isCompositionKey(event.nativeEvent)) return;
         if (event.key === 'Enter' || event.key === 'Escape') {
           event.preventDefault();
           finish(event.key === 'Escape', true);
