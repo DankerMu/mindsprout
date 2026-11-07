@@ -354,3 +354,11 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: keyboard/selection/drag, static canvas, title editing and public history remain intact. Evidence: owning DOM tests and full existing e2e.
 - Documentation / migration notes — selected: changeset and menu ownership/registry consequence in the appropriate decision record. Evidence: docs:check, decisions:check and review; no new duplicate contract document.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, persisted shape, credentials, limits or dependency changes; group drag/performance remain separate.
+
+## Risk packs — issue #18 (task 6.4)
+
+- Config / project setup — selected: critical-path route-coverage metadata. Evidence: exact smoke inventory/status alignment, unchanged thresholds and pnpm test:guardrails.
+- Public API / CLI / script entry — selected, test registration only: executable smoke walks / and /maps/[id]. Evidence: HTTP success, route-specific ready markers and seeded editor contents in real browser.
+- Legacy compatibility / examples — selected: existing home smoke and shared noise/screenshot protocol remain. Evidence: both smoke cases and full final-head e2e.
+- Documentation / migration notes — selected: AGENTS key-route note mirrors constraints and smoke. Evidence: docs/decisions checks, full-depth review and explicit owner acceptance before merge; mechanical edit, no new decision/release note.
+- File IO; Schema; Auth; Concurrency; Resource limits; Error handling; Release / packaging — not selected: reuse existing test seed IO/envelope, no production state/error paths/configuration limits or dependencies change.

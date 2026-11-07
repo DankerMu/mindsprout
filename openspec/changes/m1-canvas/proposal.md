@@ -367,3 +367,15 @@ Selected risk packs: Public API / CLI / script entry; Concurrency / shared state
 Evidence floor: chronological vertical red→green registry and real-store DOM behavior, four named browser scenarios plus target/selection and native keyboard boundaries, exact undo/persistence, per-file≥90%, screenshots/zero browser noise and scoped gates.
 Scope: six ops-only items and registry; existing canvas-editing Context menu/item scope/Detach and canvas-layout Collapse and expand deltas remain the oracle. Eight-item scenario belongs to #29; color and notes remain #28/#29.
 ```
+
+## Fixture triage — issue #18 (task 6.4)
+
+```text
+Issue type: test
+Fixture level: expanded
+Upstream suggested level: expanded (agree: constraints.yaml gate-integrity Critical Path and AGENTS.md owner-governed note).
+Blast radius: metadata claims a route is covered while the smoke walk only sees an app shell, or registering the editor loses home coverage/noise detection.
+Selected risk packs: Config / project setup; Public API / CLI / script entry; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: fresh production smoke walks both routes with route-specific readiness, real seeded IndexedDB and screenshots/zero console errors; pnpm test:guardrails; scoped static/docs gates; full-depth cross-review and explicit owner acceptance of the AGENTS note before merge.
+Scope: existing smoke.spec.ts plus two metadata/note edits; no new product scenario, source behavior, thresholds, dependencies or feature changes. Existing route spec remains the oracle.
+```

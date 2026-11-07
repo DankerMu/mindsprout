@@ -1332,3 +1332,21 @@ Verification: full unit per-file≥90%; typecheck, scoped lint (#74), boundaries
 Non-goals: colors, notes, eight-item completion, new TreeOps/persistence shape/dependencies, generalized nested menus, group drag or performance profiling. No placeholder entries for later features.
 Rollback: revert menu registry/UI slice; existing persisted TreeOps remain compatible. Review focus: action ownership, stale/focus ordering, keyboard isolation, exact detach coordinates and registry extension.
 ```
+
+## Fixture — issue #18 (task 6.4)
+
+```text
+Change surface: e2e/smoke.spec.ts, constraints.yaml verification.key_ui_paths editor status, AGENTS.md Verification Matrix key-route note. This is test registration and mechanical metadata, not a new product behavior.
+Must preserve: home HTTP/ready/screenshot/noise evidence, app/editor ready markers, all constraints thresholds/exemptions and pending API routes, existing feature scenario ownership and test isolation.
+Governing invariant: a key UI path marked covered has an executable smoke walk that reaches that route's ready state and reports fresh screenshots and console errors; shell readiness alone cannot stand in for editor readiness.
+Smoke registration: retain the home case; add a concrete /maps/<seed-id> case named to identify /maps/[id], seed a valid map with existing envelopeOf/seedRecords and a unique test-local id, and wait for map-editor-ready rather than app-ready. Assert the loaded fixture is visible so unknown-id/error pages cannot satisfy the walk. Reuse real IndexedDB seed helper; no app/store test hooks.
+Shared loop: route-specific readiness may be data in the existing small route list; keep one noise/HTTP/screenshot protocol rather than copying the whole smoke test. Seeding runs before navigation and uses the helper's health-page protocol. Browser contexts stay isolated per case.
+Metadata: change only the editor status to covered by e2e/smoke.spec.ts; add / and /maps/[id] to the existing AGENTS key-route note. Do not restyle/restructure AGENTS or remove pending-route obligations. Owner acceptance of that exact note is a pre-merge prerequisite.
+Required runtime: fresh production build/start/health, pnpm e2e walks both paths; editor screenshot contains the seeded canvas/title, home screenshot and zero console errors preserved. Existing owner-approved production mode remains, #79 unfixed; no dev/HMR workaround.
+Required gates: pnpm test:guardrails, typecheck/scoped lint/fmt/docs/decisions; final-head CI. Guardrail harness's isolated throwaway fixture is test-owned, not an implementation worktree; implementation remains in the current checkout.
+Evidence boundary: no new production code, so no invented failing unit test or source-text wiring assertion. Record before/after smoke test inventory and actual browser execution; the ready assertion itself must remain strict. No new release note required for test-only registration.
+Sibling surfaces: smoke route list, seed helper/envelope, map-editor-ready vs app-ready, constraints UI inventory, AGENTS Verification Matrix, package e2e/guardrails scripts and CI consumers.
+Review depth: every changed line, governing invariant and unchanged thresholds reviewed under the critical-path protocol; independent verification for findings that parent cannot settle. No behavioral source change and no new architecture decision; mechanical metadata exemption stated in PR.
+Non-goals: new feature scenarios, full M1 acceptance walk (#33), lint scope (#74), docs restructure, constraints relaxation, CI wiring (#65), existing menu focus bug (#86).
+Rollback: revert the registration/status/note together; never leave covered metadata without its executable walk.
+```
