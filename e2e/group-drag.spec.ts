@@ -275,6 +275,38 @@ test.describe('group drag', () => {
       const released = await viewport();
       await expectRefused(page, origins);
       expect(await viewport()).toBe(released);
+      await page.getByRole('button', { name: '适应画布', exact: true }).click();
+      // Keep recovery outside XYFlow's 40px autopan zone after the edge-abort assertions.
+      const recoveryInset = 80;
+      let previousViewport: string | undefined;
+      await expect
+        .poll(async () => {
+          const current = await viewport();
+          const points = await Promise.all([
+            screenPoint(page, { x: 76, y: 10 }),
+            screenPoint(page, { x: 620, y: 10 }),
+          ]);
+          const settled = current !== released && current === previousViewport;
+          previousViewport = current;
+          return (
+            settled &&
+            points.every(
+              (point) =>
+                point.x > canvas.x + recoveryInset &&
+                point.x < canvas.x + canvas.width - recoveryInset &&
+                point.y > canvas.y + recoveryInset &&
+                point.y < canvas.y + canvas.height - recoveryInset,
+            )
+          );
+        })
+        .toBe(true);
+      expect(
+        await page
+          .locator('.react-flow__node.selected')
+          .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-id')).sort()),
+      ).toEqual(['a', 'b']);
+      await expect(undo(page)).toBeDisabled();
+      expect(await readRecord(page, MAP.id)).toEqual(envelopeOf(MAP).value);
       const fresh = await screenPoint(page, { x: 76, y: 10 });
       const destination = await screenPoint(page, { x: 620, y: 10 });
       await client.send('Input.dispatchTouchEvent', {
