@@ -263,6 +263,10 @@ describe('MindMapCanvas view', () => {
     render(<MindMapCanvas map={rootWithChild()} />);
     fireEvent.click(nodeWrapper('r'));
     fireEvent.keyDown(nodeWrapper('r'), { key: 'ArrowRight' });
+    for (const key of ['Delete', 'Backspace']) {
+      expect(fireEvent.keyDown(screen.getByRole('region'), { key })).toBe(true);
+      expect(nodeWrapper('a').textContent).toBe('A');
+    }
     fireEvent.pointerDown(screen.getByRole('region'), { button: 0 });
 
     for (const id of ['r', 'a']) {

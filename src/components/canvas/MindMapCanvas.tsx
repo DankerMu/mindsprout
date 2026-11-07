@@ -22,9 +22,11 @@ import { MindNodeView, NodeMeasurerContext, type NodeMeasurer } from './MindNode
 import { mergeNodeSizes, type NodeMeasurement } from './node-sizes';
 import {
   handleCreationKey,
+  handleDeletionKey,
   handleHistoryKey,
   handleSelectionKey,
   selectionBlocked,
+  type CanvasDeletion,
   type CanvasHistory,
   type CanvasSelection,
 } from './selection-input';
@@ -137,9 +139,10 @@ interface CanvasProps {
   selection?: CanvasSelection | undefined;
   titleEditing?: CanvasEditing | undefined;
   history?: CanvasHistory | undefined;
+  deletion?: CanvasDeletion | undefined;
 }
 
-function CanvasView({ map, selection, titleEditing, history }: CanvasProps) {
+function CanvasView({ map, selection, titleEditing, history, deletion }: CanvasProps) {
   const composing = useRef(false);
   const space = useKeyPress('Space', {
     target: typeof window === 'undefined' ? null : window,
@@ -183,6 +186,7 @@ function CanvasView({ map, selection, titleEditing, history }: CanvasProps) {
               handleTitleKey(event.nativeEvent, selection, titleEditing);
               handleCreationKey(event.nativeEvent, map, selection, titleEditing);
               handleHistoryKey(event.nativeEvent, selection, history);
+              handleDeletionKey(event.nativeEvent, selection, deletion);
             }
           }}
           onBlur={() => {
@@ -244,10 +248,16 @@ function CanvasView({ map, selection, titleEditing, history }: CanvasProps) {
   );
 }
 
-export function MindMapCanvas({ map, selection, titleEditing, history }: CanvasProps) {
+export function MindMapCanvas({ map, selection, titleEditing, history, deletion }: CanvasProps) {
   return (
     <ReactFlowProvider>
-      <CanvasView map={map} selection={selection} titleEditing={titleEditing} history={history} />
+      <CanvasView
+        map={map}
+        selection={selection}
+        titleEditing={titleEditing}
+        history={history}
+        deletion={deletion}
+      />
     </ReactFlowProvider>
   );
 }

@@ -5,7 +5,12 @@ import {
   createEditorStore,
   type EditorState,
 } from '../../contexts/map/application/editor-store/editor-store';
-import { handleCreationKey, handleHistoryKey, handleSelectionKey } from './selection-input';
+import {
+  handleCreationKey,
+  handleDeletionKey,
+  handleHistoryKey,
+  handleSelectionKey,
+} from './selection-input';
 
 const MAP = mapOf(
   node('r', [node('a'), node('b', [node('hidden')], { collapsed: true }), node('c')]),
@@ -252,4 +257,32 @@ describe('canvas history controls', () => {
     expect(store.getState().canUndo).toBe(false);
     expect(store.getState().canRedo).toBe(true);
   });
+});
+
+describe('canvas deletion controls', () => {
+  it.each(['Delete', 'Backspace'])(
+    'leaves %s native without controls or while editing without text focus',
+    (key) => {
+      const store = loaded();
+      store.getState().select('a');
+      const before = store.getState();
+      const unavailable = new KeyboardEvent('keydown', { key, cancelable: true });
+      handleDeletionKey(unavailable, before, undefined);
+      expect(unavailable.defaultPrevented).toBe(false);
+      expect(store.getState()).toBe(before);
+      store.getState().startEdit('a');
+      const editing = store.getState();
+      const native = new KeyboardEvent('keydown', { key, cancelable: true });
+      handleDeletionKey(native, editing, editing);
+      expect(native.defaultPrevented).toBe(false);
+      expect(store.getState()).toBe(editing);
+      store.getState().cancelEdit();
+      const deletion = new KeyboardEvent('keydown', { key, cancelable: true });
+      handleDeletionKey(deletion, store.getState(), store.getState());
+      expect(deletion.defaultPrevented).toBe(true);
+      expect(store.getState().map).toStrictEqual(
+        mapOf(node('r', [node('b', [node('hidden')], { collapsed: true }), node('c')]), node('f')),
+      );
+    },
+  );
 });
