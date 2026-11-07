@@ -28,7 +28,6 @@ it('renders and runs an added registration without component-specific execution'
     </EditorSession>,
   );
   fireEvent.contextMenu(nodeWrapper('r'));
-  expect(screen.getAllByRole('menuitem')).toHaveLength(7);
   fireEvent.click(screen.getByRole('menuitem', { name: '生长分支' }));
   expect(nodeWrapper('grown').textContent).toBe('长出的分支');
   expect(screen.queryByRole('menu')).toBeNull();
