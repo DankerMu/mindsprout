@@ -68,7 +68,7 @@ Minimal mergeable slice: 7.1 - inline editing of existing nodes is a complete, d
 
 ## 8. Drag — reparent, detach, group drag
 
-- [ ] 8.1 Drag a single node: on drop, hit-test laid-out rects → `move_node(newParentId)`; drop on empty canvas → `move_node(null, position)` for tree nodes or `set_root_position` for floating roots; cycle, primary-root or drop-on-self refusal snaps the node back with no dispatch; verify (unit) the hit-test and refusal predicate over laid-out rects; verify (e2e) spec canvas-editing "Reparent by drop", "Detach to canvas", "Refused cycle", "Primary root in the dragged set".
+- [x] 8.1 Drag a single node: on drop, hit-test laid-out rects → `move_node(newParentId)`; drop on empty canvas → `move_node(null, position)` for tree nodes or `set_root_position` for floating roots; cycle, primary-root or drop-on-self refusal snaps the node back with no dispatch; verify (unit) the hit-test and refusal predicate over laid-out rects; verify (e2e) spec canvas-editing "Reparent by drop", "Detach to canvas", "Refused cycle", "Primary root in the dragged set".
 - [ ] 8.2 Group drag over `topmostSelected()` (helper from task 7.4) under one target or onto empty canvas with per-node offsets, refusal when the primary root is dragged or the target is a dragged node or its descendant, all inside `runGrouped('move')`; verify (unit) the drop planner produces the op list and refusals of design D5; verify (e2e) spec canvas-editing "Group drag", "Nested selection moves once", "Drop on a selected node is refused", "Group detach to canvas".
 - [ ] 8.3 Performance evidence per design D11 and spec canvas-layout "Large maps stay responsive while dragging": add a 500-node fixture generator (`e2e/fixtures/large-map.ts`, reused by the e2e seed), profile a two-second leaf drag on a production build with the Chrome DevTools Performance panel, apply the D11 memoisation if the budget is missed; verify scenario "500-node drag profile": the PR's `## Runtime evidence` states median and p95 frame times against the ≤ 16.7 ms / ≤ 33 ms budget (review-only evidence; no CI harness).
 
@@ -334,3 +334,13 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: topmostSelected unchanged for future drag; selection, naming, undo, notice, fallback retained. Evidence: existing normalization assertions and full browser suite.
 - Documentation / migration notes — selected: owner root-protection resolution reconciles D5, requirement prose and issue algorithm without changing scenario outcomes; changeset and decision0004 consequence. Evidence: explicit approval record, docs:check, decisions:check.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, persisted shape, credential, cap or dependency changes.
+
+## Risk packs — issue #24 (task 8.1)
+
+- Public API / CLI / script entry — selected: pointer drag and pure drop helpers. Evidence: geometry/refusal unit cases and public drag scenarios.
+- Concurrency / shared state / ordering — selected: transient controlled positions, final layout reset, map changes during gesture and single-node selection membership. Evidence: preview/refusal/stale-map/gate component cases and unchanged pan/selection browser regressions.
+- Error handling / rollback / partial outputs — selected: primary/self/cycle refusal must dispatch nothing and snap back, not leave a partial move. Evidence: exact transforms/history flags and unchanged stored record after refusal.
+- File IO / path safety / overwrite — selected, scoped: only final accepted TreeOp may persist; coordinates/order survive undo. Evidence: real IndexedDB readback of accepted/undone/refused drops; no persistence implementation changes.
+- Legacy compatibility / examples — selected: static canvas, measured geometry, editing, selection, pan/zoom, deletion/undo retained. Evidence: paired coverage and full existing browser suite; multi-selection drag explicitly remains inert until #25.
+- Documentation / migration notes — selected: changeset and decision0003 consequence; downstream #25/#26 handoff. Evidence: docs:check/decisions:check and review against exact coordinate contract.
+- Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, shape, credential or dependency change; 500-node budget remains #26, not an invented cap here.

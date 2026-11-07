@@ -343,3 +343,15 @@ Selected risk packs: Public API / CLI / script entry; Concurrency / shared state
 Evidence floor: exact-map store/DOM red→green, per-file≥90%, five public browser scenarios with real undo, stable grouped autosave proof, full browser regression and scoped gates.
 Scope: task7.4 only; protect the root itself by excluding it before normalisation, as explicitly selected by owner. Existing scenario outcomes and generic topmostSelected contract unchanged.
 ```
+
+## Fixture triage — issue #24 (task 8.1)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Reason above suggested compact: first controlled drag bridges screen/flow coordinates, transient React Flow positions, authoritative layout, refusal/reset, TreeOp dispatch and public undo.
+Blast radius: wrong grab-offset placement, stale drop target, silent primary-root/cycle mutation, refused nodes stranded at temporary coordinates, or React Flow moving multiple selected nodes before group drag exists.
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; File IO / path safety / overwrite; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: pure geometry/refusal/planning red→green, real-store/component interaction proof, named browser drag/undo/refusal and floating-root branches, per-file≥90%, real IndexedDB readback, screenshots/zero browser noise and full regression.
+Scope: task8.1 single-node drag only; existing TreeOps/layout/history remain canonical. Group drag and 500-node profiling remain #25/#26.
+```
