@@ -1,6 +1,10 @@
 import type { EditorState } from '../../contexts/map/application/editor-store/editor-store';
-import { findNode, visibleIds } from '../../contexts/map/application/editor-store/selection';
-import type { MindMap, MindNode, NodeId } from '../../contexts/map/domain/types';
+import {
+  findNode,
+  parentOf,
+  visibleIds,
+} from '../../contexts/map/application/editor-store/selection';
+import type { MindMap, NodeId } from '../../contexts/map/domain/types';
 
 export type CanvasSelection = Pick<
   EditorState,
@@ -41,15 +45,6 @@ export function handleHistoryKey(
   event.preventDefault();
   if (event.shiftKey) controls.redo();
   else controls.undo();
-}
-
-function parentOf(nodes: readonly MindNode[], id: NodeId): MindNode | undefined {
-  for (const node of nodes) {
-    if (node.children.some((child) => child.id === id)) return node;
-    const parent = parentOf(node.children, id);
-    if (parent !== undefined) return parent;
-  }
-  return undefined;
 }
 
 function firstChild(map: MindMap, id: NodeId): NodeId | undefined {

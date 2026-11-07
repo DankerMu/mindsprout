@@ -34,6 +34,7 @@ import { HistoryToolbar } from './HistoryToolbar';
 import { useRubberBand } from './rubber-band';
 import { handleTitleKey, TitleEditingContext, type CanvasEditing } from './InlineTitleInput';
 import { useSingleNodeDrag, type CanvasDrag } from './single-node-drag';
+import { useContextMenu, type CanvasMenu } from './ContextMenu';
 
 // Geometry remains a projection of the map and measured sizes; selection is supplied by the
 // editor session. React Flow never writes selection or tree changes back into the map.
@@ -142,9 +143,10 @@ interface CanvasProps {
   history?: CanvasHistory | undefined;
   deletion?: CanvasDeletion | undefined;
   drag?: CanvasDrag | undefined;
+  menu?: CanvasMenu | undefined;
 }
 
-function CanvasView({ map, selection, titleEditing, history, deletion, drag }: CanvasProps) {
+function CanvasView({ map, selection, titleEditing, history, deletion, drag, menu }: CanvasProps) {
   const composing = useRef(false);
   const space = useKeyPress('Space', {
     target: typeof window === 'undefined' ? null : window,
@@ -161,6 +163,7 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag }: C
     return elements;
   }, [map, layout, sizes, selection?.selectedIds]);
   const bounds = useMemo(() => contentBounds(layout), [layout]);
+  const contextMenu = useContextMenu(map, layout.positions, menu);
   const blocked = (target: EventTarget | null) =>
     selection === undefined || space || selectionBlocked(selection, target, composing.current);
   const { onMouseDownCapture, ...dragView } = useSingleNodeDrag(
@@ -191,6 +194,7 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag }: C
             composing.current = false;
           }}
           onKeyDownCapture={(event) => {
+            if (event.target instanceof Element && event.target.closest('[role="menu"]')) return;
             if (selection !== undefined && !composing.current) {
               handleSelectionKey(event.nativeEvent, map, selection);
               handleTitleKey(event.nativeEvent, selection, titleEditing);
@@ -215,6 +219,10 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag }: C
             deleteKeyCode={null}
             selectionKeyCode={null}
             multiSelectionKeyCode={null}
+            onNodeContextMenu={(event, node) => {
+              if (blocked(event.target)) return;
+              contextMenu.open(event, node.id);
+            }}
             onNodeClick={(event, node) => {
               if (
                 selection === undefined ||
@@ -241,6 +249,7 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag }: C
               <FitButton bounds={bounds} />
             </Panel>
           </ReactFlow>
+          {contextMenu.menu}
           {rectangle !== null && (
             <div
               aria-hidden="true"
@@ -266,6 +275,7 @@ export function MindMapCanvas({
   history,
   deletion,
   drag,
+  menu,
 }: CanvasProps) {
   return (
     <ReactFlowProvider>
@@ -276,6 +286,7 @@ export function MindMapCanvas({
         history={history}
         deletion={deletion}
         drag={drag}
+        menu={menu}
       />
     </ReactFlowProvider>
   );

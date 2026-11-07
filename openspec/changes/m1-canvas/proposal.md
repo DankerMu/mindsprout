@@ -355,3 +355,15 @@ Selected risk packs: Public API / CLI / script entry; Concurrency / shared state
 Evidence floor: pure geometry/refusal/planning red→green, real-store/component interaction proof, named browser drag/undo/refusal and floating-root branches, per-file≥90%, real IndexedDB readback, screenshots/zero browser noise and full regression.
 Scope: task8.1 single-node drag only; existing TreeOps/layout/history remain canonical. Group drag and 500-node profiling remain #25/#26.
 ```
+
+## Fixture triage — issue #27 (task 9.1)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Reason above suggested compact: a shared menu entrypoint combines selected-vs-targeted destructive actions, creation editing groups, layout coordinates and stale menu ownership.
+Blast radius: right-click alters the wrong selection, deletes unrelated nodes, detaches at screen coordinates, runs against a stale map, or menu keys leak into canvas shortcuts.
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; File IO / path safety / overwrite; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: chronological vertical red→green registry and real-store DOM behavior, four named browser scenarios plus target/selection and native keyboard boundaries, exact undo/persistence, per-file≥90%, screenshots/zero browser noise and scoped gates.
+Scope: six ops-only items and registry; existing canvas-editing Context menu/item scope/Detach and canvas-layout Collapse and expand deltas remain the oracle. Eight-item scenario belongs to #29; color and notes remain #28/#29.
+```

@@ -55,6 +55,15 @@ export function findNode(map: MindMap, id: NodeId): MindNode | undefined {
   return undefined;
 }
 
+export function parentOf(nodes: readonly MindNode[], id: NodeId): MindNode | undefined {
+  for (const node of nodes) {
+    if (node.children.some((child) => child.id === id)) return node;
+    const parent = parentOf(node.children, id);
+    if (parent !== undefined) return parent;
+  }
+  return undefined;
+}
+
 // Re-establishes the store invariant after a map change: the selection keeps only ids that exist
 // and are visible (order kept), the primary falls back to the last remaining selected id (or
 // null), and editing / menu target are cleared when their node no longer exists.

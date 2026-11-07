@@ -64,6 +64,7 @@ export function EditorView({ storageUnavailable = false }: { storageUnavailable?
           titleEditing={titleEditing}
           history={selection}
           deletion={selection}
+          menu={store}
           drag={{
             commitDrop: (expectedMap, op) => {
               const current = store.getState();
