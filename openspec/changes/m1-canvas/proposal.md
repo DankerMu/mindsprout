@@ -319,3 +319,15 @@ Selected risk packs: Public API / CLI / script entry; Concurrency / shared state
 Evidence floor: genuine red→green real-store DOM tests, ≥90% per-file coverage, original five browser scenarios plus owner-transferred creation/collapse/cancel regressions, real IndexedDB reload, screenshots/zero browser noise, existing full e2e and scoped checks.
 Scope: task 7.5 UI adapters only; reuse store undo/redo and shared keyboard/input gates. No history, persistence or creation semantics changes.
 ```
+
+## Fixture triage — issue #32 (task 10.3)
+
+```text
+Issue type: feature
+Fixture level: compact
+Reason: mechanical library wiring to #17's proven session fallback/banner; no new repository lifecycle or error classification.
+Blast radius: the library falsely implies session maps are durable, or navigation/reload acceptance hides a second fallback instance.
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: real-provider fallback DOM red→green, two named blocked-storage browser scenarios with public child creation and shared-session reopen, screenshots/zero browser noise, affected coverage and scoped gates.
+Scope: library banner wiring, existing tests and release note; provider/repository/editor/autosave behavior unchanged.
+```

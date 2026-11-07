@@ -1239,3 +1239,20 @@ Commands: pnpm test:unit, pnpm typecheck, pnpm lint (local .omp caveat #74), pnp
 Non-goals: History/store/autosave changes, other shortcuts, menus/drag/delete, new dependencies/schema/config/API or persistence of history.
 Rollback: revert UI actions/toolbar; persisted maps remain valid. Review focus: event-time edit identity, first-click protection/second-click liveness, native text undo, collapsed creation group reversal and fresh reload flags.
 ```
+
+## Fixture — issue #32 (task 10.3)
+
+```text
+Change surface: MapLibraryClient composition and paired test; existing e2e/storage-fallback.spec.ts; changeset. Mechanical wiring reuses existing decision0011/#17 ownership, no new decision or provider changes.
+Must preserve: provider opening/failed/ready distinctions, app-ready marker, ordinary IndexedDB library has no unavailable banner, generic open failure remains explicit error, list/create save-before-navigation, #17 inline rename/fallback reload and quota-failure assertions.
+Invariant: library and editor use the same provider-owned session repository; the library displays exactly one persistent 未保存到浏览器 banner when ready storageUnavailable is true, never creates another fallback or silently claims durability.
+Implementation seam: render existing StorageUnavailableBanner with provider flag beside existing MapLibrary, including empty/loading/list-error library surfaces after provider readiness. No new storage error classification or duplicate banner implementation.
+Required DOM evidence: real MapRepositoryProvider open rejects StorageUnavailableError, home resolves to visible empty fallback library with one banner and enabled 新建导图. Normal successful repository and generic open rejection show no banner; existing loading/error and create assertions retained.
+Required browser scenario Create with storage blocked: addInitScript blocks indexedDB.open before navigation; / has exactly one banner; click 新建导图, editor banner present; retain existing inline-rename proof, add/name child with real Tab/Enter, cross existing 500ms save window, SPA back to /, banner and newly created map list entry present; reopen through list, same URL, renamed root and named child remain. No document requests during SPA transitions; screenshots and zero warning/error/pageerror.
+Required browser scenario Reload with storage blocked: independently create a session map through public UI under blocked IndexedDB, full reload its editor URL, exact not-found plus one banner/return-library link and no editor-ready marker. Screenshot/zero browser noise.
+Evidence reuse: split/refactor existing combined private-mode scenario rather than add duplicate flows; preserve its rename/reopen/reload assertions and unchanged failed-write/raw-record test. No browser globals/store hooks or mocked in-memory implementation.
+Commands: genuine red→green targeted DOM/browser logs .workplans/32/review; pnpm test:unit (per-file≥90%), typecheck, scoped lint (#74), boundaries, fmt:check, docs:check, decisions:check, full pnpm e2e with fresh dev health/start/stop.
+Owner-approved verification exception (2026-11-07): final #32 browser acceptance may use a fresh pnpm build + pnpm start runtime with identical assertions, because #79's separately tracked development HMR restart loop interrupted final verification. The owner selected 生产构建验收后继续队列. Keep all development failures disclosed; require zero browser noise, screenshots, final-head CI and fresh re-review. No dependency/config/HMR/test workaround; #79 remains open, no root-cause fix claimed. This changes the local acceptance runtime only, not the scenarios or CI gates.
+Non-goals: library rename/delete, provider/fallback/editor/notice/autosave changes, schema/dependency/config/API changes, persistence across full reload.
+Rollback: revert library banner wiring; repository and stored records untouched.
+```
