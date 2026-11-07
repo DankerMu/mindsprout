@@ -1462,3 +1462,33 @@ Non-goals: Markdown/HTML rendering, formatting toolbar, note limits, text storag
 Rollback: revert panel, menu entry and focus seam together; persisted optional note remains supported by the existing reducer/renderer.
 Review focus: dirty-blur idempotency and identity; menu→selection→focus order; native field versus canvas keys; one-step history/autosave; panel geometry and unchanged consumers.
 ```
+
+## Fixture — issue #31 (task 10.2)
+
+```text
+Mode: Construction / Standard; extend the existing library and repository port, without new persistence or editor-title protocols.
+Change surface: MapLibrary controls, application metadata rename/delete use cases, existing EditorState.rename metadata transform, paired tests and e2e.
+Governing invariant: a confirmed library mutation affects only its captured record ID and becomes visible as successful only after repository completion; rename never changes tree content or editor history.
+Rename: read the captured ID, refuse missing records and a returned map whose embedded ID differs, apply title/updatedAt through one canonical application transform, then put. Reuse that transform from EditorState.rename without changing its API, injected clock, history, or autosave behavior.
+Title: retain the existing literal-string metadata contract; no new trimming, length cap or implicit root-title synchronization. Cancelling the form performs no write. Submission is explicit, not blur-based.
+Delete: explicit confirmation names the captured title and permanently deletes its captured ID through an application use case over repository.delete. Cancel performs no repository mutation; pending confirm cannot submit twice.
+Version policy: every visible row may be explicitly deleted, including newer and odd/unreadable versions. Delete does not call get or reinterpret the record. Rename of a newer version shows 此导图由更新版本创建 and never writes; generic read/identity failures remain errors.
+Hidden records: list continues to skip unsummarizable records; no repair, purge or hidden-record administration UI in M1.
+UI lifetime: use existing repository-scoped lifetime ownership. A pending mutation cannot change another repository's list, navigate, or surface an old error after unmount/replacement. Before a deferred rename get reaches put, check that its initiating lifetime is still live.
+Concurrency: serialize library mutations and creation while one is pending; capture ID/title rather than row index. Show pending state. No automatic retry. Later successful changes cannot be overwritten by a stale list load or refresh.
+Successful rename: publish the saved title and timestamp, with existing updatedAt-descending/id-tie ordering. Successful delete: remove exactly that ID. Avoid a post-write list reload whose failure would misreport a successful durable mutation.
+Canonical ordering: move the existing pure summary-order module and its paired test from infrastructure/persistence to domain, migrate both adapters and the library atomically. Components must not import infrastructure; do not duplicate byRecency or keep a re-export shim.
+Failure: rejected get/put/delete leaves the displayed saved row intact, exposes a recoverable error and allows explicit retry; failed reads are never treated as missing success. Preserve the original repository rather than silently selecting fallback.
+Focus: accessible labeled rename field and named confirmation, keyboard cancellation and explicit submit; closing returns focus to a live invoking control. Confirmation must not accidentally open the map link.
+Must preserve: list/create/open and empty/error states; initial StorageUnavailable shared fallback/banner; encoded links; persisted envelope; primary-root text and all node attributes; EditorState.rename history and clock semantics.
+Sibling surfaces: IndexedDB summary key versus embedded map ID; in-memory port; library StrictMode/repository lifetime; editor metadata rename/autosave; recency comparator; unsupported-version/read error UI; existing shared storage provider.
+Application evidence: exact full-map rename preserving roots/createdAt/ID, injected timestamp; missing/mismatched-ID/future-version reads cause no put; failed put propagates; confirmed delete removes only target including unsupported record.
+DOM evidence: cancel rename/delete leaves stored maps unchanged; one pending operation despite repeated submit; failure preserves saved row and enables retry; delayed get/put/delete and repository replacement/unmount cannot update a new view or issue a late rename put.
+Browser evidence: Rename from the list changes title, updatedAt ordering and reopened header while preserving primary-root text, full tree and disabled history; Delete with confirmation proves cancel-keeps then confirm-removes, peer retention and old URL not-found.
+Browser version evidence: real IndexedDB newer-version row rejects rename with exact message and unchanged raw record, then can be explicitly deleted; listable odd-version deletion remains content-independent. Screenshots and zero warnings/errors/page errors.
+Verification: affected production files each≥90% coverage; typecheck/lint/boundaries/fmt/docs/decisions; fresh production build/start/health/full e2e, then stop. Owner production-mode exception for #79 remains unchanged.
+Docs: user-visible changeset and existing metadata/persistence decision consequence after runtime proof; no new duplicated contract document.
+Non-goals: editor-side title controls/header changes, schema validation/migration/repair, cross-tab compare-and-swap or tombstones, provider/fallback changes, automatic retries, #86 menu focus or unrelated gate fixes.
+Rollback: revert controls and application use cases atomically; saved titles and deletions use the unchanged envelope and cannot be undone by code rollback.
+Review focus: captured identity before write/delete; version-policy proof; async ownership and failure ordering; canonical metadata transform; unchanged tree/history and real browser acceptance.
+```

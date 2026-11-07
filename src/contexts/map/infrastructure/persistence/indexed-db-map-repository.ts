@@ -2,7 +2,7 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { StorageUnavailableError, UnsupportedSchemaVersionError } from '../../domain/errors';
 import type { MapRepository, MapSummary } from '../../domain/map-repository';
 import type { MindMap } from '../../domain/types';
-import { byRecency } from './summary-order';
+import { byRecency } from '../../domain/summary-order';
 
 // Browser store of the map context (design D7, Migration Plan). One object store with out-of-line
 // keys: each record is { schemaVersion, map } under map.id, so a record written by a newer schema

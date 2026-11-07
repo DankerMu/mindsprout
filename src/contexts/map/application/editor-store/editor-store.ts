@@ -4,6 +4,7 @@ import type { MapRepository } from '../../domain/map-repository';
 import type { TreeOp } from '../../domain/tree-op';
 import type { MindMap, NodeId } from '../../domain/types';
 import { GroupCancelledError, History } from '../history/history';
+import { renameMetadata } from '../rename-map';
 import { createAutosave, type Autosave } from './autosave';
 import {
   findNode,
@@ -327,7 +328,7 @@ export function createEditorStore(
       // Metadata, not tree state: no History entry, flags untouched (design D1).
       rename(title) {
         const map = requireMap('rename');
-        set({ map: { ...map, title, updatedAt: now().toISOString() } });
+        set({ map: renameMetadata(map, title, now().toISOString()) });
       },
 
       // Stored as given; clamping zoom to 25–200% is the canvas's job.

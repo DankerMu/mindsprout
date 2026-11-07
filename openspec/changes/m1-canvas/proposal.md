@@ -439,3 +439,15 @@ Selected risk packs: Public API / CLI / script entry; File IO / path safety / ov
 Evidence floor: one public create→Tab→rename→native reparent→native detach→reload walk, explicit intermediate forests, note/position round-trip, enabled-before/disabled-after Undo, real IndexedDB, screenshots/zero noise and full e2e.
 Scope: task11.1 test and evidence only. Existing D3–D9, Sketch seams and canvas-editing/map-persistence/map-undo-history spec deltas remain the oracle; no new design section or production change.
 ```
+
+## Fixture triage — issue #31 (task 10.2)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested compact overridden: destructive persistence and asynchronous list mutations cross the repository read/write boundary.
+Blast radius: wrong-record overwrite/deletion, stale completion replacing a new library, false success after failed persistence, or metadata rename modifying tree/history.
+Selected risk packs: Public API / CLI / script entry; File IO / path safety / overwrite; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: chronological application/DOM red→green, affected per-file≥90%, two named browser scenarios plus future-version policy, real IndexedDB readback, screenshots/zero noise, scoped gates and full browser regression.
+Scope: library controls and application rename/delete use cases. Confirmed deletion applies to every visible summary, including unsupported versions; unreadable hidden records remain outside the library, as accepted in the upstream handoff.
+```

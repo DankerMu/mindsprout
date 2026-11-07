@@ -38,6 +38,27 @@ Clicking a list entry SHALL open its editor; rename SHALL update the map title a
 - **WHEN** the user chooses delete on map A and confirms
 - **THEN** A is no longer listed and `/maps/<A id>` shows the not-found state
 
+#### Scenario: Cancel deletion
+
+- **WHEN** the user chooses delete on map A and cancels confirmation
+- **THEN** A remains listed and its stored record is unchanged
+
+#### Scenario: Unsupported version in the library
+
+- **WHEN** a readable summary belongs to a newer-version record and the user submits a rename
+- **THEN** the library shows "此导图由更新版本创建" without writing the record
+- **AND** the user may still explicitly confirm deletion of that record; deletion removes it without reading or migrating its content
+
+#### Scenario: Rename target identity is invalid
+
+- **WHEN** the selected record is missing or its embedded map ID differs from the library row ID
+- **THEN** rename reports failure and writes no record, including any record named by the mismatched embedded ID
+
+#### Scenario: Persistence failure
+
+- **WHEN** rename or confirmed deletion fails in the repository
+- **THEN** the library retains the last saved row, shows an error and permits an explicit retry without changing repositories
+
 ### Requirement: Unknown map id
 
 Opening `/maps/<id>` for an id not in storage SHALL show a not-found state with a link back to the library, not an error page.
