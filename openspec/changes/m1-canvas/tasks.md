@@ -295,3 +295,13 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: normal IndexedDB paths and all editor/library behavior unchanged. Evidence: existing full e2e and owning unit tests.
 - Documentation / migration notes — selected: changeset and decision consequence. Evidence: docs:check and decisions:check.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config/schema/credential/limit/dependency changes.
+
+## Risk packs — issue #20 (task 7.2)
+
+- Public API / CLI / script entry — selected: Tab/Enter creation and input focus. Evidence: named browser scenarios and real-store keyboard tests.
+- Concurrency / shared state / ordering — selected: creation group spans draft focus/terminal events. Evidence: single group, repeat/modifier/focus gates, no duplicate terminal dispatch.
+- Error handling / rollback / partial outputs — selected: blank/Escape/blur cancels complete creation and restores selection/collapse without touching prior history. Evidence: exact-map DOM cancellation and public discard.
+- File IO / path safety / overwrite — selected: unnamed/provisional content must not persist. Evidence: open-group/cancel repository proof and real one-second Reload after edits.
+- Legacy compatibility / examples — selected: inline rename, selection, pan and notices retained. Evidence: existing full browser suite and owning DOM coverage.
+- Documentation / migration notes — selected: changeset, consequence and approved #23 scenario handoff. Evidence: docs:check/decisions:check; both issue comments record owner approval.
+- Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, schema, credential, cap or dependency change.
