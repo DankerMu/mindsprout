@@ -379,3 +379,15 @@ Selected risk packs: Config / project setup; Public API / CLI / script entry; Le
 Evidence floor: fresh production smoke walks both routes with route-specific readiness, real seeded IndexedDB and screenshots/zero console errors; pnpm test:guardrails; scoped static/docs gates; full-depth cross-review and explicit owner acceptance of the AGENTS note before merge.
 Scope: existing smoke.spec.ts plus two metadata/note edits; no new product scenario, source behavior, thresholds, dependencies or feature changes. Existing route spec remains the oracle.
 ```
+
+## Fixture triage — issue #25 (task 8.2)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Reason above suggested compact: normalized shared selection, multiple tree mutations in one undo group, controlled subtree previews and native cancellation ownership cross persisted state and ordering.
+Blast radius: nested nodes move twice, grabbed-descendant offsets jump, group append order drifts, primary root slips through deletion-style filtering, partial groups persist, or abort leaves sibling previews/autopan alive.
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; File IO / path safety / overwrite; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: generalized planner and real-store DOM red→green; four named group browser scenarios plus primary/mixed-floating/native abort branches; exact single-node regressions retained; per-file≥90%, exact undo/persistence and zero browser noise.
+Scope: task8.2 only; extend/rename existing drag path atomically. Owner chose drag-start visual y/x order with stable traversal ties; generic normalizer unchanged. Existing specs remain oracle.
+```

@@ -66,9 +66,18 @@ export function EditorView({ storageUnavailable = false }: { storageUnavailable?
           deletion={selection}
           menu={store}
           drag={{
-            commitDrop: (expectedMap, op) => {
+            commitDrop: (expectedMap, expectedSelection, ops) => {
               const current = store.getState();
-              if (current.map === expectedMap && current.editing === null) current.dispatch(op);
+              if (
+                current.map !== expectedMap ||
+                current.editing !== null ||
+                current.selectedIds.length !== expectedSelection.length ||
+                !expectedSelection.every((id) => current.selectedIds.includes(id))
+              )
+                return;
+              current.runGrouped('move', () => {
+                for (const op of ops) current.dispatch(op);
+              });
             },
           }}
         />

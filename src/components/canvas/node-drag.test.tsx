@@ -1,124 +1,36 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StoreApi } from 'zustand/vanilla';
+import { describe, expect, it, vi } from 'vitest';
 import {
   borderBoxEntry,
   canvasObserverOf,
-  failOnConsoleNoise,
-  installControllableResizeObservers,
   mindNodeElement,
   nodeWrapper,
-  reactFlowNodeObserverOf,
   renderedPosition,
-  sizedWrapperEntry,
   viewportTransform,
 } from '../../../tests/support/canvas';
-import { mapOf, node } from '../../../tests/support/map-domain';
-import { RecordingRepository } from '../../../tests/support/map-repository-stub';
-import type { EditorState } from '../../contexts/map/application/editor-store/editor-store';
-import { EditorSession, useEditorStoreApi } from '../editor/EditorSession';
-import { EditorView } from '../editor/EditorView';
+import {
+  MAP,
+  measure,
+  move,
+  observers,
+  setup,
+  start,
+  stop,
+  touchAt,
+  touchPreview,
+} from '../../../tests/support/canvas-drag';
+import { node } from '../../../tests/support/map-domain';
 import { MindMapCanvas } from './MindMapCanvas';
 
-failOnConsoleNoise();
-const observers = installControllableResizeObservers();
-afterEach(() => vi.restoreAllMocks());
-beforeEach(() => {
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
-    this: HTMLElement,
-  ) {
-    return this.classList.contains('react-flow')
-      ? new DOMRect(0, 0, 1000, 1000)
-      : Element.prototype.getBoundingClientRect.call(this);
-  });
-  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(1000);
-  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(1000);
-});
-const MAP = mapOf(
-  node('r', [node('a', [node('d')]), node('p')]),
-  node('f', [], { position: { x: 500, y: 200 } }),
-);
-
-function setup() {
-  let store!: StoreApi<EditorState>;
-  function Probe() {
-    store = useEditorStoreApi();
-    return null;
-  }
-  const repository = new RecordingRepository();
-  const view = render(
-    <EditorSession map={MAP} repository={repository}>
-      <Probe />
-      <EditorView />
-    </EditorSession>,
-  );
-  measure();
-  return { store, repository, ...view };
-}
-
-function measure() {
-  const ids = ['r', 'a', 'd', 'p', 'f'];
-  const active = observers().filter((observer) => observer.observed.size > 0);
-  canvasObserverOf(active).fire(ids.map((id) => borderBoxEntry(mindNodeElement(id), 80, 32)));
-  reactFlowNodeObserverOf(active).fire(ids.map((id) => sizedWrapperEntry(id, 80, 32)));
-  const pane = document.querySelector('.react-flow__pane');
-  if (pane === null) throw new Error('no pane');
-  mouse(pane, 'mousedown', 100, 100, 1);
-  mouse(window, 'mousemove', 200, 200, 1);
-  mouse(window, 'mouseup', 200, 200, 1);
-}
-
-function mouse(
-  target: Element | Window,
-  type: string,
-  clientX: number,
-  clientY: number,
-  button = 0,
-) {
-  const viewport = viewportTransform();
-  const event = new MouseEvent(type, {
-    bubbles: true,
-    cancelable: true,
-    button,
-    buttons: button === 1 ? 4 : 1,
-    clientX: clientX + viewport.x,
-    clientY: clientY + viewport.y,
-  });
-  Object.defineProperty(event, 'view', { value: window });
-  fireEvent(target, event);
-}
-function start(id: string, button = 0) {
-  const position = renderedPosition(id);
-  mouse(nodeWrapper(id), 'mousedown', position.x + 20, position.y + 10, button);
-  return position;
-}
-function move(x: number, y: number) {
-  mouse(window, 'mousemove', x, y);
-}
-function stop(x: number, y: number) {
-  mouse(window, 'mouseup', x, y);
-}
-
-function touchAt(target: Element, identifier: number, x: number, y: number) {
-  const viewport = viewportTransform();
-  return { identifier, target, clientX: x + viewport.x, clientY: y + viewport.y };
-}
-
-function touchPreview(id: string, identifier = 1) {
-  const target = nodeWrapper(id);
-  const origin = renderedPosition(id);
-  const initial = touchAt(target, identifier, origin.x + 20, origin.y + 10);
-  fireEvent.touchStart(target, { touches: [initial], changedTouches: [initial] });
-  const moved = touchAt(target, identifier, 420, 310);
-  fireEvent.touchMove(target, { touches: [moved], changedTouches: [moved] });
-  expect(renderedPosition(id)).toStrictEqual({ x: 400, y: 300 });
-  return { target, origin, moved };
-}
-
 describe('native drag input ownership', () => {
-  it.each([false, true])(
-    'stops viewport autopan after edge abort (immediate other-node restart=%s)',
-    async (restart) => {
+  it.each([
+    { restart: false, group: false },
+    { restart: true, group: false },
+    { restart: false, group: true },
+    { restart: true, group: true },
+  ])(
+    'stops viewport autopan after edge abort (restart=$restart, group=$group)',
+    async ({ restart, group }) => {
       const frames = new Map<number, FrameRequestCallback>();
       let frameId = 0;
       vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
@@ -137,6 +49,10 @@ describe('native drag input ownership', () => {
         });
       };
       const { store, unmount } = setup();
+      if (group)
+        act(() => {
+          store.getState().setSelection(['a', 'f']);
+        });
       const before = store.getState().map;
       const target = nodeWrapper('a');
       const origin = renderedPosition('a');
@@ -149,12 +65,14 @@ describe('native drag input ownership', () => {
       const during = viewportTransform();
       expect(during.x).toBeLessThan(beforeFrame.x);
       expect(renderedPosition('a')).not.toStrictEqual(origin);
+      if (group) expect(renderedPosition('f')).not.toStrictEqual({ x: 500, y: 200 });
       const second = { identifier: 2, target: document.body, clientX: 700, clientY: 500 };
       fireEvent.touchStart(document.body, { touches: [edge, second], changedTouches: [second] });
       fireEvent.touchMove(target, { touches: [edge, second], changedTouches: [edge] });
       fireEvent.touchEnd(target, { touches: [second], changedTouches: [edge] });
       fireEvent.touchEnd(document.body, { touches: [], changedTouches: [second] });
       expect(renderedPosition('a')).toStrictEqual(origin);
+      expect(renderedPosition('f')).toStrictEqual({ x: 500, y: 200 });
       expect(store.getState().map).toBe(before);
       expect(store.getState().canUndo).toBe(false);
       const released = viewportTransform();
@@ -364,8 +282,8 @@ describe('native drag input ownership', () => {
   });
 });
 
-describe('controlled single-node drag through the editor', () => {
-  it('previews only the grabbed node, selects it, then detaches with one undo step', () => {
+describe('controlled node drag through the editor', () => {
+  it('previews the grabbed subtree, selects it, then detaches with one undo step', () => {
     const { store } = setup();
     act(() => {
       store.getState().select('p');
@@ -463,7 +381,7 @@ describe('controlled single-node drag through the editor', () => {
     expect(store.getState().canUndo).toBe(false);
   });
 
-  it.each(['multiple', 'editing', 'composition', 'space', 'middle', 'text'] as const)(
+  it.each(['editing', 'composition', 'space', 'middle', 'text'] as const)(
     'keeps %s gestures inert while an ordinary drag remains enabled',
     (gate) => {
       const { store } = setup();
@@ -474,10 +392,6 @@ describe('controlled single-node drag through the editor', () => {
       act(() => {
         store.getState().undo();
       });
-      if (gate === 'multiple')
-        act(() => {
-          store.getState().setSelection(['a', 'p']);
-        });
       if (gate === 'editing')
         act(() => {
           store.getState().startEdit('p');
