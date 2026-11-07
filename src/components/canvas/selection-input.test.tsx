@@ -5,7 +5,7 @@ import {
   createEditorStore,
   type EditorState,
 } from '../../contexts/map/application/editor-store/editor-store';
-import { handleCreationKey, handleSelectionKey } from './selection-input';
+import { handleCreationKey, handleHistoryKey, handleSelectionKey } from './selection-input';
 
 const MAP = mapOf(
   node('r', [node('a'), node('b', [node('hidden')], { collapsed: true }), node('c')]),
@@ -234,5 +234,22 @@ describe('canvas creation controls', () => {
       expect(event.defaultPrevented).toBe(false);
       expect(store.getState()).toBe(before);
     }
+  });
+});
+
+describe('canvas history controls', () => {
+  it('leaves keys native without history controls, then uses the supplied store actions', () => {
+    const store = loaded();
+    store.getState().dispatch({ op: 'update_node', id: 'a', text: '改名' });
+    const before = store.getState();
+    const event = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, cancelable: true });
+    handleHistoryKey(event, before, undefined);
+    expect(event.defaultPrevented).toBe(false);
+    expect(store.getState()).toBe(before);
+    handleHistoryKey(event, before, before);
+    expect(event.defaultPrevented).toBe(true);
+    expect(store.getState().map).toEqual(MAP);
+    expect(store.getState().canUndo).toBe(false);
+    expect(store.getState().canRedo).toBe(true);
   });
 });

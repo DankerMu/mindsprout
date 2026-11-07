@@ -22,10 +22,13 @@ import { MindNodeView, NodeMeasurerContext, type NodeMeasurer } from './MindNode
 import { mergeNodeSizes, type NodeMeasurement } from './node-sizes';
 import {
   handleCreationKey,
+  handleHistoryKey,
   handleSelectionKey,
   selectionBlocked,
+  type CanvasHistory,
   type CanvasSelection,
 } from './selection-input';
+import { HistoryToolbar } from './HistoryToolbar';
 import { useRubberBand } from './rubber-band';
 import { handleTitleKey, TitleEditingContext, type CanvasEditing } from './InlineTitleInput';
 
@@ -133,9 +136,10 @@ interface CanvasProps {
   map: MindMap;
   selection?: CanvasSelection | undefined;
   titleEditing?: CanvasEditing | undefined;
+  history?: CanvasHistory | undefined;
 }
 
-function CanvasView({ map, selection, titleEditing }: CanvasProps) {
+function CanvasView({ map, selection, titleEditing, history }: CanvasProps) {
   const composing = useRef(false);
   const space = useKeyPress('Space', {
     target: typeof window === 'undefined' ? null : window,
@@ -178,6 +182,7 @@ function CanvasView({ map, selection, titleEditing }: CanvasProps) {
               handleSelectionKey(event.nativeEvent, map, selection);
               handleTitleKey(event.nativeEvent, selection, titleEditing);
               handleCreationKey(event.nativeEvent, map, selection, titleEditing);
+              handleHistoryKey(event.nativeEvent, selection, history);
             }
           }}
           onBlur={() => {
@@ -217,6 +222,7 @@ function CanvasView({ map, selection, titleEditing }: CanvasProps) {
             zoomOnDoubleClick={titleEditing === undefined}
           >
             <Panel position="top-right">
+              {history !== undefined && <HistoryToolbar controls={history} />}
               <FitButton bounds={bounds} />
             </Panel>
           </ReactFlow>
@@ -238,10 +244,10 @@ function CanvasView({ map, selection, titleEditing }: CanvasProps) {
   );
 }
 
-export function MindMapCanvas({ map, selection, titleEditing }: CanvasProps) {
+export function MindMapCanvas({ map, selection, titleEditing, history }: CanvasProps) {
   return (
     <ReactFlowProvider>
-      <CanvasView map={map} selection={selection} titleEditing={titleEditing} />
+      <CanvasView map={map} selection={selection} titleEditing={titleEditing} history={history} />
     </ReactFlowProvider>
   );
 }

@@ -14,6 +14,21 @@ export type CanvasSelection = Pick<
   | 'clearSelection'
 >;
 
+export type CanvasHistory = Pick<EditorState, 'undo' | 'redo' | 'canUndo' | 'canRedo' | 'editing'>;
+
+export function handleHistoryKey(
+  event: KeyboardEvent,
+  selection: CanvasSelection,
+  controls: CanvasHistory | undefined,
+): void {
+  if (controls === undefined || event.altKey || !(event.ctrlKey || event.metaKey)) return;
+  if (event.key.toLowerCase() !== 'z') return;
+  if (selectionBlocked(selection, event.target, isCompositionKey(event))) return;
+  event.preventDefault();
+  if (event.shiftKey) controls.redo();
+  else controls.undo();
+}
+
 function parentOf(nodes: readonly MindNode[], id: NodeId): MindNode | undefined {
   for (const node of nodes) {
     if (node.children.some((child) => child.id === id)) return node;
@@ -91,7 +106,8 @@ function isCreationKey(event: KeyboardEvent): boolean {
     !event.ctrlKey &&
     !event.metaKey &&
     !event.shiftKey &&
-    !event.repeat
+    !event.repeat &&
+    !(event.target instanceof HTMLButtonElement)
   );
 }
 

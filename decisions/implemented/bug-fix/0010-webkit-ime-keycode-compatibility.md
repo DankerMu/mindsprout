@@ -29,6 +29,7 @@ Authorize exactly one `@typescript-eslint/no-deprecated` suppression, immediatel
 
 - The real-store DOM regression simulates the reported Enter sequence and requires the draft to remain open without dispatch or history changes, followed by exactly one undoable commit on ordinary Enter. Existing active-composition Escape behavior remains covered.
 - Canvas creation uses the same guard, so a composition-ending Enter cannot start a sibling creation after the composition signals have cleared.
+- Canvas undo/redo uses the same guard and leaves native text undo untouched for IME confirmation, without adding another deprecated read or suppression.
 - Synthetic events do not verify actual Safari OS IME behavior or establish Safari Escape ordering.
 - Remove the keyCode fallback and its suppression when every supported WebKit version has a verified fix for this ordering and real OS IME checks demonstrate that the remaining composition signals protect confirmation without delaying ordinary Enter.
 - No active decision is superseded; this is a local compatibility exception.

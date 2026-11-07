@@ -65,6 +65,8 @@ describe.each([
 
   it('lays out with the estimate first, then with the measured width', () => {
     renderMeasured(rootWithChild());
+    expect(screen.queryByRole('button', { name: '撤销' })).toBeNull();
+    expect(fireEvent.keyDown(screen.getByRole('region'), { key: 'z', ctrlKey: true })).toBe(true);
 
     expect(renderedPosition('a').x).toBe(ESTIMATED_X);
 

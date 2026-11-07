@@ -31,6 +31,8 @@ describe('EditorView', () => {
     expect(screen.getByTestId('editor-title').textContent).toBe('标题A');
     expect(screen.getByTestId('map-editor-ready').contains(nodeWrapper('r'))).toBe(true);
     expect(nodeWrapper('r').textContent).toBe('根节点B');
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '撤销' }).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '重做' }).disabled).toBe(true);
   });
 
   it('projects click and Shift toggle selection and routes canvas keys to the session', () => {
