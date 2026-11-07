@@ -1,4 +1,4 @@
-import type { MapSummary } from '../../domain/map-repository';
+import type { MapSummary } from './map-repository';
 
 // List order of every MapRepository adapter (port doc comment): updatedAt descending (ISO-8601
 // strings compared as strings), ties by id ascending in plain code-unit order (not localeCompare).

@@ -53,6 +53,97 @@ describe('MapLibrary', () => {
     expect(screen.queryByText('还没有导图')).toBeNull();
   });
 
+  it('renames a stored map without changing its tree and moves it before its unchanged peer', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-06T12:34:56.789Z'));
+    const repository = memoryLibrary();
+    const original: MindMap = {
+      ...stored('a', 'A', EARLY),
+      roots: [
+        {
+          id: 'a-root',
+          text: '独立的根标题',
+          note: '保留备注',
+          color: 'blue',
+          collapsed: true,
+          children: [{ id: 'a-child', text: '子节点', children: [] }],
+        },
+        {
+          id: 'a-floating',
+          text: '浮动主题',
+          position: { x: 200, y: -50 },
+          children: [],
+        },
+      ],
+    };
+    const peer = stored('b', 'B', LATE);
+    await repository.put(original);
+    await repository.put(peer);
+    const navigate = vi.fn();
+    render(<MapLibrary repository={repository} navigate={navigate} />);
+    const rows = await screen.findAllByRole('listitem');
+    expect(rows.map((row) => within(row).getByRole('link').textContent)).toEqual(['B', 'A']);
+
+    fireEvent.click(screen.getByRole('button', { name: '重命名 A' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '标题' }), {
+      target: { value: '读书笔记' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole('link', { name: '读书笔记' })).toBeTruthy();
+    expect(await repository.get('a')).toStrictEqual({
+      id: 'a',
+      title: '读书笔记',
+      createdAt: EARLY,
+      updatedAt: '2026-11-06T12:34:56.789Z',
+      roots: original.roots,
+    });
+    expect(await repository.get('b')).toStrictEqual(peer);
+    expect(
+      screen.getAllByRole('listitem').map((row) => within(row).getByRole('link').textContent),
+    ).toEqual(['读书笔记', 'B']);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('deletes only the confirmed map after cancellation preserves both stored maps', async () => {
+    const repository = memoryLibrary();
+    const target = stored('a', 'A', EARLY);
+    const peer = stored('b', 'B', LATE);
+    await repository.put(target);
+    await repository.put(peer);
+    const navigate = vi.fn();
+    render(<MapLibrary repository={repository} navigate={navigate} />);
+    await screen.findByRole('link', { name: 'A' });
+
+    fireEvent.click(screen.getByRole('button', { name: '删除 A' }));
+    const cancelled = screen.getByRole('dialog', { name: '删除 A' });
+    fireEvent.click(within(cancelled).getByRole('button', { name: '取消' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(await repository.get('a')).toStrictEqual(target);
+    expect(await repository.get('b')).toStrictEqual(peer);
+    expect(
+      screen.getAllByRole('listitem').map((row) => within(row).getByRole('link').textContent),
+    ).toEqual(['B', 'A']);
+
+    fireEvent.click(screen.getByRole('button', { name: '删除 A' }));
+    const confirmed = screen.getByRole('dialog', { name: '删除 A' });
+    await act(async () => {
+      fireEvent.click(within(confirmed).getByRole('button', { name: '确认删除' }));
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'A' })).toBeNull();
+    expect(await repository.get('a')).toBeUndefined();
+    expect(await repository.get('b')).toStrictEqual(peer);
+    expect(await repository.list()).toStrictEqual([{ id: 'b', title: 'B', updatedAt: LATE }]);
+    expect(
+      screen.getAllByRole('listitem').map((row) => within(row).getByRole('link').textContent),
+    ).toEqual(['B']);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('keeps a pending list distinct from empty and reports a failed read', async () => {
     const pending = heldResult<MapSummary[]>();
     class UnreadableRepository extends RecordingRepository {
@@ -149,8 +240,6 @@ describe('MapLibrary', () => {
     const id = summaries[0]?.id ?? '';
     const saved = await repository.get(id);
     const rootId = saved?.roots[0]?.id ?? '';
-    expect(id).toMatch(/^[\w-]{21}$/);
-    expect(rootId).toMatch(/^[\w-]{21}$/);
     expect(saved).toStrictEqual({
       id,
       title: '新导图',

@@ -17,7 +17,7 @@ Three AI interaction modes (one-shot generation, node-level Grow, conversational
 ## Decision
 
 - A `MindMap` is a JSON forest with one primary root (0004); the canvas is a projection of it.
-- Every mutation — human or AI — is a `TreeOp` (`add_children`, `add_root`, `update_node`, `delete_node`, `move_node`, `set_root_position`, `replace_children`; see 0004) applied by one reducer in the `map` context's domain layer.
+- Every tree-state mutation — human or AI — is a `TreeOp` (`add_children`, `add_root`, `update_node`, `delete_node`, `move_node`, `set_root_position`, `replace_children`; see 0004) applied by one reducer in the `map` context's domain layer.
 - An AI session groups its ops into one undo unit; streaming renders ops as they arrive.
 - Providers emit `TreeOp`s and nothing else (decision 0002).
 
@@ -31,6 +31,7 @@ Three AI interaction modes (one-shot generation, node-level Grow, conversational
 
 - `src/contexts/map/domain/` owns `TreeOp` + reducer and is pure (no framework imports — enforced by `pnpm boundaries`).
 - The Zustand editor store lives in `src/contexts/map/application/editor-store`; tree changes dispatch ops, while selection stays in its session-only UI slice. `src/app` supplies the session `MapRepository`; `src/components/editor/EditorSession` owns store creation, repository injection, and pagehide/unmount listeners. Direct state mutation is a review rejection (`AGENTS.md ## Important Development Notes`).
+- Library rename and `EditorState.rename` share one application metadata transform: only `title` and `updatedAt` change, independently of root text and without a TreeOp or history entry. Library rename validates the captured repository ID before writing. Confirmed library deletion removes the captured key without reading tree content, including listed newer or odd-version records; unsummarizable records remain outside the library. Pending library mutations share the create lock and belong to their initiating repository lifetime.
 - `EditorView` supplies controlled selection state and actions to the canvas. Click, rubber-band and navigation use those actions without changing map identity, history or persistence. React Flow's native selection, positional keyboard edits and deletion are disabled so gestures have one selection authority.
 - Inline titles keep drafts local and finish through the session's `commitTitle` / `cancelEdit` actions. Terminal events are idempotent; the UI checks live edit identity and visibility before committing and cancels hidden rename targets. Canvas selection and pan shortcuts stay inert during text entry.
 - Tab/Enter creation calls the store's `createNode` action; expansion and naming share its group, and cancellation restores the group and prior selection. The existing title input waits for a new React Flow node's measurement if its initial hidden wrapper rejects focus. Open creation groups remain excluded from autosave; the canvas does not dispatch independent add/expand operations.

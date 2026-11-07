@@ -1,6 +1,6 @@
 import type { MapRepository, MapSummary } from '../../domain/map-repository';
 import type { MindMap } from '../../domain/types';
-import { byRecency } from './summary-order';
+import { byRecency } from '../../domain/summary-order';
 
 // Session fallback store (design D7): holds structuredClone copies, cloned in on put and out on
 // get, so it behaves like IndexedDB's structured clone and callers can never alias its state.
