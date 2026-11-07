@@ -1403,3 +1403,30 @@ Sibling surfaces: measured sizes and layout memo keys, React Flow controlled pre
 Non-goals: CI performance harness, thresholds/dependency/config changes, arbitrary large-input caps, cache work before a measured miss, #86 menu focus/#88 advisory mutation/#79 dev HMR fixes. The owner-approved production mode is already the specified profiling mode.
 Rollback: revert fixture/consumer together; if optimization lands, revert it atomically while preserving existing layout semantics. Shared m1-canvas remains active until all tasks complete.
 ```
+
+## Fixture — issue #28 (task 9.2)
+
+```text
+Change surface: application/menu registry, canvas context-menu presentation, node theme CSS and browser scenarios.
+Governing invariant: choosing a token or clearing changes exactly the action-time target scope through TreeOps in one color history group; the chosen token stays visible in either color scheme, including while selected.
+Registry: extend the existing item contract with a submenu variant containing executable child actions; do not install a placeholder run action or a color-specific dispatch switch in the component. Existing action registration remains the single execution path.
+Scope: when the right-click target is selected, color every selected ID, including both ancestors and selected descendants; otherwise color only the target without replacing selection. Primary and floating roots can be colored.
+Mutation: use runGrouped('color') around update_node operations with the chosen ColorToken or null. Reuse existing group cancellation, undo/redo and autosave; no direct map writes, topmost normalization or new state owner.
+Live ownership: resolve map, target, editing state, layout and current selection at activation through the existing menu context guard. Opening or dismissing either menu mutates no map/history; stale/replaced sessions cannot activate.
+Presentation: add 设置颜色 before detach, with red/orange/yellow/green/blue/purple and 无颜色. It opens an accessible child menu by pointer activation or ArrowRight/Enter/Space.
+Keyboard: Up/Down/Home/End move only within the active menu; ArrowLeft or Escape in the child closes it and returns focus to 设置颜色. Escape in the parent and Tab close the complete menu and return canvas focus.
+Ownership: modifier/composition/repeat guards and key propagation isolation remain; child activation executes exactly once, closes the complete menu, and restores canvas focus. Outside pointer input closes both levels.
+Geometry: both levels remain within viewport bounds and scroll if needed; parent navigation must not accidentally activate child entries.
+Theme: keep CSS variables and token-class mapping together in the node stylesheet. Define all six light/dark values through prefers-color-scheme; do not introduce a global theme state or a picker.
+Selection: retain the visible selected outline while preserving a colored node's token background; uncolored selection remains visibly selected. Indicators/text must remain legible in both schemes. Exact RGB values are not a persisted contract.
+Must preserve: six existing menu actions/root restrictions, creation focus, editing gates, drag/selection/undo, node measurement dimensions, serialized optional color semantics and the canonical public literal token classes.
+Sibling surfaces: menu extension consumer, registry and editor DOM tests, node CSS/renderer, selection normalization (not used for colors), History grouping and stable autosave, light/dark selected/unselected rendering.
+Unit evidence: real-store token and null apply to mixed-color nested selection; one undo restores all old tokens and absence, redo reapplies. Unselected target leaves selected peers untouched; root coloring works. Assert real map/history outcomes, not mock forwarding.
+DOM evidence: invoke the submenu through the actual editor; pointer and keyboard activation, child back/Escape, outside dismissal, stale map/edit target and all-level close preserve exact state. Retain ordinary registry extension behavior.
+Browser evidence: Set color from the menu; Clear a color from the menu; Group color. Use public selection/menu/undo and real IndexedDB readback, including mixed previous colors and one-step exact restoration.
+Theme evidence: actual computed node colors in light/dark across the six tokens; selected color remains visible and differs from uncolored state. Inspect screenshots in both schemes with zero console warnings/errors.
+Verification: affected production files each≥90% coverage, typecheck/lint/boundaries, fresh production build and full e2e, docs/decisions checks and strict OpenSpec validation. Owner-approved production-mode verification remains in effect for the independent dev HMR issue.
+Docs: changeset and existing menu/history ownership decision consequence; no duplicate behavior catalog.
+Non-goals: notes/eighth item, free hex input, arbitrary recursive menu framework, persistence/schema changes, dependency or gate changes, new performance claims, and the independent disabled-item/padding focus defect.
+Review focus: all-selected vs topmost scope; atomic group and live-session ownership; submenu keyboard/focus; CSS specificity in both schemes; obsolete fixed menu-count tests removed rather than repinned.
+```

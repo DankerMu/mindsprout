@@ -381,3 +381,13 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Concurrency / shared state / ordering — conditional: memoization must include measured sizes/gap and preserve root/pre-order output. Evidence if changed: measurement invalidation, unchanged-tree reuse and exact geometry/undo tests; no cache changes when baseline already meets budget.
 - Documentation / migration notes — selected: PR carries raw trace references, parser/workload/build/environment identities, all run metrics and optimization disposition. Evidence: independent review against D11 and unchanged spec thresholds.
 - Config; Schema; Auth; File IO; Error handling; Release / packaging — not selected: existing seed/production IO/error semantics reused; no configuration, persisted shape, credentials or dependencies change. Invalid profiling data is rejected by the evidence oracle, not repaired by product code.
+
+## Risk packs — issue #28 (task 9.2)
+
+- Public API / CLI / script entry — selected: submenu-capable registry and public color menu. Evidence: existing extension action plus real-store/DOM activation and three named browser scenarios.
+- Concurrency / shared state / ordering — selected: target versus current selection, nested selection, submenu focus and stale session ownership. Evidence: mixed ancestor/child group, unselected target, native keyboard and stale-menu refusal.
+- Error handling / rollback / partial outputs — selected: one existing color group, disabled/stale/dismissed actions inert. Evidence: exact undo/redo and unchanged map/history on dismissal; existing History cancellation tests retained.
+- File IO / path safety / overwrite — selected, scoped: only stable accepted group results persist through existing autosave. Evidence: real IndexedDB colored/cleared/undone maps; no repository changes.
+- Legacy compatibility / examples — selected: six actions, extension registry, node classes, selection/drag/editing and history remain. Evidence: owning unit coverage and full browser suite; fixed incidental item-count assertions removed.
+- Documentation / migration notes — selected: changeset, menu contract and owning decision consequence. Evidence: docs/decisions checks and strict OpenSpec validation.
+- Config; Schema; Auth; Resource limits; Release / packaging — not selected: no configuration, persisted shape, credentials, dependency or runtime-cap changes. Theme is scoped node presentation; no global theme subsystem or new performance claim.
