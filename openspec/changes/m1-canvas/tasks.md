@@ -334,3 +334,13 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: topmostSelected unchanged for future drag; selection, naming, undo, notice, fallback retained. Evidence: existing normalization assertions and full browser suite.
 - Documentation / migration notes — selected: owner root-protection resolution reconciles D5, requirement prose and issue algorithm without changing scenario outcomes; changeset and decision0004 consequence. Evidence: explicit approval record, docs:check, decisions:check.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, persisted shape, credential, cap or dependency changes.
+
+## Risk packs — issue #24 (task 8.1)
+
+- Public API / CLI / script entry — selected: pointer drag and pure drop helpers. Evidence: geometry/refusal unit cases and public drag scenarios.
+- Concurrency / shared state / ordering — selected: transient controlled positions, final layout reset, map changes during gesture and single-node selection membership. Evidence: preview/refusal/stale-map/gate component cases and unchanged pan/selection browser regressions.
+- Error handling / rollback / partial outputs — selected: primary/self/cycle refusal must dispatch nothing and snap back, not leave a partial move. Evidence: exact transforms/history flags and unchanged stored record after refusal.
+- File IO / path safety / overwrite — selected, scoped: only final accepted TreeOp may persist; coordinates/order survive undo. Evidence: real IndexedDB readback of accepted/undone/refused drops; no persistence implementation changes.
+- Legacy compatibility / examples — selected: static canvas, measured geometry, editing, selection, pan/zoom, deletion/undo retained. Evidence: paired coverage and full existing browser suite; multi-selection drag explicitly remains inert until #25.
+- Documentation / migration notes — selected: changeset and decision0003 consequence; downstream #25/#26 handoff. Evidence: docs:check/decisions:check and review against exact coordinate contract.
+- Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, shape, credential or dependency change; 500-node budget remains #26, not an invented cap here.
