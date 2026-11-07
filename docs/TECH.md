@@ -191,28 +191,30 @@ SSE 事件流 → 解析 op → dispatch 到 Zustand → React Flow 重算布局
 - 交互：Tab 加子节点、Enter 加兄弟、Delete 删除、Cmd/Ctrl+Z 撤销、Cmd/Ctrl+Shift+Z 重做、F2/双击编辑、方向键移动选中、Cmd/Ctrl+A 全选、Space/中键拖拽平移、滚轮缩放、拖到其他节点上重新挂载；多选支持删除、整组改挂、改颜色
 - 折叠：折叠节点不渲染子树，布局时跳过
 
-## 7. 目录结构（草案）
+## 7. 目录结构
 
 ```
 src/
-  app/
-    (auth)/            登录页
-    (app)/maps/[id]/   编辑器页
-    api/ai/            AI 路由
-    api/maps/          导图路由
+  app/                          路由与组合根
+    page.tsx                    导图库首页
+    maps/[id]/                  编辑器路由、导图加载与状态展示
+    providers/                  会话级仓储选择、共享与内存回退
+    api/healthz/                健康检查
   components/
-    canvas/            React Flow 节点、边、布局
-    panels/            AI 侧边栏、节点菜单
-  lib/
-    tree/              树操作、序列化（纯函数，重点测试）
-    ai/
-      providers/       anthropic.ts、openai-compatible.ts、ollama.ts
-      prompts/         按提供方分的模板
-      ops.ts           TreeOp 的 schema 与校验
-      router.ts        按能力和配置选提供方与通道
-    db/                Drizzle schema 与查询
-  store/               Zustand
-docs/                  PRD、技术文档
+    canvas/                     React Flow 画布、节点、菜单与备注面板
+    editor/                     编辑器视图与会话组合、页面卸载保存监听
+    library/                    导图库列表与新建、重命名、删除交互
+  contexts/map/
+    domain/                     导图模型、TreeOp schema/reducer、仓储端口
+    application/                导图重命名、删除与拖放用例
+      editor-store/             编辑状态、选择与自动保存
+      history/                  撤销/重做与操作分组
+      layout/                   森林布局与内容边界计算
+      menu/                     节点菜单动作注册
+    infrastructure/
+      persistence/              IndexedDB 与内存仓储适配器
+  shared/                       环境配置、日志与数据库健康探测
+docs/                           PRD、技术文档
 ```
 
 ## 8. 安全与限流

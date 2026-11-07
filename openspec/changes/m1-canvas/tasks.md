@@ -430,3 +430,11 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: create/list/open/fallback and editor metadata rename remain. Evidence: existing owning tests, exact history/autosave preservation, full browser regression.
 - Documentation / migration notes — selected: changeset and live metadata/persistence consequence; unsupported visible deletion and hidden-record limitation are explicit. Evidence: docs/decisions checks and strict OpenSpec validation.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no configuration, envelope, credentials, cap or dependency change. Unsupported-version policy uses existing delete semantics, not a migration.
+
+## Risk packs — issue #34 (task 11.2)
+
+- Config / project setup — selected: retire the paired README exemptions on the gate-integrity Critical Path. Evidence: exact scoped removal, requiredSections retained, missing-section RED→completed README GREEN, committed-head pnpm test:guardrails and owner acceptance.
+- Public API / CLI / script entry — selected, documentation-gate entry only: pnpm docs:check must enforce the README section without allowlisting. Evidence: real command exit/message in both states; no CLI implementation change.
+- Legacy compatibility / examples — selected: unrelated route exemption, gate thresholds/scripts, persistence timing and all source remain intact. Evidence: diff audit, guardrails, README wording against D7 and TECH7 path/ownership checks.
+- Documentation / migration notes — selected: five limitations, implemented directory tree and deferred cache-key consistency. Evidence: docs:check, formatting, strict OpenSpec validation and no remaining obsolete active-change cache keys.
+- File IO; Schema; Auth; Concurrency; Resource limits; Error handling / rollback; Release / packaging — not selected: no runtime IO/schema/credentials/shared state/caps/error policy/dependencies change; gate execution reads documentation and uses its existing isolated test sandbox.

@@ -451,3 +451,15 @@ Selected risk packs: Public API / CLI / script entry; File IO / path safety / ov
 Evidence floor: chronological application/DOM red→green, affected per-file≥90%, two named browser scenarios plus future-version policy, real IndexedDB readback, screenshots/zero noise, scoped gates and full browser regression.
 Scope: library controls and application rename/delete use cases. Confirmed deletion applies to every visible summary, including unsupported versions; unreadable hidden records remain outside the library, as accepted in the upstream handoff.
 ```
+
+## Fixture triage — issue #34 (task 11.2)
+
+```text
+Issue type: docs/config closure
+Fixture level: expanded
+Upstream expanded agreed: constraints.yaml is a Critical Path gate-integrity surface.
+Blast radius: README silently remains exempt, documentation overstates storage guarantees, or TECH directs contributors to nonexistent module owners.
+Selected risk packs: Config / project setup; Public API / CLI / script entry; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: actual docs-gate missing-section RED after exemption removal, completed README GREEN, committed-head pnpm test:guardrails, format/strict OpenSpec validation, full-depth cross-review and owner acceptance of the constraints edit.
+Scope: README limitations, paired README exemptions, TECH section7 only, and deferred stale cache-key prose. No product code, gate implementation, thresholds or archive operation.
+```

@@ -90,3 +90,17 @@ When browser storage is unavailable the library SHALL show the same "未保存�
 
 - **WHEN** IndexedDB is blocked and the user reloads `/maps/<id>` of a map created in this session
 - **THEN** the page shows "找不到这张导图" and the banner "未保存到浏览器"
+
+### Requirement: Published canvas limitations
+
+The README SHALL disclose no AI, browser-only storage, possible loss of the last at-most-500 ms edit burst on immediate reload, LR-only layout and no export under `## Known Limitations`. The documentation gate SHALL require this section without a README allowlist or matching constraints exemption.
+
+#### Scenario: M1 documentation closure
+
+- **WHEN** the shipped canvas documentation is checked
+- **THEN** the README lists all five limitations, TECH section 7 describes the implemented module locations, and the documentation and guardrail checks pass without a README exemption
+
+#### Scenario: Missing limitations are rejected
+
+- **WHEN** the README lacks `## Known Limitations` and its exemptions have been removed
+- **THEN** the documentation gate rejects the README and reports the missing required section
