@@ -431,9 +431,14 @@ it('navigates enabled items, activates with Space once and expands without reord
   const { state } = setup();
   const order = ['aa', 'ab', 'aba', 'abb'].map((id) => renderedPosition(id));
   open('r');
+  const menu = screen.getByRole('menu', { name: '节点菜单' });
+  const enabled = within(menu)
+    .getAllByRole<HTMLButtonElement>('menuitem')
+    .filter((button) => !button.disabled && button.closest('[role="menu"]') === menu);
+  expect(enabled.length).toBeGreaterThan(1);
   item('添加子节点').focus();
   fireEvent.keyDown(item('添加子节点'), { key: 'ArrowUp' });
-  expect(document.activeElement).toBe(item('设置颜色'));
+  expect(document.activeElement).toBe(enabled.at(-1));
   item('重命名').focus();
   fireEvent.keyDown(item('重命名'), { key: 'ArrowUp' });
   expect(document.activeElement).toBe(item('添加子节点'));

@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
-import { visibleIds } from '../../contexts/map/application/editor-store/selection';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { findNode, visibleIds } from '../../contexts/map/application/editor-store/selection';
 import { MindMapCanvas } from '../canvas/MindMapCanvas';
+import { NotePanel } from '../canvas/NotePanel';
 import { NoticeToast } from '../NoticeToast';
 import { StorageUnavailableBanner } from '../StorageUnavailableBanner';
 import { selectMap, useEditorStore, useEditorStoreApi } from './EditorSession';
@@ -14,6 +15,27 @@ export function EditorView({ storageUnavailable = false }: { storageUnavailable?
   const map = selectMap(selection);
   const store = useEditorStoreApi();
   const editing = selection.editing;
+  const selectedId = selection.selectedIds.length === 1 ? selection.selectedIds[0] : undefined;
+  const noteNode = selectedId === undefined ? undefined : findNode(map, selectedId);
+  const noteInput = useRef<HTMLTextAreaElement>(null);
+  const [noteFocusRequest, setNoteFocusRequest] = useState<{
+    mapId: string;
+    target: string;
+  } | null>(null);
+  const consumedNoteFocusRequest = useRef<typeof noteFocusRequest>(null);
+  useLayoutEffect(() => {
+    if (noteFocusRequest === null || consumedNoteFocusRequest.current === noteFocusRequest) return;
+    consumedNoteFocusRequest.current = noteFocusRequest;
+    const current = store.getState();
+    if (
+      current.map?.id === noteFocusRequest.mapId &&
+      map.id === noteFocusRequest.mapId &&
+      current.selectedIds.length === 1 &&
+      current.selectedIds[0] === noteFocusRequest.target &&
+      selectedId === noteFocusRequest.target
+    )
+      noteInput.current?.focus();
+  }, [map.id, noteFocusRequest, selectedId, store]);
   useEffect(() => {
     const current = store.getState();
     if (current.editing !== editing || editing?.created !== false) return;
@@ -64,7 +86,12 @@ export function EditorView({ storageUnavailable = false }: { storageUnavailable?
           titleEditing={titleEditing}
           history={selection}
           deletion={selection}
-          menu={store}
+          menu={{
+            getState: store.getState,
+            requestNoteFocus: (target) => {
+              setNoteFocusRequest({ mapId: map.id, target });
+            },
+          }}
           drag={{
             commitDrop: (expectedMap, expectedSelection, ops) => {
               const current = store.getState();
@@ -81,6 +108,25 @@ export function EditorView({ storageUnavailable = false }: { storageUnavailable?
             },
           }}
         />
+        {noteNode !== undefined && (
+          <NotePanel
+            key={JSON.stringify([map.id, noteNode.id])}
+            node={noteNode}
+            inputRef={noteInput}
+            onCommit={(note) => {
+              const current = store.getState();
+              if (
+                current.map?.id !== map.id ||
+                current.selectedIds.length !== 1 ||
+                current.selectedIds[0] !== noteNode.id
+              )
+                return;
+              const target = findNode(selectMap(current), noteNode.id);
+              if (target !== noteNode || (target.note ?? '') === (note ?? '')) return;
+              current.dispatch({ op: 'update_node', id: noteNode.id, note });
+            }}
+          />
+        )}
       </div>
     </div>
   );
