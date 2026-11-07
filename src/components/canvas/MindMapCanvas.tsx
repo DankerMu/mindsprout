@@ -33,6 +33,7 @@ import {
 import { HistoryToolbar } from './HistoryToolbar';
 import { useRubberBand } from './rubber-band';
 import { handleTitleKey, TitleEditingContext, type CanvasEditing } from './InlineTitleInput';
+import { useSingleNodeDrag, type CanvasDrag } from './single-node-drag';
 
 // Geometry remains a projection of the map and measured sizes; selection is supplied by the
 // editor session. React Flow never writes selection or tree changes back into the map.
@@ -140,9 +141,10 @@ interface CanvasProps {
   titleEditing?: CanvasEditing | undefined;
   history?: CanvasHistory | undefined;
   deletion?: CanvasDeletion | undefined;
+  drag?: CanvasDrag | undefined;
 }
 
-function CanvasView({ map, selection, titleEditing, history, deletion }: CanvasProps) {
+function CanvasView({ map, selection, titleEditing, history, deletion, drag }: CanvasProps) {
   const composing = useRef(false);
   const space = useKeyPress('Space', {
     target: typeof window === 'undefined' ? null : window,
@@ -159,11 +161,18 @@ function CanvasView({ map, selection, titleEditing, history, deletion }: CanvasP
     return elements;
   }, [map, layout, sizes, selection?.selectedIds]);
   const bounds = useMemo(() => contentBounds(layout), [layout]);
-  const { rectangle, ...rubberBand } = useRubberBand(
+  const blocked = (target: EventTarget | null) =>
+    selection === undefined || space || selectionBlocked(selection, target, composing.current);
+  const { onMouseDownCapture, ...dragView } = useSingleNodeDrag(
+    map,
     layout,
-    (target) =>
-      selection === undefined || space || selectionBlocked(selection, target, composing.current),
-    (ids) => selection?.setSelection(ids),
+    nodes,
+    selection,
+    drag,
+    blocked,
+  );
+  const { rectangle, ...rubberBand } = useRubberBand(layout, blocked, (ids) =>
+    selection?.setSelection(ids),
   );
   return (
     <NodeMeasurerContext value={measurer}>
@@ -174,6 +183,7 @@ function CanvasView({ map, selection, titleEditing, history, deletion }: CanvasP
           tabIndex={0}
           style={{ width: '100%', height: '100%', position: 'relative' }}
           {...rubberBand}
+          onMouseDownCapture={space ? undefined : onMouseDownCapture}
           onCompositionStart={() => {
             composing.current = true;
           }}
@@ -194,10 +204,11 @@ function CanvasView({ map, selection, titleEditing, history, deletion }: CanvasP
           }}
         >
           <ReactFlow
-            nodes={nodes}
+            {...dragView}
             edges={edges}
             nodeTypes={NODE_TYPES}
-            nodesDraggable={false}
+            nodesDraggable={dragView.nodesDraggable && !space}
+            nodeDragThreshold={0 /* Capture the grab offset at pointer-down, not the first move. */}
             nodesConnectable={false}
             elementsSelectable={false}
             disableKeyboardA11y
@@ -248,7 +259,14 @@ function CanvasView({ map, selection, titleEditing, history, deletion }: CanvasP
   );
 }
 
-export function MindMapCanvas({ map, selection, titleEditing, history, deletion }: CanvasProps) {
+export function MindMapCanvas({
+  map,
+  selection,
+  titleEditing,
+  history,
+  deletion,
+  drag,
+}: CanvasProps) {
   return (
     <ReactFlowProvider>
       <CanvasView
@@ -257,6 +275,7 @@ export function MindMapCanvas({ map, selection, titleEditing, history, deletion 
         titleEditing={titleEditing}
         history={history}
         deletion={deletion}
+        drag={drag}
       />
     </ReactFlowProvider>
   );

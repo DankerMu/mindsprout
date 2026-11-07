@@ -64,6 +64,12 @@ export function EditorView({ storageUnavailable = false }: { storageUnavailable?
           titleEditing={titleEditing}
           history={selection}
           deletion={selection}
+          drag={{
+            commitDrop: (expectedMap, op) => {
+              const current = store.getState();
+              if (current.map === expectedMap && current.editing === null) current.dispatch(op);
+            },
+          }}
         />
       </div>
     </div>
