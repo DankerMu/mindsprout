@@ -372,3 +372,12 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: single-node drag, editor keys/menu, static/editing/pan and generic normalizer contracts preserved. Evidence: migrated owning unit suites and full existing browser suite; obsolete multi-selection-inert assertion replaced by behavior.
 - Documentation / migration notes — selected: changeset, decision0003 generalized consequence, corrected helper provenance and owner visual-order decision. Evidence: docs/decisions checks and issue handoff comment.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no config, persisted shape, credential, dependency or cap changes; actual500-node budget belongs to #26.
+
+## Risk packs — issue #26 (task 8.3)
+
+- Resource limits / large input / discovery — selected:500 nodes,3–7 branching, depth5 and two-second drag budget. Evidence: independent workload assertions, three native recordings and qualified complete-frame interval parser; no new runtime cap.
+- Public API / CLI / script entry — selected, test fixture only: exported generator consumed by a real e2e seed. Evidence: seeded editor renders500 nodes and actual leaf drag is recorded locally; CI contains functional assertions only.
+- Legacy compatibility / examples — selected: layout geometry, collapsed visibility, primary/floating anchors, single/group drag and cancellation preserved. Evidence: existing browser regressions; affected unit coverage if any production optimization is required.
+- Concurrency / shared state / ordering — conditional: memoization must include measured sizes/gap and preserve root/pre-order output. Evidence if changed: measurement invalidation, unchanged-tree reuse and exact geometry/undo tests; no cache changes when baseline already meets budget.
+- Documentation / migration notes — selected: PR carries raw trace references, parser/workload/build/environment identities, all run metrics and optimization disposition. Evidence: independent review against D11 and unchanged spec thresholds.
+- Config; Schema; Auth; File IO; Error handling; Release / packaging — not selected: existing seed/production IO/error semantics reused; no configuration, persisted shape, credentials or dependencies change. Invalid profiling data is rejected by the evidence oracle, not repaired by product code.

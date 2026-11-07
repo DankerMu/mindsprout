@@ -391,3 +391,15 @@ Selected risk packs: Public API / CLI / script entry; Concurrency / shared state
 Evidence floor: generalized planner and real-store DOM red→green; four named group browser scenarios plus primary/mixed-floating/native abort branches; exact single-node regressions retained; per-file≥90%, exact undo/persistence and zero browser noise.
 Scope: task8.2 only; extend/rename existing drag path atomically. Owner chose drag-start visual y/x order with stable traversal ties; generic normalizer unchanged. Existing specs remain oracle.
 ```
+
+## Fixture triage — issue #26 (task 8.3)
+
+```text
+Issue type: test/performance evidence
+Fixture level: expanded
+Reason above suggested compact: acceptance depends on a qualified native-frame oracle and possible shared-layout cache invalidation; raw frame slots were empirically shown to hide severe jank.
+Blast radius: a fake passing performance number, a nonrepresentative/idle workload, or stale measured geometry from premature memoization.
+Selected risk packs: Resource limits / large input / discovery; Public API / CLI / script entry; Legacy compatibility / examples; Documentation / migration notes; Concurrency / shared state / ordering (conditional memoization).
+Evidence floor: exact500-node deterministic fixture used in real e2e seed; qualified native Performance recording, three retained two-second samples with p50≤16.7ms/p95≤33ms and named environment; no CI timing gate. Production changes require semantic regression coverage first.
+Scope: task8.3 only. Existing caching is measured before any optimization; issue handoff corrects D11 cache inputs to map/nodeSize/gap. No budget relaxation.
+```
