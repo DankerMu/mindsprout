@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StrictMode } from 'react';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
-import { sampleMap } from '../../../tests/support/map-domain';
+import { sampleMap, UPDATED_AT } from '../../../tests/support/map-domain';
 import { ControlledLibrary, heldResult } from '../../../tests/support/map-library';
 import type { Held } from '../../../tests/support/map-repository-stub';
 import { UnsupportedSchemaVersionError } from '../../contexts/map/domain/errors';
@@ -157,6 +157,12 @@ describe('mutation failures', () => {
       await settle(pending, 'reject');
       expect(screen.getByRole('alert').textContent).toBe('保存失败，请重试');
       expect(screen.getByRole('link', { name: 'A' })).toBeTruthy();
+      const rows = screen.getAllByRole('listitem');
+      expect(rows.map((row) => within(row).getByRole('link').textContent)).toEqual(['A', 'B']);
+      expect(rows.map((row) => row.querySelector('time')?.textContent)).toEqual([
+        UPDATED_AT,
+        UPDATED_AT,
+      ]);
       expect(await repository.storage.get('a')).toStrictEqual(TARGET);
       expect(await repository.storage.get('b')).toStrictEqual(PEER);
       expect(repository.gets).toHaveLength(phase === 'delete' ? 0 : 1);

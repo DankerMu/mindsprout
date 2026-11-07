@@ -144,6 +144,19 @@ test.describe('map-library', () => {
     await page.getByRole('button', { name: '重命名 A', exact: true }).click();
     const title = page.getByRole('textbox', { name: '标题', exact: true });
     await expect(title).toBeFocused();
+    await title.fill('取消的标题草稿');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('form', { name: '重命名 A', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '重命名 A', exact: true })).toBeFocused();
+    await expect(page).toHaveURL('/');
+    expect(await readRecord(page, 'A')).toStrictEqual(envelopeOf(TARGET).value);
+    expect(await readRecord(page, 'B')).toStrictEqual(envelopeOf(PEER).value);
+    await page.screenshot({
+      path: `${EVIDENCE}/map-library-rename-escape-cancelled.png`,
+      fullPage: true,
+    });
+    await page.getByRole('button', { name: '重命名 A', exact: true }).click();
+    await expect(title).toBeFocused();
     await title.fill('读书笔记');
     await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('listitem').getByRole('link')).toHaveText(['读书笔记', 'B']);
@@ -180,6 +193,17 @@ test.describe('map-library', () => {
     const dialog = page.getByRole('dialog', { name: '删除 A', exact: true });
     await expect(dialog).toContainText('确定永久删除“A”吗？');
     await expect(dialog.getByRole('button', { name: '取消', exact: true })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect(page).toHaveURL('/');
+    expect(await readRecord(page, 'A')).toStrictEqual(envelopeOf(TARGET).value);
+    expect(await readRecord(page, 'B')).toStrictEqual(envelopeOf(PEER).value);
+    await page.screenshot({
+      path: `${EVIDENCE}/map-library-delete-escape-cancelled.png`,
+      fullPage: true,
+    });
+    await trigger.click();
     await dialog.getByRole('button', { name: '取消', exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await expect(trigger).toBeFocused();
