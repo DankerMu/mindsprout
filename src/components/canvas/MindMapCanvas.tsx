@@ -33,7 +33,7 @@ import {
 import { HistoryToolbar } from './HistoryToolbar';
 import { useRubberBand } from './rubber-band';
 import { handleTitleKey, TitleEditingContext, type CanvasEditing } from './InlineTitleInput';
-import { useSingleNodeDrag, type CanvasDrag } from './single-node-drag';
+import { useNodeDrag, type CanvasDrag } from './node-drag';
 import { useContextMenu, type CanvasMenu } from './ContextMenu';
 
 // Geometry remains a projection of the map and measured sizes; selection is supplied by the
@@ -166,7 +166,7 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag, men
   const contextMenu = useContextMenu(map, layout.positions, menu);
   const blocked = (target: EventTarget | null) =>
     selection === undefined || space || selectionBlocked(selection, target, composing.current);
-  const { onMouseDownCapture, ...dragView } = useSingleNodeDrag(
+  const { onMouseDownCapture, ...dragView } = useNodeDrag(
     map,
     layout,
     nodes,

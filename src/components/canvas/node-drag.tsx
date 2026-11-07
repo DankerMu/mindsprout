@@ -6,23 +6,29 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type RefObject,
 } from 'react';
 import { findNode } from '../../contexts/map/application/editor-store/selection';
 import type { ForestLayout } from '../../contexts/map/application/layout/layout-forest';
-import { planSingleNodeDrop } from '../../contexts/map/application/single-node-drop';
+import {
+  captureNodeDrag,
+  planNodeDrop,
+  type DragSnapshot,
+} from '../../contexts/map/application/node-drop';
 import type { TreeOp } from '../../contexts/map/domain/tree-op';
 import type { MindMap, MindNode, Position } from '../../contexts/map/domain/types';
 import type { MindFlowNode } from './flow-elements';
 import type { CanvasSelection } from './selection-input';
 
 export interface CanvasDrag {
-  commitDrop: (expectedMap: MindMap, op: TreeOp) => void;
+  commitDrop: (expectedMap: MindMap, selection: readonly string[], ops: readonly TreeOp[]) => void;
 }
 interface Gesture {
   map: MindMap;
   layout: ForestLayout;
   source: MindNode;
   touchId: number | null;
+  drag: DragSnapshot;
 }
 interface Preview extends Gesture {
   position: Position;
@@ -36,43 +42,23 @@ function releasePoint(touchId: number | null, event: MouseEvent | TouchEvent) {
   return undefined;
 }
 
-export function useSingleNodeDrag(
+function captureGesture(
   map: MindMap,
   layout: ForestLayout,
-  nodes: MindFlowNode[],
-  selection: CanvasSelection | undefined,
-  controls: CanvasDrag | undefined,
-  blocked: (target: EventTarget | null) => boolean,
-) {
-  const { screenToFlowPosition } = useReactFlow();
-  const gesture = useRef<Gesture | null>(null);
+  selectedIds: readonly string[],
+  id: string,
+  event: MouseEvent | TouchEvent,
+): Gesture | null {
+  const touchId = 'changedTouches' in event ? event.changedTouches[0]?.identifier : null;
+  if (touchId === undefined) return null;
+  const source = findNode(map, id);
+  const drag = captureNodeDrag(map, layout, selectedIds, id);
+  if (source === undefined || drag === undefined) return null;
+  return { map, layout, source, touchId, drag };
+}
+
+function useNativeDragInputs(gesture: RefObject<Gesture | null>, cancel: () => void) {
   const inputs = useRef({ mouseDown: false, touches: 0, colliding: false });
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [active, setActive] = useState<Gesture | null>(null);
-  const [quiescing, setQuiescing] = useState(false);
-  const enabled =
-    controls !== undefined &&
-    selection !== undefined &&
-    selection.selectedIds.length <= 1 &&
-    selection.editing === null;
-  const cancel = useCallback(() => {
-    if (gesture.current !== null) setQuiescing(true);
-    gesture.current = null;
-    setActive(null);
-    setPreview(null);
-  }, []);
-
-  useEffect(() => {
-    if (!quiescing) return;
-    // Keep the controlled flag false until already-queued XYDrag callbacks have observed it.
-    const frame = requestAnimationFrame(() => {
-      setQuiescing(false);
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-    };
-  }, [quiescing]);
-
   useEffect(() => {
     const interrupt = () => {
       inputs.current.colliding = true;
@@ -136,11 +122,67 @@ export function useSingleNodeDrag(
       window.removeEventListener('blur', resetInputs);
       window.removeEventListener('keydown', escape);
     };
-  }, [map, layout, enabled, cancel]);
+  }, [cancel, gesture]);
+  return inputs;
+}
+
+export function useNodeDrag(
+  map: MindMap,
+  layout: ForestLayout,
+  nodes: MindFlowNode[],
+  selection: CanvasSelection | undefined,
+  controls: CanvasDrag | undefined,
+  blocked: (target: EventTarget | null) => boolean,
+) {
+  const { screenToFlowPosition } = useReactFlow();
+  const gesture = useRef<Gesture | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [active, setActive] = useState<Gesture | null>(null);
+  const [quiescing, setQuiescing] = useState(false);
+  const enabled = controls !== undefined && selection?.editing === null;
+  const cancel = useCallback(() => {
+    if (gesture.current !== null) setQuiescing(true);
+    gesture.current = null;
+    setActive(null);
+    setPreview(null);
+  }, []);
+  const inputs = useNativeDragInputs(gesture, cancel);
+
+  useEffect(() => {
+    if (!quiescing) return;
+    // Keep the controlled flag false until already-queued XYDrag callbacks have observed it.
+    const frame = requestAnimationFrame(() => {
+      setQuiescing(false);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [quiescing]);
+
+  // Identity cleanup must not reorder native capture listeners behind D3's release handler.
+  useEffect(() => cancel, [map, layout, enabled, cancel]);
+
+  const selectedIds = selection?.selectedIds;
+  const membershipMatches = useCallback(
+    (current: Gesture) =>
+      current.drag.selection.length === selectedIds?.length &&
+      current.drag.selection.every((id) => selectedIds.includes(id)),
+    [selectedIds],
+  );
+
+  useEffect(() => {
+    if (gesture.current !== null && !membershipMatches(gesture.current)) cancel();
+  }, [membershipMatches, cancel]);
 
   function currentGesture(): Gesture | null {
     const current = gesture.current;
-    if (current === null || !enabled || current.map !== map || current.layout !== layout)
+    if (
+      current === null ||
+      !enabled ||
+      current.map !== map ||
+      current.layout !== layout ||
+      !membershipMatches(current)
+    )
       return null;
     return findNode(map, current.source.id) === current.source ? current : null;
   }
@@ -151,13 +193,11 @@ export function useSingleNodeDrag(
       cancel();
       return;
     }
-    const touchId = 'changedTouches' in event ? event.changedTouches[0]?.identifier : null;
-    if (touchId === undefined) return;
-    const source = findNode(map, node.id);
-    if (source === undefined) return;
-    gesture.current = { map, layout, source, touchId };
-    setActive(gesture.current);
-    selection.select(node.id);
+    const current = captureGesture(map, layout, selection.selectedIds, node.id, event);
+    if (current === null) return;
+    gesture.current = current;
+    setActive(current);
+    if (!selection.selectedIds.includes(node.id)) selection.select(node.id);
   };
 
   function onNodesChange(changes: NodeChange<MindFlowNode>[]): void {
@@ -183,8 +223,15 @@ export function useSingleNodeDrag(
     cancel();
     if (blocked(event.target)) return;
     const pointer = screenToFlowPosition({ x: point.clientX, y: point.clientY });
-    const plan = planSingleNodeDrop(map, current.layout, current.source.id, pointer, node.position);
-    if ('op' in plan) controls?.commitDrop(map, plan.op);
+    const plan = planNodeDrop(
+      current.map,
+      current.layout,
+      current.drag.selection,
+      current.source.id,
+      pointer,
+      node.position,
+    );
+    if ('ops' in plan) controls?.commitDrop(map, current.drag.selection, plan.ops);
   };
 
   function onMouseDownCapture(event: ReactMouseEvent): void {
@@ -195,11 +242,22 @@ export function useSingleNodeDrag(
   }
 
   const projected = useMemo(() => {
-    if (preview?.map !== map || preview.layout !== layout || !enabled) return nodes;
-    return nodes.map((node) =>
-      node.id === preview.source.id ? { ...node, position: preview.position } : node,
-    );
-  }, [nodes, preview, map, layout, enabled]);
+    if (
+      preview?.map !== map ||
+      preview.layout !== layout ||
+      !enabled ||
+      !membershipMatches(preview)
+    )
+      return nodes;
+    const dx = preview.position.x - preview.drag.anchor.x;
+    const dy = preview.position.y - preview.drag.anchor.y;
+    return nodes.map((node) => {
+      const original = preview.drag.positions.get(node.id);
+      return original === undefined
+        ? node
+        : { ...node, position: { x: original.x + dx, y: original.y + dy } };
+    });
+  }, [nodes, preview, map, layout, enabled, membershipMatches]);
 
   return {
     nodes: projected,
