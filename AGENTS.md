@@ -124,7 +124,7 @@ All commands route through `package.json` scripts. Do not invent ad-hoc commands
 | API endpoint      | Smoke test via hurl (`smoke/*.hurl`)                | `pnpm smoke`      | HTTP status + response body                             |
 | Web page / UI     | Playwright walk of key routes (`e2e/smoke.spec.ts`) | `pnpm e2e`        | Screenshot in `.run/ui-evidence/` + zero console errors |
 
-- Key routes recorded in `constraints.yaml` `verification.key_api_routes` / `key_ui_paths`; routes marked `pending` join `smoke/api.hurl` and `e2e/smoke.spec.ts` in the PR that lands them. A DB migration row is added with the first Drizzle migration (M2).
+- Key routes recorded in `constraints.yaml` `verification.key_api_routes` / `key_ui_paths`; `/` and `/maps/[id]` are covered by `e2e/smoke.spec.ts`; routes marked `pending` join `smoke/api.hurl` and `e2e/smoke.spec.ts` in the PR that lands them. A DB migration row is added with the first Drizzle migration (M2).
 - Every command above resolves to a `package.json` script and is mirrored in `constraints.yaml` `verification`. A surface with no verification command is review-only, and the PR must say so.
 
 Every row requires fresh evidence from the current session — see `## Agent Operating Rules → Evidence requirements`.
