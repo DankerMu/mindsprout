@@ -39,7 +39,7 @@ function useMeasuredBox(id: NodeId) {
   );
 }
 
-function MindNodeBody({ id, data, selected }: NodeProps<MindFlowNode>) {
+function MindNodeBody({ id, data, selected, width, height }: NodeProps<MindFlowNode>) {
   const measuredBox = useMeasuredBox(id);
   const titleEditing = useContext(TitleEditingContext);
   return (
@@ -58,7 +58,11 @@ function MindNodeBody({ id, data, selected }: NodeProps<MindFlowNode>) {
         aria-label={data.text}
       >
         {titleEditing?.editing?.id === id ? (
-          <InlineTitleInput text={data.text} controls={titleEditing} />
+          <InlineTitleInput
+            text={data.text}
+            controls={titleEditing}
+            measured={Boolean(width && height)}
+          />
         ) : (
           <span>{data.text}</span>
         )}

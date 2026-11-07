@@ -5,7 +5,7 @@ import {
   createEditorStore,
   type EditorState,
 } from '../../contexts/map/application/editor-store/editor-store';
-import { handleSelectionKey } from './selection-input';
+import { handleCreationKey, handleSelectionKey } from './selection-input';
 
 const MAP = mapOf(
   node('r', [node('a'), node('b', [node('hidden')], { collapsed: true }), node('c')]),
@@ -191,5 +191,48 @@ describe('canvas selection keyboard', () => {
     const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', cancelable: true });
     handleSelectionKey(event, MAP, store.getState());
     expect(store.getState().selectedIds).toEqual(['b']);
+  });
+});
+
+describe('canvas creation controls', () => {
+  it('ignores unavailable controls and unrelated keys without stealing browser defaults', () => {
+    const store = loaded();
+    store.getState().select('a');
+    const before = store.getState();
+    const event = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true });
+    handleCreationKey(event, MAP, before, undefined);
+    expect(event.defaultPrevented).toBe(false);
+    const unrelated = new KeyboardEvent('keydown', { key: 'Delete', cancelable: true });
+    handleCreationKey(unrelated, MAP, before, before);
+    expect(unrelated.defaultPrevented).toBe(false);
+    expect(store.getState()).toBe(before);
+  });
+
+  it('rejects a stale selection when its node is hidden or missing from the displayed map', () => {
+    const store = loaded();
+    store.getState().dispatch({ op: 'update_node', id: 'b', collapsed: false });
+    store.getState().select('hidden');
+    const before = store.getState();
+    for (const map of [MAP, mapOf(node('r'))]) {
+      for (const key of ['Tab', 'Enter']) {
+        const event = new KeyboardEvent('keydown', { key, cancelable: true });
+        handleCreationKey(event, map, before, before);
+        expect(event.defaultPrevented).toBe(false);
+        expect(store.getState()).toBe(before);
+      }
+    }
+  });
+
+  it('refuses creation while editing even when no text element is focused', () => {
+    const store = loaded();
+    store.getState().select('a');
+    store.getState().startEdit('a');
+    const before = store.getState();
+    for (const key of ['Tab', 'Enter']) {
+      const event = new KeyboardEvent('keydown', { key, cancelable: true });
+      handleCreationKey(event, MAP, before, before);
+      expect(event.defaultPrevented).toBe(false);
+      expect(store.getState()).toBe(before);
+    }
   });
 });

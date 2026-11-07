@@ -294,3 +294,16 @@ Evidence floor: genuine red→green DOM/provider integration, full ≥90% per-fi
 Scope: provider fallback, editor banner and notice, unavailable get handling. Existing map-persistence Storage unavailable delta is oracle; library banner remains #32.
 Queue prerequisite resolved: #30 public creation now bootstraps an empty fallback through real UI, no seed hook or implicit creation on unknown ids.
 ```
+
+## Fixture triage — issue #20 (task 7.2)
+
+```text
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (override: keyboard creation opens a shared undo group spanning input focus and autosave).
+Blast radius: duplicate nodes, wrong sibling/root placement, unnamed nodes persisted, abandoned creation corrupting earlier history or collapse state.
+Selected risk packs: Public API / CLI / script entry; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; File IO / path safety / overwrite; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: genuine red→green real-store DOM integration, ≥90% per-file coverage, public browser creation scenarios and real IndexedDB one-second reload, screenshots/zero browser noise, typecheck/lint/boundaries/format/docs/decisions.
+Scope: creation shortcuts over existing createNode/commitTitle/cancelEdit, no new store semantics or undo UI.
+Owner-approved scenario ownership: #23 executes public Cmd/Ctrl+Z portions of Name a new node and Tab on a collapsed node, plus empty-create→toolbar Undo protection. #20 proves complete history/collapse invariants with real-store DOM and public creation behavior. Spec/task wording unchanged; approvals posted on both issues.
+```

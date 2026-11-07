@@ -1192,3 +1192,27 @@ Risk-pack commands: pnpm test:unit, pnpm typecheck, pnpm lint (local .omp issue 
 Non-goals: library banner (#32), child creation (#20), autosave changes/retries, mid-session repository swapping, schema/config/dependency/API changes, durable memory fallback across full reload.
 Rollback: revert fallback/notice wiring; persisted IndexedDB schema untouched. Review focus: one session identity; failure classification; honest no-save UI; reader/store flag combination; notice replacement; public private-mode proof.
 ```
+
+## Fixture — issue #20 (task 7.2)
+
+```text
+Change surface: canvas keyboard creation handling and existing inline-input integration, controlled EditorView action seam, paired tests/e2e, changeset and decision consequence.
+Must preserve: #19 input lifecycle, terminal idempotence/IME guard, #21 selection/focus/pan, #17 notices, map factory/root invariant, existing store creation/history/autosave semantics and all browser regression.
+Must add: with exactly one selected visible node and no active editor, unmodified Tab calls createNode(selectedId) for last child; unmodified Enter creates next sibling at parent.children index+1, or last child on either primary/floating root.
+Governing invariant: each keyboard creation owns one existing creation group; naming commits it once, abandoning cancels it entirely, and no provisional node/expansion leaks to persisted state.
+Input gating: no selection/multi-selection, editing!=null, input/textarea/select/contenteditable focus, composition, modifier combinations and repeated keydown must not start creation or steal native text/tab behavior. Prevent default only for handled creation.
+Integration: extend existing controlled actions/keyboard seam; use existing createNode, not dispatch add_children independently. Reuse parent lookup logic rather than duplicate traversal. Existing InlineTitleInput handles created edit; no second input implementation.
+Creation lifecycle: new empty node immediately selected/input-focused; nonempty commit preserves full text and closes group; blank/whitespace Enter or blur and Escape remove it, restore prior selection, and restore collapsed parent. Terminal Enter/Escape+blur cannot double act.
+History: real-store DOM with existing prior edit proves create+name is one undo entry, one undo restores exact precreation map/collapse/selection expectations and prior canUndo remains; redo restores named creation. Cancellation adds no entry and cannot undo prior changes.
+Autosave: while group open, debounce/pagehide flush never saves unnamed node or temporary expansion; named group persists after closure; abandoned group never persists provisional content. Reuse store contract, no autosave edits.
+Sibling surfaces: InlineTitleInput/EditorView live edit identity; selection-input primary/parent helpers; History grouping; autosave stable-map rule; #23 undo UI and blur-followed-click protection; #32 fallback child flow; menu create actions #27.
+Required DOM evidence: Tab child, Enter middle sibling index, roots child/no root movement; collapsed parent third child focus; single selected/no selection/multiple/modifier/repeat/text/IME gates; input native Tab/Enter behavior.
+Required DOM evidence: naming one group with exact undo/redo, empty/Escape/blur cancellation on collapsed parent and prior history, no duplicate terminal creation, provisional state absent from repository writes during open group and after cancel.
+Required browser evidence: Tab adds child, Tab on collapsed node (expansion/focus/naming portion), Enter primary root, Enter floating root, Name new node (creation/naming portion), Empty new node discarded, plus Enter sibling order and Escape cancellation.
+Approved cross-issue proof: #23 runs public Ctrl/Meta+Z for named creation and collapsed-parent re-collapse, and empty-create→Undo click preserving prior edit. No undo buttons/shortcuts or test-only browser store hooks in #20; DOM real-store undo assertions supply history proof here.
+Required persistence browser evidence: seed starting map through real IndexedDB; create/name three nodes via public Tab/Enter, wait literal one second, reload; same text, parent relationships and sibling order in DOM/raw record. No direct dispatch or seeded replacement for newly created nodes.
+Required evidence hygiene: zero warning/error/pageerror, screenshots .run/ui-evidence/, genuine red→green logs .workplans/20/review, fresh runtime health/start/stop, existing full e2e green.
+Commands: pnpm test:unit, pnpm typecheck, pnpm lint (local .omp caveat #74), pnpm boundaries, pnpm fmt:check, pnpm docs:check, pnpm decisions:check, pnpm e2e.
+Non-goals: undo toolbar/shortcuts, menus, drag, new selection mechanics, new store behavior, persistence/schema/dependency/config changes.
+Rollback: revert shortcut wiring; any named persisted nodes remain valid. Review focus: native field focus, sibling index, key repeat, group cancellation/terminal ordering and no provisional saves.
+```

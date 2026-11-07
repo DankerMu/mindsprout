@@ -1,12 +1,19 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ReactFlow, type NodeTypes } from '@xyflow/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  borderBoxEntry,
+  canvasObserverOf,
   failOnConsoleNoise,
   installControllableResizeObservers,
   mindNodeElement,
+  reactFlowNodeObserverOf,
+  sizedWrapperEntry,
 } from '../../../tests/support/canvas';
 import { mapOf, node } from '../../../tests/support/map-domain';
+import { RecordingRepository } from '../../../tests/support/map-repository-stub';
+import { EditorSession } from '../editor/EditorSession';
+import { EditorView } from '../editor/EditorView';
 import type { MindFlowNode } from './flow-elements';
 import { MindMapCanvas } from './MindMapCanvas';
 import { MindNodeView } from './MindNodeView';
@@ -16,6 +23,9 @@ import { MindNodeView } from './MindNodeView';
 
 failOnConsoleNoise();
 const observers = installControllableResizeObservers();
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 // r ─ c (collapsed) ─ (x1 ─ (x3, x4), x2): four descendants across two levels under c.
 const COLLAPSED = mapOf(
@@ -98,6 +108,53 @@ describe('MindNodeView', () => {
     expect(source?.classList.contains('react-flow__handle-right')).toBe(true);
     expect(target?.classList.contains('connectable')).toBe(false);
     expect(source?.classList.contains('connectable')).toBe(false);
+  });
+
+  it('focuses the new title after measurement makes its initially hidden wrapper visible', () => {
+    render(
+      <EditorSession map={mapOf(node('r'))} repository={new RecordingRepository()}>
+        <EditorView />
+      </EditorSession>,
+    );
+    fireEvent.click(mindNodeElement('r'));
+    // Browsers reject focus on visibility:hidden; jsdom does not model that boundary.
+    vi.spyOn(HTMLInputElement.prototype, 'focus').mockImplementationOnce(() => undefined);
+    fireEvent.keyDown(screen.getByRole('region'), { key: 'Tab' });
+    const input = screen.getByLabelText<HTMLInputElement>('节点标题');
+    expect(document.activeElement).not.toBe(input);
+    const id = input.closest<HTMLElement>('[data-id]')?.dataset.id;
+    if (id === undefined) throw new Error('missing created node');
+    const flowObserver = reactFlowNodeObserverOf(observers());
+    flowObserver.fire([sizedWrapperEntry(id, 200, 0)]);
+    expect(document.activeElement).not.toBe(input);
+    flowObserver.fire([sizedWrapperEntry(id, 0, 32)]);
+    expect(document.activeElement).not.toBe(input);
+    canvasObserverOf(observers()).fire([borderBoxEntry(mindNodeElement(id), 200, 32)]);
+    expect(document.activeElement).toBe(input);
+    fireEvent.change(input, { target: { value: '输入中' } });
+    input.setSelectionRange(1, 1);
+    canvasObserverOf(observers()).fire([borderBoxEntry(mindNodeElement(id), 240, 32)]);
+    expect(input.selectionStart).toBe(1);
+    expect(input.selectionEnd).toBe(1);
+  });
+
+  it('does not reselect a draft that already received focus before measurement', () => {
+    render(
+      <EditorSession map={mapOf(node('r'))} repository={new RecordingRepository()}>
+        <EditorView />
+      </EditorSession>,
+    );
+    fireEvent.click(mindNodeElement('r'));
+    fireEvent.keyDown(screen.getByRole('region'), { key: 'Tab' });
+    const input = screen.getByLabelText<HTMLInputElement>('节点标题');
+    fireEvent.change(input, { target: { value: '输入中' } });
+    input.setSelectionRange(1, 1);
+    const id = input.closest<HTMLElement>('[data-id]')?.dataset.id;
+    if (id === undefined) throw new Error('missing created node');
+    canvasObserverOf(observers()).fire([borderBoxEntry(mindNodeElement(id), 200, 32)]);
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(1);
+    expect(input.selectionEnd).toBe(1);
   });
 });
 

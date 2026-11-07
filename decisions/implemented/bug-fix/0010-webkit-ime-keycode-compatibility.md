@@ -14,7 +14,7 @@ date: 2026-11-06
 
 ## Decision
 
-The terminal-key guard in `src/components/canvas/InlineTitleInput.tsx` retains its composition-ref and `isComposing` checks and also returns for `event.nativeEvent.keyCode === 229`. The return leaves native text-input behavior intact without preventing the event or changing map/history state; an ordinary Enter with keyCode 13 can commit immediately.
+The shared `isCompositionKey` guard in `src/components/canvas/selection-input.tsx` checks `isComposing` and `keyCode === 229`. Inline title terminal keys and canvas creation keys use it alongside their composition refs. Confirmation leaves native behavior intact without committing a draft or creating a node; an ordinary Enter with keyCode 13 can act immediately.
 
 Authorize exactly one `@typescript-eslint/no-deprecated` suppression, immediately above that deprecated property read, with a reference to this record. All other deprecated accesses remain subject to the rule. No lint configuration, threshold, browser matrix, timer, or post-composition grace state changes are authorized.
 
@@ -28,6 +28,7 @@ Authorize exactly one `@typescript-eslint/no-deprecated` suppression, immediatel
 ## Consequences
 
 - The real-store DOM regression simulates the reported Enter sequence and requires the draft to remain open without dispatch or history changes, followed by exactly one undoable commit on ordinary Enter. Existing active-composition Escape behavior remains covered.
+- Canvas creation uses the same guard, so a composition-ending Enter cannot start a sibling creation after the composition signals have cleared.
 - Synthetic events do not verify actual Safari OS IME behavior or establish Safari Escape ordering.
 - Remove the keyCode fallback and its suppression when every supported WebKit version has a verified fix for this ordering and real OS IME checks demonstrate that the remaining composition signals protect confirmation without delaying ordinary Enter.
 - No active decision is superseded; this is a local compatibility exception.
