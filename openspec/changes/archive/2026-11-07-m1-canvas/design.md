@@ -185,8 +185,8 @@ Target: on a generated 500-node map (primary tree, branching 3–7, depth 5) dra
 
 - [500-node drag may drop frames with per-render layout recomputation] → budget and method in D11; memoise before adding machinery.
 - [React Flow drag semantics fight the tree model] → nodes are `draggable` but positions are reset from layout after every drag; hit test is ours, not React Flow's connection logic.
-- [IndexedDB unavailable or quota errors] → in-memory fallback + banner (D7); `put` failures surface as a toast, never swallowed.
-- [Last edit lost on immediate reload] → bounded by the 500 ms window (D7); `pagehide` flush is best-effort and the spec says so.
+- [IndexedDB cannot be opened initially] → one shared in-memory fallback + banner (D7); later `put` failures surface as a toast without switching repositories.
+- [Pending edits lost on immediate reload] → all changes since the last successful save may be lost; continuous edits restart the 500 ms trailing debounce and `pagehide` flush is best-effort (D7).
 - [Forest change ripples into docs] → all document revisions ship in this change's PR set (decision 0004 first).
 - [Inline editing vs shortcuts conflict] → one `isEditing` flag in the UI slice gates every shortcut.
 - [Allowing `zod` in domain weakens `domain-is-pure`] → the allowance is one package, recorded in decision 0005, mirrored in `constraints.yaml`, and `pnpm test:guardrails` still proves the rule rejects any other import.
