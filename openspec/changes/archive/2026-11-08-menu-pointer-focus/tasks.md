@@ -4,7 +4,7 @@
 
 - [x] 1.1 Author one native disabled-Delete regression in the existing menu browser file; parent qualifies semantic RED against unchanged source with actual mouse coordinates and document focus, preserving screenshot/zero-noise evidence.
 - [x] 1.2 Apply the smallest existing-handler correction; verify GREEN, then add padding and enabled-action/native-title compatibility coverage. Preserve all existing menu behavior and add a patch changeset.
-- [ ] 1.3 Run both complete menu browser files against a fresh production build under the accepted issue79 verification exception, existing menu component tests/per-file coverage, scoped static checks and required CI. Review the full diff; merge and sync/archive after acceptance.
+- [x] 1.3 Run both complete menu browser files against a fresh production build under the accepted issue79 verification exception, existing menu component tests/per-file coverage, scoped static checks and required CI. Review the full diff; merge and sync/archive after acceptance.
 
 ## Risk packs
 
