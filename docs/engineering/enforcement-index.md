@@ -5,8 +5,8 @@ Detail relocated from `AGENTS.md ## Enforcement Index`, which keeps one row per 
 ## Branch protection (applied)
 
 - Where it lives: GitHub classic branch protection on `main` (rulesets unused).
-- Inspect: `gh api repos/DankerMu/mindsprout/branches/main/protection`.
-- Required checks: `All checks passed`, `Lockfile–manifest consistency`, `PR diff size guard`.
+- Inspect: `gh api repos/DankerMu/mindsprout/branches/main/protection`; confirm `required_status_checks.checks` contains exactly the three context/`app_id` pairs below, `required_status_checks.strict: true`, and `enforce_admins.enabled: false`.
+- Required checks: `All checks passed`, `Lockfile–manifest consistency`, `PR diff size guard` — all pinned to GitHub Actions (`app_id: 15368`; [decision 0013](../../decisions/implemented/process/0013-pin-required-checks-to-github-actions.md)).
 - Level: gate (applied: strict up-to-date, three required checks, linear history, no force-push or deletion; `enforce_admins: false` — admins can bypass).
 
 ## Agent write-time deny list

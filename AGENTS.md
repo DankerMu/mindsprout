@@ -124,7 +124,7 @@ All commands route through `package.json` scripts. Do not invent ad-hoc commands
 | API endpoint      | Smoke test via hurl (`smoke/*.hurl`)                | `pnpm smoke`      | HTTP status + response body                             |
 | Web page / UI     | Playwright walk of key routes (`e2e/smoke.spec.ts`) | `pnpm e2e`        | Screenshot in `.run/ui-evidence/` + zero console errors |
 
-- Key routes recorded in `constraints.yaml` `verification.key_api_routes` / `key_ui_paths`; `/` and `/maps/[id]` are covered by `e2e/smoke.spec.ts`; routes marked `pending` join `smoke/api.hurl` and `e2e/smoke.spec.ts` in the PR that lands them. A DB migration row is added with the first Drizzle migration (M2).
+- Key routes in `constraints.yaml` `verification.key_api_routes` / `key_ui_paths`; `/` and `/maps/[id]` are covered by `e2e/smoke.spec.ts`; routes marked `pending` join `smoke/api.hurl` and `e2e/smoke.spec.ts` in the PR that lands them. A DB migration row is added with the first Drizzle migration (M2).
 - Every command above resolves to a `package.json` script and is mirrored in `constraints.yaml` `verification`. A surface with no verification command is review-only, and the PR must say so.
 
 Every row requires fresh evidence from the current session — see `## Agent Operating Rules → Evidence requirements`.
@@ -299,7 +299,7 @@ Strictness profile: **L4** (see `constraints.yaml`). Levels: `advice` < `review-
 | Conventional commits                                    | `commitlint.config.cjs`                                                            | pre-commit hook (`commit-msg`)                                     | block           |
 | Lockfile–manifest consistency                           | `.github/workflows/lockfile-guard.yml` + `scripts/check-lockfile-pairs.sh`         | CI `Lockfile–manifest consistency` (separate label-aware workflow) | block           |
 | Agent write-time deny list                              | `.claude/settings.json`                                                            | Claude Code sessions only (pre-commit + CI remain the floor)       | block           |
-| Branch protection (required checks, linear history)     | GitHub classic branch protection on `main`                                         | server-side                                                        | gate            |
+| Branch protection (required checks, linear history)     | GitHub classic `main`; all 3 checks pinned to GitHub Actions app `15368`           | server-side                                                        | gate            |
 | Guardrail self-test, AGENTS.md liveness                 | `scripts/test-guardrails.sh`, `.github/workflows/weekly.yml`                       | `pnpm test:guardrails` + CI weekly                                 | warn (weekly)   |
 | Mutation testing                                        | `stryker.config.mjs`                                                               | `pnpm mutation` + CI weekly                                        | warn (advisory) |
 | Function length (200 lines), license allowlist          | `constraints.yaml` (size_limits.max_function_lines, dependencies.allowed_licenses) | reviewer agent                                                     | review-only     |
