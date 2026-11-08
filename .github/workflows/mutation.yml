@@ -188,8 +188,16 @@ jobs:
             fail(error);
             metadata.outcome = 'diagnostics-only';
             metadata.exitStatus = status;
-            fs.rmSync(path.join(directory, 'accepted-completion.json'), { force: true });
-            fs.writeFileSync(path.join(directory, 'exit-status.json'), JSON.stringify(metadata, null, 2));
+            for (const name of ['accepted-completion.json', 'finalization.log', 'exit-status.json']) {
+              fs.rmSync(path.join(directory, name), { force: true });
+            }
+            try {
+              fs.writeFileSync(path.join(directory, 'finalization.log'),
+                `${metadata.outcome}\n${errors.join('\n')}\n`);
+              fs.writeFileSync(path.join(directory, 'exit-status.json'), JSON.stringify(metadata, null, 2));
+            } catch (recoveryError) {
+              fail(recoveryError);
+            }
           }
           for (const error of errors) console.error(`::error::${error}`);
           if (status === 0) {
