@@ -5,7 +5,7 @@
 - [x] 1.1 Capture a fresh failing scope probe against the actual local OMP paths, with project/near-miss paths as controls; retain the recorded default-command failure without rerunning it solely for confirmation.
 - [x] 1.2 Run `openspec validate exclude-local-omp-lint --strict --no-interactive` and require success before authoring the decision record or editing `eslint.config.mjs`.
 - [x] 1.3 Record the process decision, then add only `.omp/**` to the existing global ignore block; verify the same scope probe passes, default `pnpm lint` succeeds and a deliberate project-source `no-console` violation still fails.
-- [ ] 1.4 Verify typecheck, formatting, docs and decisions; confirm source/tests/scripts/rules and other ignore entries remain unchanged, obtain risk-scaled cross-review and exact-head CI, then merge.
+- [x] 1.4 Verify typecheck, formatting, docs and decisions; confirm source/tests/scripts/rules and other ignore entries remain unchanged, obtain risk-scaled cross-review and exact-head CI, then merge.
 
 ## Risk packs
 
