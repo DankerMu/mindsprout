@@ -3,7 +3,7 @@
 ## 1. Complete the unchanged mutation workload
 
 - [x] 1.1 Profile the full configured workload on the existing hosted runner; distinguish initial tests, execution, resources, timeouts/tool errors and diagnostic-method failures. Preserve partial artifacts and measured budget rationale.
-- [ ] 1.2 Replace the diagnostic workflow with the measured bounded full run, final-report completeness checks and preserved interruption diagnostics; add lifecycle-checked decision and update only its related documentation. Parent executes every completeness matrix case and all four mandatory permanent-path interruption/cleanup probes, including owned-sampler/canary checks, before scoped checks.
+- [x] 1.2 Replace the diagnostic workflow with the measured bounded full run, final-report completeness checks and preserved interruption diagnostics; add lifecycle-checked decision and update only its related documentation. Parent executes every completeness matrix case and all four mandatory permanent-path interruption/cleanup probes, including owned-sampler/canary checks, before scoped checks.
 - [ ] 1.3 Run full exact-head hosted mutation to completion, verify whole-plan terminal outcomes/score/report and inspect any timeout/tool-error outcomes; four-seat review, genuine required CI, protected merge and separate sync/archive. Include evidence in final consolidated EPIC acceptance without per-issue prompts.
 
 ## Risk packs
