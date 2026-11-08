@@ -4,7 +4,7 @@
 
 - [x] 1.1 Extend existing native guardrail fixtures with exact root lockfile-only/paired-manifest counts, root/nested snapshot and lockfile siblings and ordinary near-miss control; parent records RED before production edits.
 - [x] 1.2 Apply glob magic to the three affected exclusion patterns only; add bug-fix decision after lifecycle check. Parent records full guardrail GREEN and historical1684/exit1 smoke, retaining401 ordinary rejection and all prior error/label cases.
-- [ ] 1.3 Run scoped checks and four-seat full-depth review; satisfy genuine exact-head CI, merge, sync spec and archive separately. Include gate-behavior evidence in the final consolidated EPIC acceptance, as explicitly requested by the owner; do not request per-issue functional acceptance.
+- [x] 1.3 Run scoped checks and four-seat full-depth review; satisfy genuine exact-head CI, merge, sync spec and archive separately. Include gate-behavior evidence in the final consolidated EPIC acceptance, as explicitly requested by the owner; do not request per-issue functional acceptance.
 
 ## Risk packs
 
