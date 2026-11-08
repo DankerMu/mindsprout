@@ -2,11 +2,5 @@
   "requiredSections": {
     "README.md": ["Known Limitations"]
   },
-  "allowlist": [
-    {
-      "path": "README.md",
-      "reason": "Pre-M1: no shipped surface exists yet, so a Known Limitations section would be fiction.",
-      "exitCondition": "Remove this entry when M1 (canvas) is complete; README then documents real limitations."
-    }
-  ]
+  "allowlist": []
 }

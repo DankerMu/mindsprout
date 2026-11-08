@@ -96,7 +96,7 @@ Minimal mergeable slice: 10.1 - list + create is a complete flow; rename/delete 
 ## 11. Integration verification and M1 closure
 
 - [x] 11.1 End-to-end M1 acceptance walk in Playwright: create map → Tab child → rename → drag-reparent → detach → reload → structure, position and note persist and 撤销 is disabled after the reload (re-asserting the reload-clears-history rule owned by 7.5); verify `pnpm e2e` passes with zero console errors and screenshots land in `.run/ui-evidence/`.
-- [ ] 11.2 M1 closure docs: add `## Known Limitations` to `README.md` (no AI, browser-only storage, last-500 ms-burst may be lost on immediate reload, LR layout only, no export), remove the README allowlist entry from `docs/.docgate.json` and the matching `constraints.yaml` exemption; verify `pnpm docs:check` passes without the allowlist and `pnpm test:guardrails` passes; the PR flags the `constraints.yaml` edit.
+- [x] 11.2 M1 closure docs: add `## Known Limitations` to `README.md` (no AI, browser-only storage, 500 ms trailing debounce and possible loss of all pending changes on immediate reload, LR layout only, no export), remove the README allowlist entry from `docs/.docgate.json` and the matching `constraints.yaml` exemption; verify `pnpm docs:check` passes without the allowlist and `pnpm test:guardrails` passes; the PR flags the `constraints.yaml` edit.
 
 Suggested fixture level: 11.1 compact - verification only; 11.2 expanded - touches `constraints.yaml` (Critical Path: gate integrity).
 Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the README closure is a docs-plus-gate follow-up.
@@ -430,3 +430,11 @@ Minimal mergeable slice: 11.1 - the acceptance walk merges on its own; the READM
 - Legacy compatibility / examples — selected: create/list/open/fallback and editor metadata rename remain. Evidence: existing owning tests, exact history/autosave preservation, full browser regression.
 - Documentation / migration notes — selected: changeset and live metadata/persistence consequence; unsupported visible deletion and hidden-record limitation are explicit. Evidence: docs/decisions checks and strict OpenSpec validation.
 - Config; Schema; Auth; Resource limits; Release / packaging — not selected: no configuration, envelope, credentials, cap or dependency change. Unsupported-version policy uses existing delete semantics, not a migration.
+
+## Risk packs — issue #34 (task 11.2)
+
+- Config / project setup — selected: retire the paired README exemptions on the gate-integrity Critical Path. Evidence: exact scoped removal, requiredSections retained, missing-section RED→completed README GREEN, committed-head pnpm test:guardrails and owner acceptance.
+- Public API / CLI / script entry — selected, documentation-gate entry only: pnpm docs:check must enforce the README section without allowlisting. Evidence: real command exit/message in both states; no CLI implementation change.
+- Legacy compatibility / examples — selected: unrelated route exemption, gate thresholds/scripts, persistence timing and all source remain intact. Evidence: diff audit, guardrails, README wording against D7 and TECH7 path/ownership checks.
+- Documentation / migration notes — selected: five limitations, implemented directory tree and deferred cache-key consistency. Evidence: docs:check, formatting, strict OpenSpec validation and no remaining obsolete active-change cache keys.
+- File IO; Schema; Auth; Concurrency; Resource limits; Error handling / rollback; Release / packaging — not selected: no runtime IO/schema/credentials/shared state/caps/error policy/dependencies change; gate execution reads documentation and uses its existing isolated test sandbox.

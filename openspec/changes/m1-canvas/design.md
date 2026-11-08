@@ -150,7 +150,7 @@ Selection, editing state, context-menu state, pan/zoom live in the editor store'
 
 The map context owns the port and the browser adapters; `CONTEXT.md`'s map row says so in this change (its "Forbidden logic" is server/RLS persistence, which the `account` context supplies in M2 by implementing the same port). The `account` row records that it implements `MapRepository` under RLS in M2.
 
-Autosave: the editor store debounces `put` 500 ms after the last op and exposes `flush()`; the `/maps/[id]` composition root registers a `pagehide` listener that calls `flush()` as a best-effort attempt. IndexedDB does not guarantee that a transaction opened during unload commits, so the guarantee the spec states is bounded: an edit older than the 500 ms window is never lost; a reload inside the window may lose at most that last burst.
+Autosave: the editor store debounces `put` for 500 ms after the last stable edit and exposes `flush()`; each subsequent edit restarts the timer. The `/maps/[id]` composition root registers a `pagehide` listener that calls `flush()` as a best-effort attempt. IndexedDB does not guarantee that a transaction opened during unload commits. A reload can therefore lose all changes since the last successful write, including edits older than 500 ms during continuous editing; the debounce interval is not an upper bound on the age of pending edits.
 
 One `MapRepository` instance is resolved once per app session in the composition root (`src/app/providers/`) and shared by the library and the editor. When IndexedDB cannot be opened the provider falls back to one in-memory repository for the whole session and sets `storageUnavailable`; both pages show the persistent banner "未保存到浏览器", creating from the library still navigates to a working editor, and a full reload of such a URL shows the not-found state plus the banner — it never silently pretends to save. `put` failures surface as a toast. Tests use `fake-indexeddb`.
 
@@ -589,7 +589,7 @@ Collapse: a node with collapsed: true gets a position, its descendants get none,
 Edges: one { source: parent, target: child } per visible parent-child pair; positions and edges are both in pre-order (children in array order), so iteration order is deterministic
 Purity: no mutation of map or options (deep-frozen inputs work); no Date/random; same inputs → toStrictEqual outputs
 Governing invariant: for every laid-out map, no two visible node boxes intersect, every child's box is entirely to the right of its parent's, siblings are stacked top-to-bottom in children order, and hidden nodes have no position
-Sibling surfaces: 3.2 (floating subtrees reuse this per root; contentBounds reads positions + sizes); 6.1 canvas (feeds measured sizes back, renders positions as React Flow positions); 8.1/8.2 hit-testing against laid-out rects (needs the same sizes the layout used — 6.1's concern); 8.3 memoisation on (map, collapsed set)
+Sibling surfaces: 3.2 (floating subtrees reuse this per root; contentBounds reads positions + sizes); 6.1 canvas (feeds measured sizes back, renders positions as React Flow positions); 8.1/8.2 hit-testing against laid-out rects (needs the same sizes the layout used — 6.1's concern); 8.3 memoisation on (map, nodeSize, gap)
 Seams under test: layoutForest and estimateNodeSize
 Required evidence (vitest, node env):
   - "intersect" means the open intervals overlap on both axes (boxes that only touch do not intersect)
@@ -1491,4 +1491,30 @@ Docs: user-visible changeset and existing metadata/persistence decision conseque
 Non-goals: editor-side title controls/header changes, schema validation/migration/repair, cross-tab compare-and-swap or tombstones, provider/fallback changes, automatic retries, #86 menu focus or unrelated gate fixes.
 Rollback: revert controls and application use cases atomically; saved titles and deletions use the unchanged envelope and cannot be undone by code rollback.
 Review focus: captured identity before write/delete; version-policy proof; async ownership and failure ordering; canonical metadata transform; unchanged tree/history and real browser acceptance.
+```
+
+## Fixture — issue #34 (task 11.2)
+
+```text
+Mode: documentation refresh and gate cutover; executable gate evidence, no product feature or migration.
+Change surface: README.md Known Limitations; docs/.docgate.json README allowlist; constraints.yaml matching README exemption; docs/TECH.md section7; active-change cache-key prose, owner-approved D7/map-persistence save-contract clarification and closure fixture.
+Governing invariant: README must disclose the shipped canvas limitations and pass the existing required-section gate without an exception; every other gate, exemption and runtime behavior remains unchanged. Storage wording follows the owner-approved trailing-debounce clarification.
+README: add exactly the five required limitation topics in concise Chinese: no AI; browser-only storage; 500ms trailing debounce and possible loss of all pending changes on immediate reload; LR layout only; no export.
+Storage wording: distinguish normal browser persistence from session fallback selected only when IndexedDB cannot be opened, whose data disappears on full reload. Later storage errors do not swap repositories. Do not imply cloud backup or guaranteed unload flush.
+Owner-approved save contract: continuous edits restart the500ms wait after the last stable committed edit, so pending edits have no500ms age bound. Disclose possible loss of all changes since the last successful save; preserve the existing600ms-wait/within100ms-reload scenario and its assertions. No production behavior change, stronger durability claim or new performance threshold.
+Gate config: remove only the README allowlist object and matching constraints exemption. Keep requiredSections.README.md=["Known Limitations"], existing route coverage exemption, expiry/rules elsewhere and scripts unchanged.
+Sequence: implementer first removes the paired exemptions; parent runs pnpm docs:check and captures missing-section rejection. Then implementer adds limitations and revises TECH7; parent runs docs:check to capture acceptance.
+Guardrails: scripts/test-guardrails.sh tests a throwaway checkout of HEAD, so create a scoped checkpoint commit after docs/format/strict validation and run pnpm test:guardrails on that committed candidate before PR/merge. Its own sandbox is test isolation, not an implementation worktree.
+TECH7: replace the obsolete draft tree with implemented src/app routes/providers, src/components canvas/editor/library, src/contexts/map domain/application/infrastructure and src/shared. Verify every named path against the tree.
+Ownership: TreeOp/schema/reducer and repository port belong in domain; layout/history/editor-store/menu/use cases in application; browser adapters in infrastructure/persistence; canvas presentation and session composition stay in components/app.
+TECH scope: change section7 only, including its heading. Do not present planned auth/AI/export routes or empty context directories as implemented features; do not revise other TECH sections.
+Cache prose: the stale task8.3 sibling key becomes (map,nodeSize,gap), matching D11. Search the active change for other obsolete collapsed-set cache keys; no cache implementation or budget changes.
+Must preserve: all source/tests/runtime behavior, command implementations, thresholds, unrelated exceptions, public persistence envelope and the five limitation meanings.
+Sibling surfaces: README requiredSections/allowlist; matching constraints exemptions; check-docs section/link evaluation; guardrails HEAD sandbox; D7/map-persistence storage guarantee; TECH7 versus actual bounded-context directories; D11 cache-input wording.
+Required evidence: no README exception in either config and required section retained; exact missing-section rejection followed by clean docs gate; committed-head guardrails pass; paths/ownership verified; stale cache-key search empty; strict OpenSpec validation and formatting. Execute the existing controlled-timer test for edits at0/400/800ms with no write by1299ms and one at1300ms; keep the existing600ms/100ms browser scenario and source/tests unchanged.
+Runtime scope: execute the docs gate, guardrail self-test and existing autosave timer case, not an unrelated browser run. No UI/source behavior changed; PR explains this verification boundary.
+Review: Critical Path full-depth multi-lens review of every diff line and parent adjudication; independent verifier for unresolved blocking candidates. Owner acceptance of the explicit constraints exemption removal is required before merge.
+Decision/release: mechanical retirement of a planned pre-M1 exemption and existing documentation obligations; no new architectural decision, product behavior or changeset. Do not weaken a gate to pass.
+Non-goals: product fixes, README development/stack rewrite, other TECH sections, guardrail implementation changes, unrelated exemptions, performance work, OpenSpec archive or epic closure before this PR merges.
+Rollback: restore docs and the paired exemption together only by an explicit later decision; do not leave one config claiming a different enforcement policy.
 ```

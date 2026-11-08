@@ -12,7 +12,7 @@ MindSprout's differentiator (node-level AI growth, streaming ops) needs a canvas
 - Undo/redo as one undo step per applied `TreeOp`, with an atomic grouping API (`beginGroup`/`endGroup`/`cancelGroup`) used by multi-select batch operations and by node creation (create + name = one step) (moved from PRD M6 to M1 — grill Q2); 撤销/重做 toolbar buttons and shortcuts.
 - Automatic left-to-right tree layout for the primary tree and for each floating subtree relative to its own position; collapsed nodes hide their subtree.
 - Canvas editing UI on `/maps/[id]`: inline title editing, keyboard shortcuts (standard set), multi-select (delete / group-reparent / color over the top-most selected nodes; rename and collapse stay single-node), eight-item registrable context menu, six-token color palette with a 无颜色 entry, plain-text multi-line note panel, collapse/expand, drag-to-reparent, detach-to-floating.
-- Map library on `/`: create, open, rename, delete maps; maps persist in the browser (IndexedDB) with a `schemaVersion`, autosave debounced after each op (edits older than the 500 ms window are never lost; a shared in-memory fallback plus banner when storage is unavailable).
+- Map library on `/`: create, open, rename, delete maps; maps persist in the browser (IndexedDB) with a `schemaVersion`. Autosave waits 500 ms after the last stable edit; continuous editing restarts the wait, so a reload can lose all changes since the last successful save. A shared in-memory fallback plus banner is selected when IndexedDB cannot be opened.
 - Register `/maps/[id]` in the Playwright key-path walk (`constraints.yaml` `verification.key_ui_paths` marks it pending).
 
 ## Capabilities
@@ -450,4 +450,16 @@ Blast radius: wrong-record overwrite/deletion, stale completion replacing a new 
 Selected risk packs: Public API / CLI / script entry; File IO / path safety / overwrite; Concurrency / shared state / ordering; Error handling / rollback / partial outputs; Legacy compatibility / examples; Documentation / migration notes.
 Evidence floor: chronological application/DOM red→green, affected per-file≥90%, two named browser scenarios plus future-version policy, real IndexedDB readback, screenshots/zero noise, scoped gates and full browser regression.
 Scope: library controls and application rename/delete use cases. Confirmed deletion applies to every visible summary, including unsupported versions; unreadable hidden records remain outside the library, as accepted in the upstream handoff.
+```
+
+## Fixture triage — issue #34 (task 11.2)
+
+```text
+Issue type: docs/config closure
+Fixture level: expanded
+Upstream expanded agreed: constraints.yaml is a Critical Path gate-integrity surface.
+Blast radius: README silently remains exempt, documentation overstates storage guarantees, or TECH directs contributors to nonexistent module owners.
+Selected risk packs: Config / project setup; Public API / CLI / script entry; Legacy compatibility / examples; Documentation / migration notes.
+Evidence floor: actual docs-gate missing-section RED after exemption removal, completed README GREEN, committed-head pnpm test:guardrails, format/strict OpenSpec validation, full-depth cross-review and owner acceptance of the constraints edit.
+Scope: README limitations, paired README exemptions, TECH section7 only, and deferred stale cache-key prose. No product code, gate implementation, thresholds or archive operation.
 ```

@@ -254,11 +254,6 @@ exemptions:
       reason: "Next.js route components are verified by the Playwright tier (pnpm e2e), not unit coverage"
       expires: never
       exit_condition: "none — structural: the e2e tier owns rendered routes"
-    - path: "README.md"
-      rules: [documentation_known_limitations]
-      reason: "Pre-M1: no shipped surface exists yet, so a Known Limitations section would be fiction (docs/.docgate.json)"
-      expires: "2027-03-31"
-      exit_condition: "Remove the docs/.docgate.json allowlist entry when M1 (canvas) is complete"
   enforced_by: "vitest.config.ts coverage.exclude, scripts/check-test-pairing.sh exempt_re, docs/.docgate.json allowlist"
 
 # ── Violation Baseline ─────────────────────────────────────────

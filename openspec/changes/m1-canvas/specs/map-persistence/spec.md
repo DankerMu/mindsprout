@@ -8,7 +8,7 @@ Maps survive page reloads and browser restarts in the user's browser, saved auto
 
 ### Requirement: Autosave after every change
 
-After an op is applied in the editor, the map SHALL be persisted within 500 ms of the last op. Ops inside an open undo group (for example a node being created and named) count from when the group closes: their result is written only once the group ends, and never if the group is cancelled. An edit older than that window SHALL never be lost; a pending save SHALL be flushed on `pagehide` as a best-effort attempt, so a reload inside the window MAY lose at most the last burst of edits (design D7).
+After a stable map change, the application SHALL schedule a write 500 ms after the last such change; each subsequent change SHALL restart the timer. Ops inside an open undo group (for example a node being created and named) count from when the group closes: their result is written only once the group ends, and never if the group is cancelled. A pending save SHALL be flushed on `pagehide` as a best-effort attempt. A reload MAY lose all pending changes since the last successful save, including edits older than 500 ms during continuous editing; the debounce interval SHALL NOT be represented as an upper bound on pending-edit age (design D7).
 
 #### Scenario: Reload after edits
 
@@ -24,6 +24,11 @@ After an op is applied in the editor, the map SHALL be persisted within 500 ms o
 
 - **WHEN** ten ops are dispatched within 200 ms
 - **THEN** at most one write hits the store after the burst, and it contains the result of all ten ops
+
+#### Scenario: Continuous edits restart the save delay
+
+- **WHEN** under a controlled clock, stable edits occur at 0, 400 and 800 ms after the last successful save, without an explicit flush
+- **THEN** advancing to 1299 ms starts no debounced write; advancing to 1300 ms starts one write
 
 #### Scenario: Opening a map is not an edit
 
