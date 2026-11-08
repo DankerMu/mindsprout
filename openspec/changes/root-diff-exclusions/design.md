@@ -25,7 +25,7 @@
 15. Historical smoke: create an isolated temporary local clone, detach it at `ad97d5b`, and run `env -u PR_LABELS bash /Users/danker/Desktop/AI-vault/mindsprout/scripts/check-diff-size.sh 'ad97d5b^'` with that clone as cwd. Preserve its original constraints/tree. Require exit1 and exact line `Changed lines (excluding lockfiles/snapshots/records): 1684 (limit: 400)`. Capture logs before removing the owned temporary clone. Do not rerun supplied1692 baseline; independently attribute removed8 lines to the root lockfile.
 16. Parent runs guardrails after fix, historical native smoke, formatting, docs/decisions, strict fixture validation and scoped diff check. Capture exact command/exit/output; no network or paid key required for fixtures.
 17. No fake git/echo-based count oracle. Tests must invoke the actual guard and use real committed fixture diffs; inspect both exit and exact count.
-18. Owner acceptance is gate behavior: generated files excluded, ordinary401 still fails; no threshold relaxation. Four high-risk review seats inspect all changed lines.
+18. Gate-behavior evidence must show generated files excluded and ordinary401 still rejected, without threshold relaxation. Four high-risk review seats inspect all changed lines. The owner explicitly requires one final EPIC functional acceptance after completion, not per-issue prompts; this changes acceptance timing, not test/review/CI requirements.
 
 ## Risks and rollback
 

@@ -31,4 +31,4 @@ Fixture level: expanded
 Upstream suggested level: absent; expanded because a shared CLI and gate-integrity boundary change.
 Blast radius: false-positive exclusions or accidental fail-open PR size enforcement.
 Selected risk packs: public script entry; config; path matching; units/counting; large generated input; compatibility; errors; documentation.
-Evidence floor: new native shell guardrails RED before fix/GREEN after; exact exclusion counts; historical1692→1684; 401 ordinary lines rejected; full guardrails, four-seat review, owner functional acceptance and genuine required CI.
+Evidence floor: new native shell guardrails RED before fix/GREEN after; exact exclusion counts; historical1692→1684; 401 ordinary lines rejected; full guardrails, four-seat review and genuine required CI. Per the owner's explicit instruction, functional acceptance is consolidated after the remaining queue is complete rather than requested per issue.
