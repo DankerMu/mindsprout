@@ -142,8 +142,9 @@ jobs:
           NODE
           telemetry_pid=$!
           # The outer time process survives timeout's TERM/KILL process-group cleanup.
+          # Use info: debug logging serializes cyclic Vitest config and fails runner initialization.
           command=(timeout --signal=TERM --kill-after=30s 20m pnpm mutation
-            --reporters clear-text,progress,html,event-recorder,json --fileLogLevel debug)
+            --reporters clear-text,progress,html,event-recorder,json --fileLogLevel info)
           printf '%q ' /usr/bin/time -v -o reports/mutation/time.txt "${command[@]}" \
             > reports/mutation/command.txt
           printf '\nstarted_at=%s\n' "$(date -u +%FT%TZ)" >> reports/mutation/command.txt
