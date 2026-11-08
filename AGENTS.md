@@ -300,8 +300,8 @@ Strictness profile: **L4** (see `constraints.yaml`). Levels: `advice` < `review-
 | Lockfile–manifest consistency                           | `.github/workflows/lockfile-guard.yml` + `scripts/check-lockfile-pairs.sh`         | CI `Lockfile–manifest consistency` (separate label-aware workflow) | block           |
 | Agent write-time deny list                              | `.claude/settings.json`                                                            | Claude Code sessions only (pre-commit + CI remain the floor)       | block           |
 | Branch protection (required checks, linear history)     | GitHub classic `main`; all 3 checks pinned to GitHub Actions app `15368`           | server-side                                                        | gate            |
-| Guardrail self-test, AGENTS.md liveness                 | `scripts/test-guardrails.sh`, `.github/workflows/weekly.yml`                       | `pnpm test:guardrails` + CI weekly                                 | warn (weekly)   |
-| Mutation testing                                        | `stryker.config.mjs`                                                               | `pnpm mutation` + CI weekly                                        | warn (advisory) |
+| Guardrail self-test, AGENTS.md liveness                 | `scripts/test-guardrails.sh`, `.github/workflows/weekly.yml`                       | `pnpm test:guardrails` + CI each PR + weekly                       | warn            |
+| Mutation testing                                        | `stryker.config.mjs`                                                               | `pnpm mutation` + CI weekly + config PRs                           | warn (advisory) |
 | Function length (200 lines), license allowlist          | `constraints.yaml` (size_limits.max_function_lines, dependencies.allowed_licenses) | reviewer agent                                                     | review-only     |
 | Critical-path cross-review protocol                     | `## Critical Paths` + `risk-adaptive-cross-review` skill                           | reviewer + verifier subagents                                      | review-only     |
 
