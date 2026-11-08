@@ -140,7 +140,7 @@ testing:
   mutation_testing:
     value: "scheduled-weekly"
     severity: "warn"
-    description: "stryker.config.mjs via .github/workflows/weekly.yml; survivors reviewed, not blocking"
+    description: "stryker.config.mjs via .github/workflows/mutation.yml; weekly and mutation-config PRs; survivors reviewed, not blocking"
 
 # ── Dependency Rules ───────────────────────────────────────────
 

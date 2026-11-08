@@ -75,6 +75,6 @@ Skipping red-first because "the change is small" is exactly when discipline matt
 
 - No production code without a failing test first. A new `src/**` file without its paired test fails pre-commit.
 - Coverage gate 90% per file (`vitest.config.ts`); below it CI fails.
-- Mutation testing (`pnpm mutation`, Stryker) runs weekly; surviving mutants are reviewed by the reviewer agent.
+- Mutation testing (`pnpm mutation`, Stryker) runs weekly and on mutation-configuration PRs via [its workflow](../../.github/workflows/mutation.yml); surviving mutants are reviewed by the reviewer agent.
 - Every external boundary (route handler, provider adapter, persistence) has at least one integration test against a real backing service.
 - Forbidden: disabling tests to pass CI; `it.skip` without a linked issue and deadline; tests that only assert "no exception"; mocking the system under test.
