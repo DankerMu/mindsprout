@@ -93,7 +93,7 @@ When browser storage is unavailable the library SHALL show the same "未保存�
 
 ### Requirement: Published canvas limitations
 
-The README SHALL disclose no AI, browser-only storage, possible loss of the last at-most-500 ms edit burst on immediate reload, LR-only layout and no export under `## Known Limitations`. The documentation gate SHALL require this section without a README allowlist or matching constraints exemption.
+The README SHALL disclose no AI, browser-only storage, 500 ms trailing-debounce autosave with possible loss of all pending changes since the last successful save on immediate reload, LR-only layout and no export under `## Known Limitations`. It SHALL explain that continuous editing restarts the timer, so pending edits can be older than 500 ms. The documentation gate SHALL require this section without a README allowlist or matching constraints exemption.
 
 #### Scenario: M1 documentation closure
 
