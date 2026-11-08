@@ -38,8 +38,8 @@ fi
 
 # Captured first so a failing git diff aborts under set -e instead of counting as 0 lines.
 DIFF=$(git diff --diff-filter=ACMR --ignore-all-space "$base"...HEAD -- . \
-  ':(exclude)*.lock' ':(exclude)**/pnpm-lock.yaml' ':(exclude)**/__snapshots__/**' \
-  ':(exclude)**/*.snapshot' ':(exclude).changeset/**' ':(exclude)decisions/**')
+  ':(exclude)*.lock' ':(glob,exclude)**/pnpm-lock.yaml' ':(glob,exclude)**/__snapshots__/**' \
+  ':(glob,exclude)**/*.snapshot' ':(exclude).changeset/**' ':(exclude)decisions/**')
 # grep -c exits 1 when nothing matches (count 0); that is the only failure tolerated.
 LINES=$(grep -c '^[+-][^+-]' <<<"$DIFF") || [ "$?" -eq 1 ]
 
