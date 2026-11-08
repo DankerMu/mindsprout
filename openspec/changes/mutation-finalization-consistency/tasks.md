@@ -3,7 +3,7 @@
 ## 1. Correct terminal diagnostics
 
 - [x] 1.1 Prepare the disposable exact-production-block native filesystem fault harness; parent records baseline RED for both late-write targets and a passing no-fault control, including real EISDIR/code/path and publication trace.
-- [ ] 1.2 Correct the finalizer catch and clarify decision0018; parent proves same-oracle GREEN for both one-shot faults, failed recovery-log write and the marker-last positive control, then runs the unchanged23-case Linux protocol suite and scoped guardrails/docs/decisions/format/strict checks.
+- [x] 1.2 Correct the finalizer catch and clarify decision0018; parent proves same-oracle GREEN for both one-shot faults, failed recovery-log write and the marker-last positive control, then runs the unchanged23-case Linux protocol suite and scoped guardrails/docs/decisions/format/strict checks.
 - [ ] 1.3 Verify exact-head full hosted mutation/report consistency and genuine required CI; complete four-seat review, protected merge and separate spec sync/archive, retaining evidence for consolidated EPIC acceptance.
 
 ## Risk packs
