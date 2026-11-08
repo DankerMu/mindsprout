@@ -117,6 +117,33 @@ describe('MapEditor', () => {
     expect(screen.getByRole('link', { name: '返回导图列表' }).getAttribute('href')).toBe('/');
   });
 
+  it('rejects a mismatched map identity without writes through pagehide and unmount', async () => {
+    const repository = new ScriptedGetRepository();
+    const { unmount } = editorOver(() => Promise.resolve(repository), SEEDED.id);
+    await settled();
+    await act(async () => {
+      repository.call(0).resolve({ ...SEEDED, id: 'other-map' });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(UNREADABLE)).toBeTruthy();
+    expect(screen.queryByTestId('map-editor-ready')).toBeNull();
+    expect(screen.queryByText(NOT_FOUND)).toBeNull();
+    expect(screen.queryByText('未保存到浏览器')).toBeNull();
+    expect(screen.getByRole('link', { name: '返回导图列表' }).getAttribute('href')).toBe('/');
+    expect(repository.puts).toStrictEqual([]);
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    await settled();
+    expect(repository.puts).toStrictEqual([]);
+
+    unmount();
+    await settled();
+    expect(repository.puts).toStrictEqual([]);
+  });
+
   it('shows the future-version state and writes nothing', async () => {
     const repository = await rejectGetWith(new UnsupportedSchemaVersionError(2, 1));
 
@@ -171,6 +198,12 @@ describe('MapEditor', () => {
       'resolves undefined',
       (late: HeldGet) => {
         late.resolve(undefined);
+      },
+    ],
+    [
+      'resolves a mismatched map identity',
+      (late: HeldGet) => {
+        late.resolve({ ...SEEDED, id: 'discarded-other-map' });
       },
     ],
     [
