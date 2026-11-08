@@ -1,3 +1,4 @@
+// Issue 65 trigger probe: verify mutation workflow discovery.
 // stryker.config.mjs — mutation testing, scheduled weekly (L4: required, scheduled).
 // Surviving mutants are reviewed, not auto-failed; the weekly workflow uploads the report.
 export default {
