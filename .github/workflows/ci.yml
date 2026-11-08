@@ -133,6 +133,8 @@ jobs:
     needs: layer2-unit-tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      PLAYWRIGHT_JSON_OUTPUT_FILE: .run/ui-evidence/e2e-results.json # Retain same-run evidence in always-upload artifacts, not mixed into stdout.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -143,10 +145,84 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
       - name: e2e
-        run: pnpm e2e
+        run: |
+          rm -f -- "$PLAYWRIGHT_JSON_OUTPUT_FILE"
+          pnpm e2e --reporter=list,json
       - name: Assert zero skipped e2e tests
         run: |
-          pnpm exec playwright test --list --reporter=list | grep -c 'renders without console errors' | xargs test 0 -lt
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+
+          function requireField(condition, message) {
+            if (!condition) throw new Error(message);
+          }
+          function object(value, label) {
+            requireField(value !== null && typeof value === 'object' && !Array.isArray(value), `${label} must be an object`);
+          }
+          function array(value, label) {
+            requireField(Array.isArray(value), `${label} must be an array`);
+          }
+          function string(value, label) {
+            requireField(typeof value === 'string', `${label} must be a string`);
+          }
+
+          try {
+            const report = JSON.parse(fs.readFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_FILE, 'utf8'));
+            object(report, 'report');
+            array(report.errors, 'report.errors');
+            requireField(report.errors.length === 0, `report.errors must be empty: ${JSON.stringify(report.errors)}`);
+            object(report.stats, 'report.stats');
+            const counts = { expected: 0, unexpected: 0, flaky: 0, skipped: 0 };
+            for (const status of Object.keys(counts)) {
+              requireField(Number.isSafeInteger(report.stats[status]) && report.stats[status] >= 0, `report.stats.${status} must be a nonnegative integer`);
+            }
+
+            let routes = 0;
+            const skipped = [];
+            function visit(suites, label, parents = []) {
+              array(suites, label);
+              for (const [index, suite] of suites.entries()) {
+                const at = `${label}[${index}]`;
+                object(suite, at);
+                string(suite.title, `${at}.title`);
+                string(suite.file, `${at}.file`);
+                array(suite.specs, `${at}.specs`);
+                const titles = [...parents, suite.title];
+                for (const [specIndex, spec] of suite.specs.entries()) {
+                  const specAt = `${at}.specs[${specIndex}]`;
+                  object(spec, specAt);
+                  string(spec.title, `${specAt}.title`);
+                  string(spec.file, `${specAt}.file`);
+                  array(spec.tests, `${specAt}.tests`);
+                  requireField(spec.tests.length > 0, `${specAt}.tests must not be empty`);
+                  for (const [testIndex, test] of spec.tests.entries()) {
+                    const testAt = `${specAt}.tests[${testIndex}]`;
+                    object(test, testAt);
+                    string(test.projectName, `${testAt}.projectName`);
+                    requireField(typeof test.status === 'string' && Object.hasOwn(counts, test.status), `${testAt}.status must be a native test outcome`);
+                    counts[test.status]++;
+                    if (test.status === 'skipped') {
+                      skipped.push({ file: spec.file, title: [...titles, spec.title].join(' > '), project: test.projectName });
+                    }
+                  }
+                  if (spec.title.includes('renders without console errors')) routes++;
+                }
+                if (suite.suites !== undefined) visit(suite.suites, `${at}.suites`, titles);
+              }
+            }
+            visit(report.suites, 'report.suites');
+            for (const status of Object.keys(counts)) {
+              requireField(counts[status] === report.stats[status], `report.stats.${status} mismatch: reported ${report.stats[status]}, found ${counts[status]} test outcomes`);
+            }
+            for (const test of skipped) console.error(`::error::Skipped E2E test: ${JSON.stringify(test)}`);
+            requireField(skipped.length === 0, `${skipped.length} skipped E2E test(s)`);
+            requireField(routes > 0, 'No route-smoke entry renders without console errors in the runtime report');
+            console.log(`Zero skipped E2E tests; ${routes} route-smoke entry/entries in the runtime report`);
+          } catch (error) {
+            console.error(`::error::E2E runtime report rejected: ${error.message}`);
+            process.exitCode = 1;
+          }
+          NODE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
