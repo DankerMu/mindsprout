@@ -26,6 +26,8 @@ export default tseslint.config(
       '.claude/**',
       '.agents/**',
       '.codex/**',
+      // Local tooling is not project source; see decisions/implemented/process/0012-root-local-tooling-outside-project-lint.md.
+      '.omp/**',
       'next-env.d.ts',
     ],
   },
