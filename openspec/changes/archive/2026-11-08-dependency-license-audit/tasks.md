@@ -5,8 +5,8 @@
 - [x] 1.1 Record the owner-approved scope/license IDs/exact exceptions in `decisions/implemented/process/0015-installed-dependency-license-audit.md`, with the naming/frontmatter/sections required by decisions/README.md; record acceptance before task1.3 widens the allowlist or adds exceptions. Add only the already-locked yaml2.9.1 direct dev dependency using pnpm, and author the first native CLI contract test. Establish callable semantic RED, not only a missing-command error, before implementing enforcement.
 - [x] 1.2 Implement general-ID checking, then exact package/version/license exception handling and every grouped version, then fail-closed inputs through incremental RED/GREEN. Keep focused permanent CLI behavior tests and remove the intermediate inventory-only bootstrap.
 - [x] 1.3 Populate constraints policy and verification metadata; wire licenses:check/test:licenses into local anti-drift and the existing CI job. Update existing stack rules and AGENTS command/verification/enforcement rows without weakening unrelated rules.
-- [ ] 1.4 Prove the real installed tree on macOS and Linux CI, focused tests, scoped static/docs/decision/guardrail checks, and an owned unmerged forbidden-license dependency PR rejected by the actual CI license step. Retain evidence and clean the probe; full-depth review/owner acceptance/required CI before merge.
-- [ ] 1.5 After merge, close #68 and sync/archive the completed fixture separately.
+- [x] 1.4 Prove the real installed tree on macOS and Linux CI, focused tests, scoped static/docs/decision/guardrail checks, and an owned unmerged forbidden-license dependency PR rejected by the actual CI license step. Retain evidence and clean the probe; full-depth review/owner acceptance/required CI before merge.
+- [x] 1.5 After merge, close #68 and sync/archive the completed fixture separately.
 
 ## Risk packs
 
