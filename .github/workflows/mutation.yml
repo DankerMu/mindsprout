@@ -20,7 +20,8 @@ jobs:
   mutation:
     name: Mutation testing (stryker, advisory)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Budget evidence: decisions/implemented/testing/0018-bounded-full-mutation-completion.md.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -29,37 +30,180 @@ jobs:
           node-version-file: .tool-versions
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Profile full mutation run (diagnostic only)
+      - name: Run and validate full mutation scope
+        id: mutation-run
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p reports/mutation
+          # Remove only this invocation's owned outputs; stale reports cannot qualify.
+          rm -rf -- reports/mutation/events
+          rm -f -- stryker.log reports/mutation/{index.html,mutation.json,identity.log,console.log,resources.jsonl,time.txt,stryker.log,telemetry-errors.log,stryker.config.mjs,tracked-source-test-files.txt,command.txt,sampler.log,event-timestamps.json,finalization.log,exit-status.json,exit-status.txt,accepted-completion.json}
           telemetry_pid=
+          command_status=not-started
+          capture_status=not-started
           cleanup() {
             status=$?
             trap - EXIT INT TERM
+            set +e
+            fail_cleanup() {
+              echo "::error::$1"
+              if (( status == 0 )); then status=1; fi
+            }
             if [[ -n "$telemetry_pid" ]]; then
-              if kill -0 "$telemetry_pid" 2>/dev/null; then
-                kill -TERM "$telemetry_pid" 2>/dev/null || true
-                wait "$telemetry_pid" || true
+              sampler_parent=$(ps -o ppid= -p "$telemetry_pid")
+              if [[ "${sampler_parent//[[:space:]]/}" == "$$" ]]; then
+                kill -TERM "$telemetry_pid" 2>/dev/null \
+                  || fail_cleanup "Could not stop owned resource sampler"
               else
-                echo "::error::Resource sampler exited before mutation finished"
-                if (( status == 0 )); then status=1; fi
+                fail_cleanup "Resource sampler exited before mutation finished"
               fi
+              wait "$telemetry_pid"
+              sampler_status=$?
+              if (( sampler_status != 143 )); then
+                fail_cleanup "Resource sampler wait failed: $sampler_status"
+              fi
+              printf 'stopped_at=%s\nwait_status=%s\nreaped=%s\n' \
+                "$(date -u +%FT%TZ)" "$sampler_status" "$(( sampler_status != 127 ))" \
+                >> reports/mutation/sampler.log \
+                || fail_cleanup "Could not record sampler cleanup"
+            else
+              fail_cleanup "Resource sampler was not started"
             fi
             if [[ -f stryker.log ]]; then
-              cp stryker.log reports/mutation/stryker.log || {
-                if (( status == 0 )); then status=1; fi
-              }
+              cp stryker.log reports/mutation/stryker.log \
+                || fail_cleanup "Could not retain Stryker log"
             fi
-            for file in identity.log console.log resources.jsonl time.txt stryker.log; do
-              if [[ ! -s "reports/mutation/$file" ]]; then
-                echo "::error::Missing mutation diagnostic: $file"
-                if (( status == 0 )); then status=1; fi
-              fi
-            done
-            printf 'finished_at=%s\nexit_status=%s\n' "$(date -u +%FT%TZ)" "$status" \
-              > reports/mutation/exit-status.txt
+            node --input-type=module - "$status" "$command_status" "$capture_status" <<'FINALIZE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { pathToFileURL } from 'node:url';
+          let status = Number(process.argv[2]);
+          const directory = 'reports/mutation';
+          const errors = [];
+          let completion;
+          function fail(error) {
+            errors.push(error.message ?? String(error));
+            if (status === 0) status = 1;
+          }
+          function requireFile(name) {
+            const file = path.join(directory, name);
+            if (!fs.existsSync(file) || !fs.statSync(file).isFile() || fs.statSync(file).size === 0) {
+              throw new Error(`Missing or empty required artifact: ${name}`);
+            }
+            return file;
+          }
+          try {
+            const eventsDirectory = path.join(directory, 'events');
+            const events = fs.existsSync(eventsDirectory)
+              ? fs.readdirSync(eventsDirectory).filter((name) => name.endsWith('.json')).sort()
+              : [];
+            const timestamps = events.map((name) => {
+              const stat = fs.statSync(path.join(eventsDirectory, name), { bigint: true });
+              return { path: `events/${name}`, bytes: String(stat.size), mtimeNs: String(stat.mtimeNs) };
+            });
+            fs.writeFileSync(path.join(directory, 'event-timestamps.json'), JSON.stringify(timestamps, null, 2));
+          } catch (error) {
+            fail(error);
+          }
+          for (const name of [
+            'identity.log', 'console.log', 'resources.jsonl', 'time.txt', 'stryker.log',
+            'stryker.config.mjs', 'tracked-source-test-files.txt', 'command.txt',
+            'sampler.log', 'event-timestamps.json',
+          ]) {
+            try { requireFile(name); } catch (error) { fail(error); }
+          }
+          if (status === 0) {
+            try {
+              requireFile('index.html');
+              const report = JSON.parse(fs.readFileSync(requireFile('mutation.json'), 'utf8'));
+              const eventsDirectory = path.join(directory, 'events');
+              const plans = fs.existsSync(eventsDirectory)
+                ? fs.readdirSync(eventsDirectory).filter((name) => name.endsWith('-onMutationTestingPlanReady.json'))
+                : [];
+              if (plans.length !== 1) throw new Error(`Expected exactly one plan event; found ${plans.length}`);
+              const plan = JSON.parse(fs.readFileSync(requireFile(`events/${plans[0]}`), 'utf8'));
+              if (!Array.isArray(plan.mutantPlans) || plan.mutantPlans.length === 0) {
+                throw new Error('Mutation plan must be nonempty');
+              }
+              function sourcePath(value) {
+                if (typeof value !== 'string' || value.length === 0) throw new Error('Invalid source path');
+                return path.resolve(value.replaceAll('\\', '/'));
+              }
+              function mutantId(mutant) {
+                if (typeof mutant?.id !== 'string' || mutant.id.length === 0) throw new Error('Invalid mutant ID');
+                return mutant.id;
+              }
+              const planned = new Map();
+              for (const { mutant } of plan.mutantPlans) {
+                const id = mutantId(mutant);
+                if (planned.has(id)) throw new Error(`Duplicate planned ID: ${id}`);
+                planned.set(id, sourcePath(mutant.fileName));
+              }
+              if (!report.files || typeof report.files !== 'object' || Array.isArray(report.files)) {
+                throw new Error('Invalid report files');
+              }
+              const terminal = new Set(['Killed', 'Survived', 'Timeout', 'NoCoverage', 'RuntimeError', 'CompileError', 'Ignored']);
+              const results = new Set();
+              const statuses = {};
+              for (const [fileName, file] of Object.entries(report.files)) {
+                if (!Array.isArray(file.mutants)) throw new Error(`Invalid mutants for ${fileName}`);
+                for (const mutant of file.mutants) {
+                  const id = mutantId(mutant);
+                  if (results.has(id)) throw new Error(`Duplicate result ID: ${id}`);
+                  if (!planned.has(id)) throw new Error(`Unexpected result ID: ${id}`);
+                  if (planned.get(id) !== sourcePath(fileName)) throw new Error(`Source path mismatch for ID: ${id}`);
+                  if (!terminal.has(mutant.status)) throw new Error(`Nonterminal or unknown status for ID ${id}: ${mutant.status}`);
+                  results.add(id);
+                  statuses[mutant.status] = (statuses[mutant.status] ?? 0) + 1;
+                }
+              }
+              const missing = [...planned.keys()].filter((id) => !results.has(id));
+              if (missing.length) throw new Error(`Missing planned result IDs: ${missing.join(', ')}`);
+              const { default: config } = await import(pathToFileURL(path.resolve('stryker.config.mjs')).href);
+              for (const key of ['high', 'low']) {
+                if (report.thresholds?.[key] !== config.thresholds[key]) {
+                  throw new Error(`Report threshold mismatch: ${key}`);
+                }
+              }
+              completion = { planned: planned.size, results: results.size, statuses, thresholds: report.thresholds };
+            } catch (error) {
+              fail(error);
+            }
+          }
+          const metadata = {
+            outcome: status === 0 ? 'complete' : 'diagnostics-only',
+            exitStatus: status, commandStatus: process.argv[3], captureStatus: process.argv[4],
+            finishedAt: new Date().toISOString(), errors,
+          };
+          try {
+            fs.writeFileSync(path.join(directory, 'finalization.log'),
+              `${errors.length ? errors.join('\n') : metadata.outcome}\n`);
+            fs.writeFileSync(path.join(directory, 'exit-status.json'), JSON.stringify(metadata, null, 2));
+            // Acceptance is last: cleanup, diagnostics, and exact plan coverage have all succeeded.
+            if (status === 0) {
+              fs.writeFileSync(path.join(directory, 'accepted-completion.json'), JSON.stringify({ ...metadata, ...completion }, null, 2));
+            }
+          } catch (error) {
+            fail(error);
+            metadata.outcome = 'diagnostics-only';
+            metadata.exitStatus = status;
+            fs.rmSync(path.join(directory, 'accepted-completion.json'), { force: true });
+            fs.writeFileSync(path.join(directory, 'exit-status.json'), JSON.stringify(metadata, null, 2));
+          }
+          for (const error of errors) console.error(`::error::${error}`);
+          if (status === 0) {
+            console.log(`Accepted full mutation completion: ${completion.results} planned results`);
+          } else {
+            console.error(`Mutation artifacts are diagnostics only; exit ${status}`);
+          }
+          process.exitCode = status;
+          FINALIZE
+            finalizer_status=$?
+            if (( status == 0 )); then status=$finalizer_status; fi
+            if (( status != 0 )); then
+              rm -f -- reports/mutation/accepted-completion.json
+            fi
             exit "$status"
           }
           trap cleanup EXIT
@@ -141,9 +285,12 @@ jobs:
           setInterval(sample, 5000);
           NODE
           telemetry_pid=$!
+          printf 'pid=%s\nparent_pid=%s\nstarted_at=%s\n' "$telemetry_pid" "$$" \
+            "$(date -u +%FT%TZ)" > reports/mutation/sampler.log
           # The outer time process survives timeout's TERM/KILL process-group cleanup.
           # Use info: debug logging serializes cyclic Vitest config and fails runner initialization.
-          command=(timeout --signal=TERM --kill-after=30s 20m pnpm mutation
+          # 170m includes reserve over the measured 145m slow-host model (decision 0018).
+          command=(timeout --signal=TERM --kill-after=30s 170m pnpm mutation
             --reporters clear-text,progress,html,event-recorder,json --fileLogLevel info)
           printf '%q ' /usr/bin/time -v -o reports/mutation/time.txt "${command[@]}" \
             > reports/mutation/command.txt
@@ -154,8 +301,10 @@ jobs:
           pipeline_status=("${PIPESTATUS[@]}")
           set -e
           # Preserve mutation/timeout failures (including 124), not tee's successful exit.
-          status=${pipeline_status[0]}
-          if (( status == 0 )); then status=${pipeline_status[1]}; fi
+          command_status=${pipeline_status[0]}
+          capture_status=${pipeline_status[1]}
+          status=$command_status
+          if (( status == 0 )); then status=$capture_status; fi
           exit "$status"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
