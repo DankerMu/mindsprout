@@ -4,8 +4,8 @@
 
 - [x] 1.1 Add the process decision, remove weekly.yml's PR path filter, move its unchanged mutation job into mutation.yml with the specified PR paths and retained weekly/manual triggers; keep permissions, pins, budgets, commands, artifacts and required checks unchanged.
 - [x] 1.2 Update AGENTS enforcement rows, constraints mutation-workflow description and architecture mutation-trigger prose. Run unchanged guardrails, docs, decisions and format checks; strict OpenSpec validation.
-- [ ] 1.3 Parent captures real config-only PR discovery/d4-negative evidence and stryker-only mutation discovery at exact probe heads, records their one-file diff inventories, closes owned unmerged probes and preserves their logs. Complete full-depth review and exact-head required CI before normal merge.
-- [ ] 1.4 After merge, close issue #65 and synchronize/archive the fixture separately.
+- [x] 1.3 Parent captures real config-only PR discovery/d4-negative evidence and stryker-only mutation discovery at exact probe heads, records their one-file diff inventories, closes owned unmerged probes and preserves their logs. Complete full-depth review and exact-head required CI before normal merge.
+- [x] 1.4 After merge, close issue #65 and synchronize/archive the fixture separately.
 
 ## Risk packs
 
