@@ -18,9 +18,9 @@
 
 | 层          | 选型                                                               |
 | ----------- | ------------------------------------------------------------------ |
-| 框架        | Next.js 15 + TypeScript                                            |
+| 框架        | Next.js 16 + TypeScript                                            |
 | 画布        | React Flow + d3-hierarchy                                          |
-| 状态        | Zustand + Immer + undo/redo                                        |
+| 状态        | Zustand + undo/redo                                                |
 | AI          | 提供方抽象层：Claude、OpenAI 及兼容接口、本地开源模型（Ollama 等） |
 | 数据 / 认证 | Supabase（Postgres + Auth + RLS）+ Drizzle                         |
 | 部署        | Vercel                                                             |
@@ -50,8 +50,11 @@
 ```bash
 git clone https://github.com/DankerMu/mindsprout.git
 cd mindsprout
-# 脚手架搭建后补充安装与启动命令
+pnpm setup
+pnpm dev
 ```
+
+完整本地 setup、环境配置与日常命令见 [开发工作流](AGENTS.md#development-workflow)。
 
 ## 许可
 
