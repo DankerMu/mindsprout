@@ -4,8 +4,8 @@
 
 - [x] 1.1 Capture baseline protection and real check-run app provenance; record owner approval in an implemented process decision before mutation. Update AGENTS.md's enforcement row and the existing detail page; retain constraints.yaml and workflows unchanged.
 - [x] 1.2 Parent rechecks the baseline, applies the narrow checks-list PATCH and verifies full protection equality except the aggregate app_id. Preserve failure evidence; no blind retry or automatic weakening rollback.
-- [ ] 1.3 Run docs, decisions, format and guardrail checks; obtain full-depth correctness, evidence/spec and security review. Observe genuine final-head app15368 checks satisfy all required checks and merge without bypass.
-- [ ] 1.4 After merge, close issue #64 and synchronize/archive this change in a separate lifecycle follow-up.
+- [x] 1.3 Run docs, decisions, format and guardrail checks; obtain full-depth correctness, evidence/spec and security review. Observe genuine final-head app15368 checks satisfy all required checks and merge without bypass.
+- [x] 1.4 After merge, close issue #64 and synchronize/archive this change in a separate lifecycle follow-up.
 
 ## Risk packs
 
