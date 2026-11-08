@@ -103,6 +103,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Verify constraints.yaml is the naming-guard regex source
         run: grep -q 'constraints\.yaml' .git-hooks/check-naming.sh
+      - name: License audit contract tests
+        run: pnpm test:licenses
+      - name: Installed dependency license audit
+        run: pnpm licenses:check
       - name: Duplicate code
         run: pnpm duplicate-code
       - name: Dead code
