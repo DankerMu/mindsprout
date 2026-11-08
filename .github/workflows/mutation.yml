@@ -29,10 +29,136 @@ jobs:
           node-version-file: .tool-versions
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm mutation
+      - name: Profile full mutation run (diagnostic only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/mutation
+          telemetry_pid=
+          cleanup() {
+            status=$?
+            trap - EXIT INT TERM
+            if [[ -n "$telemetry_pid" ]]; then
+              if kill -0 "$telemetry_pid" 2>/dev/null; then
+                kill -TERM "$telemetry_pid" 2>/dev/null || true
+                wait "$telemetry_pid" || true
+              else
+                echo "::error::Resource sampler exited before mutation finished"
+                if (( status == 0 )); then status=1; fi
+              fi
+            fi
+            if [[ -f stryker.log ]]; then
+              cp stryker.log reports/mutation/stryker.log || {
+                if (( status == 0 )); then status=1; fi
+              }
+            fi
+            for file in identity.log console.log resources.jsonl time.txt stryker.log; do
+              if [[ ! -s "reports/mutation/$file" ]]; then
+                echo "::error::Missing mutation diagnostic: $file"
+                if (( status == 0 )); then status=1; fi
+              fi
+            done
+            printf 'finished_at=%s\nexit_status=%s\n' "$(date -u +%FT%TZ)" "$status" \
+              > reports/mutation/exit-status.txt
+            exit "$status"
+          }
+          trap cleanup EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          {
+            date -u +%FT%TZ
+            uname -a
+            node --version
+            pnpm --version
+            pnpm exec stryker --version
+            pnpm exec vitest --version
+            pnpm exec tsc --version
+            timeout --version
+            /usr/bin/time --version
+            getconf CLK_TCK
+            getconf PAGESIZE
+            lscpu
+            free -b
+            node --input-type=module -e 'import os from "node:os"; console.log(JSON.stringify({versions: process.versions, execPath: process.execPath, arch: process.arch, platform: process.platform, availableParallelism: os.availableParallelism(), totalMemoryBytes: os.totalmem(), cpus: os.cpus()}, null, 2))'
+          } > reports/mutation/identity.log 2>&1
+          cp stryker.config.mjs reports/mutation/stryker.config.mjs
+          git ls-files src tests e2e > reports/mutation/tracked-source-test-files.txt
+          node --input-type=module - <<'NODE' > reports/mutation/resources.jsonl 2> reports/mutation/telemetry-errors.log &
+          import fs from 'node:fs';
+          import path from 'node:path';
+          function read(file) {
+            try {
+              return fs.readFileSync(file, 'utf8').trim();
+            } catch (error) {
+              if (['ENOENT', 'ESRCH', 'EACCES'].includes(error.code)) return null;
+              throw error;
+            }
+          }
+          const cgroupFiles = new Set();
+          for (const line of (read('/proc/self/cgroup') ?? '').split('\n')) {
+            const [id, controllers, ...parts] = line.split(':');
+            const group = parts.join(':');
+            const v2 = id === '0' && controllers === '';
+            if (!v2 && !controllers?.split(',').includes('memory')) continue;
+            const root = v2 ? '/sys/fs/cgroup' : '/sys/fs/cgroup/memory';
+            const names = v2
+              ? ['memory.current', 'memory.max', 'memory.peak', 'memory.events', 'cpu.max', 'cpu.stat']
+              : ['memory.usage_in_bytes', 'memory.limit_in_bytes', 'memory.max_usage_in_bytes'];
+            let directory = path.join(root, group);
+            while (directory === root || directory.startsWith(`${root}/`)) {
+              for (const name of names) cgroupFiles.add(path.join(directory, name));
+              if (directory === root) break;
+              directory = path.dirname(directory);
+            }
+          }
+          function sample() {
+            const processes = [];
+            for (const pid of fs.readdirSync('/proc').filter((name) => /^\d+$/.test(name))) {
+              const stat = read(`/proc/${pid}/stat`);
+              if (!stat) continue;
+              const end = stat.lastIndexOf(')');
+              const fields = stat.slice(end + 2).split(/\s+/);
+              processes.push({
+                pid: Number(pid), name: stat.slice(stat.indexOf('(') + 1, end),
+                state: fields[0], ppid: Number(fields[1]),
+                userTicks: Number(fields[11]), systemTicks: Number(fields[12]),
+                threads: Number(fields[17]), startTicks: Number(fields[19]),
+                virtualBytes: Number(fields[20]), rssPages: Number(fields[21]),
+              });
+            }
+            const cgroup = {};
+            for (const file of cgroupFiles) {
+              const value = read(file);
+              if (value !== null) cgroup[file] = value;
+            }
+            console.log(JSON.stringify({
+              timestamp: new Date().toISOString(), uptime: read('/proc/uptime'),
+              cpu: read('/proc/stat'), memory: read('/proc/meminfo'),
+              load: read('/proc/loadavg'), cgroup, processes,
+            }));
+          }
+          sample();
+          setInterval(sample, 5000);
+          NODE
+          telemetry_pid=$!
+          # The outer time process survives timeout's TERM/KILL process-group cleanup.
+          command=(timeout --signal=TERM --kill-after=30s 20m pnpm mutation
+            --reporters clear-text,progress,html,event-recorder,json --fileLogLevel debug)
+          printf '%q ' /usr/bin/time -v -o reports/mutation/time.txt "${command[@]}" \
+            > reports/mutation/command.txt
+          printf '\nstarted_at=%s\n' "$(date -u +%FT%TZ)" >> reports/mutation/command.txt
+          set +e
+          /usr/bin/time -v -o reports/mutation/time.txt "${command[@]}" 2>&1 \
+            | tee reports/mutation/console.log
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          # Preserve mutation/timeout failures (including 124), not tee's successful exit.
+          status=${pipeline_status[0]}
+          if (( status == 0 )); then status=${pipeline_status[1]}; fi
+          exit "$status"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: mutation-report
           path: reports/mutation/
-          if-no-files-found: ignore
+          if-no-files-found: error
