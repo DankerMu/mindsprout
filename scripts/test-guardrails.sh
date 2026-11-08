@@ -117,21 +117,33 @@ skip() {
   echo "SKIP  $1 — $2 (a skipped guard is a readiness gap, not a pass)"
 }
 
-# expect_accept [--what <accepted input>] <name> <cmd...>   (default: "the clean tree")
+# expect_accept [--what <accepted input>] [--line <exact output line>] <name> <cmd...>
+# --what defaults to "the clean tree"; --line requires one output line to equal the text.
 expect_accept() {
   what="the clean tree"
-  if [ "$1" = "--what" ]; then
-    what="$2"
-    shift 2
-  fi
+  line=""
+  while :; do
+    case "$1" in
+      --what) what="$2"; shift 2 ;;
+      --line) line="$2"; shift 2 ;;
+      *) break ;;
+    esac
+  done
   name="$1"
   shift
-  if "$@" >/dev/null 2>&1; then
+  out=$("$@" 2>&1)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "FAIL  $name — guard REJECTED $what (exit $rc; always-failing guard or broken setup):"
+    printf '%s\n' "$out" | sed 's/^/        /'
+    fail=$((fail + 1))
+  elif [ -n "$line" ] && ! printf '%s\n' "$out" | grep -qxF -- "$line"; then
+    echo "FAIL  $name — accepted $what without the line \"$line\":"
+    printf '%s\n' "$out" | sed 's/^/        /'
+    fail=$((fail + 1))
+  else
     echo "PASS  $name — guard accepts $what"
     pass=$((pass + 1))
-  else
-    echo "FAIL  $name — guard REJECTED $what (always-failing guard or broken setup)"
-    fail=$((fail + 1))
   fi
 }
 
@@ -509,6 +521,51 @@ expect_accept --what "excluded lockfiles and records" \
   "diff guard (401+ lines in sub/pnpm-lock.yaml, x.lock, decisions/)" \
   env -u PR_LABELS bash "$diff_guard" "$diff_base"
 restore_fixture
+
+fixture_lines 401 >> pnpm-lock.yaml
+commit_fixture pnpm-lock.yaml
+expect_accept --what "an excluded root lockfile" \
+  --line "Changed lines (excluding lockfiles/snapshots/records): 0 (limit: 400)" \
+  "diff guard (root pnpm-lock.yaml, 401 appended lines)" \
+  env -u PR_LABELS bash "$diff_guard" "$diff_base"
+restore_fixture
+
+fixture_lines 401 >> pnpm-lock.yaml
+node -e 'const fs = require("node:fs");
+  const text = fs.readFileSync("package.json", "utf8");
+  fs.writeFileSync("package.json", text.replace(/^\{\n/, "{\n  \"diffGuardFixture\": true,\n"));'
+commit_fixture pnpm-lock.yaml package.json
+expect_accept --what "one manifest line paired with an excluded root lockfile" \
+  --line "Changed lines (excluding lockfiles/snapshots/records): 1 (limit: 400)" \
+  "diff guard (root pnpm-lock.yaml + package.json, 401 + 1 added lines)" \
+  env -u PR_LABELS bash "$diff_guard" "$diff_base"
+restore_fixture
+
+for fixture_path in sub/pnpm-lock.yaml __snapshots__/fixture.txt sub/__snapshots__/fixture.txt \
+  fixture.snapshot sub/fixture.snapshot; do
+  mkdir -p "$(dirname "$fixture_path")"
+  fixture_lines 401 > "$fixture_path"
+  commit_fixture "$fixture_path"
+  expect_accept --what "an excluded generated file" \
+    --line "Changed lines (excluding lockfiles/snapshots/records): 0 (limit: 400)" \
+    "diff guard ($fixture_path, 401 added lines)" \
+    env -u PR_LABELS bash "$diff_guard" "$diff_base"
+  restore_fixture
+done
+
+for fixture_path in pnpm-lock.yaml.txt __snapshots__extra/fixture.txt fixture.snapshot.txt; do
+  mkdir -p "$(dirname "$fixture_path")"
+  fixture_lines 401 > "$fixture_path"
+  commit_fixture "$fixture_path"
+  expect_reject --line "Changed lines (excluding lockfiles/snapshots/records): 401 (limit: 400)" \
+    "diff guard (near-miss $fixture_path, 401 added lines)" "diff limit" \
+    env -u PR_LABELS bash "$diff_guard" "$diff_base"
+  if [ "$rc" -ne 1 ]; then
+    echo "FAIL  diff guard (near-miss $fixture_path) — expected exit 1, got $rc"
+    fail=$((fail + 1))
+  fi
+  restore_fixture
+done
 
 missing_base="deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 expect_reject --absent "Changed lines" "diff guard (unresolvable base)" "base ref '$missing_base'" \
