@@ -1,48 +1,30 @@
 import { expect, test, type Page } from '@playwright/test';
 import * as fs from 'node:fs';
-import type { MindMap, MindNode } from '../src/contexts/map/domain/types';
-import { envelopeOf, readRecord, seedRecords } from './support/seed';
+import type { MindMap } from '../src/contexts/map/domain/types';
+import {
+  A,
+  AA,
+  AB,
+  B,
+  C,
+  F,
+  FC,
+  FS,
+  MAP,
+  ROOT,
+  item,
+  loadMap,
+  nodeAt,
+  open,
+  redo,
+  restore,
+  roots,
+  undo,
+} from './support/context-menu';
+import { envelopeOf, readRecord } from './support/seed';
 
 const EVIDENCE = '.run/ui-evidence';
 fs.mkdirSync(EVIDENCE, { recursive: true });
-const AA: MindNode = { id: 'aa', text: 'AA', children: [] };
-const AB: MindNode = {
-  id: 'ab',
-  text: 'AB',
-  children: [
-    { id: 'aba', text: 'ABA', children: [] },
-    { id: 'abb', text: 'ABB', children: [] },
-  ],
-};
-const A: MindNode = { id: 'a', text: 'A', children: [AA, AB] };
-const B: MindNode = { id: 'b', text: 'B', children: [{ id: 'ba', text: 'BA', children: [] }] };
-const C: MindNode = { id: 'c', text: 'C', children: [{ id: 'ca', text: 'CA', children: [] }] };
-const ROOT: MindNode = { id: 'r', text: 'Root', children: [A, B, C] };
-const FC: MindNode = {
-  id: 'fc',
-  text: 'Detach C',
-  children: [{ id: 'fd', text: 'Descendant', children: [] }],
-};
-const FS: MindNode = { id: 'fs', text: 'Before C', children: [] };
-const F: MindNode = {
-  id: 'f',
-  // Empty text gives a font-independent 24px width and an exactly representable CSSOM position.
-  text: '',
-  position: { x: 700.25, y: 200.75 },
-  children: [FS, FC],
-};
-const MAP: MindMap = {
-  id: 'context-menu',
-  title: '节点菜单',
-  createdAt: '2026-11-05T09:00:00.000Z',
-  updatedAt: '2026-11-05T10:00:00.000Z',
-  roots: [ROOT, F],
-};
-const nodeAt = (page: Page, id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
-const item = (page: Page, label: string) =>
-  page.getByRole('menuitem', { name: label, exact: true });
-const undo = (page: Page) => page.getByRole('button', { name: '撤销', exact: true });
-const redo = (page: Page) => page.getByRole('button', { name: '重做', exact: true });
 const noteAt = (page: Page) => page.getByRole('textbox', { name: '节点备注' });
 async function nodeStyle(page: Page, id: string) {
   return nodeAt(page, id)
@@ -52,38 +34,17 @@ async function nodeStyle(page: Page, id: string) {
       return { background: style.backgroundColor, color: style.color, shadow: style.boxShadow };
     });
 }
-async function open(page: Page, id: string) {
-  await nodeAt(page, id).click({ button: 'right' });
-  await expect(page.getByRole('menu')).toBeVisible();
-}
 async function position(page: Page, id: string) {
   return nodeAt(page, id).evaluate((element) => {
     const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
     return { x: matrix.e, y: matrix.f };
   });
 }
-async function roots(page: Page) {
-  const record = (await readRecord(page, MAP.id)) as { map: MindMap };
-  return record.map.roots;
-}
-async function restore(page: Page, expected = MAP.roots) {
-  await expect(undo(page)).toBeEnabled();
-  await undo(page).click();
-  await expect(undo(page)).toBeDisabled();
-  await expect.poll(() => roots(page)).toEqual(expected);
-}
 async function selectThree(page: Page) {
   await nodeAt(page, 'a').click();
   await nodeAt(page, 'b').click({ modifiers: ['Shift'] });
   await nodeAt(page, 'c').click({ modifiers: ['Shift'] });
   await expect(page.locator('.react-flow__node.selected')).toHaveCount(3);
-}
-async function loadMap(page: Page, map = MAP) {
-  await seedRecords(page, [envelopeOf(map)]);
-  await page.goto(`/maps/${map.id}`);
-  await expect(page.getByTestId('map-editor-ready')).toBeVisible();
-  await page.getByRole('button', { name: '适应画布' }).click();
-  await expect(nodeAt(page, 'fd')).toBeVisible();
 }
 async function chooseColor(page: Page, id: string, color: string) {
   await open(page, id);

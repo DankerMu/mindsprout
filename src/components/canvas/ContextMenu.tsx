@@ -217,6 +217,7 @@ function ContextMenu({
         overflow: 'auto',
       }}
       onPointerDown={(event) => {
+        event.preventDefault();
         event.stopPropagation();
       }}
       onMouseDown={(event) => {
