@@ -28,6 +28,12 @@ Stack clauses relocated from `AGENTS.md` (which keeps only the hard kernel). Thr
 - Lockfile is the source of truth for resolved versions; run `pnpm install --frozen-lockfile` after pulling and never hand-edit `pnpm-lock.yaml`.
 - A new dependency needs a justification line in the PR (what it does, why an existing tool cannot). A package introduced but unused is a CI failure (`knip`).
 - Major-version upgrades go through Renovate PRs (`renovate.json`, 3-day minimum release age), never inside a feature PR.
-- Allowed licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD. Others need an explicit decision record.
+- License IDs and exact package/version/license exceptions live in [`constraints.yaml` `dependencies.allowed_licenses`](../../constraints.yaml). `pnpm licenses:check` audits the complete installed runtime/dev tree, including transitive and installed optional dependencies; `pnpm test:licenses` exercises the native CLI. Both run through `pnpm anti-drift` / `pnpm check` and CI layer4. Policy rationale and approval: [decision 0015](../../decisions/implemented/process/0015-installed-dependency-license-audit.md).
 - **Tunables dichotomy**: deployment-varying values (limits, endpoints, feature toggles) are validated config fields (`src/shared/env.ts`), not `DEFAULT_*` constants scattered at call sites. Protocol constants and security invariants are fixed in code, never config.
 - **Misconfiguration fails loud**: invalid or missing config throws at load (`loadEnv`); an env toggle set to an unexpected value is an error, never a silent no-op.
+
+## Known Limitations
+
+- License auditing covers the running platform's installed packages, not absent lockfile variants. Local macOS and Linux CI provide separate platform evidence.
+- The gate checks declared metadata, not bundled source or binaries, and is not legal-compliance certification. Exceptions do not waive license obligations or globally allow MPL/LGPL.
+- Unknown, unlicensed and unapproved composite declarations are rejected by exact matching. Missing or malformed policy/inventory, unresolved installed versions and producer failures are input errors, never compliance. CLI exits are 0 for a compliant nonempty inventory, 1 for license violations with package/version/license diagnostics, and 2 for input/acquisition errors.

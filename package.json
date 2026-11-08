@@ -24,11 +24,13 @@
     "test:unit": "vitest run --coverage",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:contract": "vitest run --config vitest.contract.config.ts",
+    "test:licenses": "node --test scripts/check-licenses.test.mjs",
     "dead-code": "knip --reporter compact",
     "duplicate-code": "jscpd --config jscpd.json src",
-    "anti-drift": "pnpm dead-code && pnpm duplicate-code",
+    "anti-drift": "pnpm test:licenses && pnpm licenses:check && pnpm dead-code && pnpm duplicate-code",
     "docs:check": "node scripts/check-docs.mjs",
     "decisions:check": "node scripts/check-decisions.mjs",
+    "licenses:check": "node scripts/check-licenses.mjs",
     "change-scope": "bash scripts/change-scope.sh",
     "dev:bg": "bash scripts/dev-bg.sh",
     "dev:stop": "bash scripts/dev-stop.sh",
@@ -95,6 +97,7 @@
     "prettier": "^3.9.10",
     "typescript": "^5.9.0",
     "typescript-eslint": "^8.72.1",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.0",
+    "yaml": "2.9.1"
   }
 }

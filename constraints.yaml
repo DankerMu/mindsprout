@@ -155,8 +155,55 @@ dependencies:
     value: true
     description: "PR description must explain why existing tools can't do the job"
   allowed_licenses:
-    value: ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "0BSD"]
-    enforced_by: "review-only (no CI license audit wired yet — readiness gap)"
+    scope: "installed-all"
+    value:
+      - "MIT"
+      - "Apache-2.0"
+      - "BSD-2-Clause"
+      - "BSD-3-Clause"
+      - "ISC"
+      - "0BSD"
+      - "Unlicense"
+      - "MIT-0"
+      - "CC0-1.0"
+      - "BlueOak-1.0.0"
+      - "Python-2.0"
+      - "CC-BY-4.0"
+    exceptions:
+      - packages:
+          - "lightningcss"
+          - "lightningcss-android-arm64"
+          - "lightningcss-darwin-arm64"
+          - "lightningcss-darwin-x64"
+          - "lightningcss-freebsd-x64"
+          - "lightningcss-linux-arm-gnueabihf"
+          - "lightningcss-linux-arm64-gnu"
+          - "lightningcss-linux-arm64-musl"
+          - "lightningcss-linux-x64-gnu"
+          - "lightningcss-linux-x64-musl"
+          - "lightningcss-win32-arm64-msvc"
+          - "lightningcss-win32-x64-msvc"
+        version: "1.33.0"
+        license: "MPL-2.0"
+        reason: "Retain the existing Vite/Vitest CSS tooling at the owner-approved locked version."
+        exit_condition: "Remove when these dependencies disappear; reapprove any package, version or declared-license change."
+      - packages:
+          - "@img/sharp-libvips-darwin-arm64"
+          - "@img/sharp-libvips-darwin-x64"
+          - "@img/sharp-libvips-linux-arm64"
+          - "@img/sharp-libvips-linux-arm"
+          - "@img/sharp-libvips-linux-ppc64"
+          - "@img/sharp-libvips-linux-riscv64"
+          - "@img/sharp-libvips-linux-s390x"
+          - "@img/sharp-libvips-linux-x64"
+          - "@img/sharp-libvips-linuxmusl-arm64"
+          - "@img/sharp-libvips-linuxmusl-x64"
+        version: "1.3.4"
+        license: "LGPL-3.0-or-later"
+        reason: "Retain the existing optional Next.js/sharp image stack at the owner-approved locked version."
+        exit_condition: "Remove when these dependencies disappear; reapprove any package, version or declared-license change."
+    severity: "block"
+    enforced_by: "pnpm licenses:check and CI layer4 license audit"
 
 # ── Anti-Drift ─────────────────────────────────────────────────
 
@@ -243,6 +290,10 @@ verification:
       command: "pnpm e2e"
       evidence: "screenshot+console-clean"
       required_at: "L3+"
+    dependency_licenses:
+      command: "pnpm anti-drift"
+      evidence: "CLI contracts pass + installed package-version summary + platform recorded"
+      required_at: "L4"
   enforced_by: "Stage 4 matrix-to-target check over constraints.yaml + AGENTS.md Verification Matrix + PR Runtime evidence section"
 
 # ── Exemptions ──────────────────────────────────────────────────
