@@ -292,6 +292,68 @@ test.describe('map editor route /maps/[id]', () => {
     expect(log.noise).toStrictEqual([]);
   });
 
+  test('mismatched map identity shows the error state and preserves source and peer records', async ({
+    page,
+  }) => {
+    const log = watchConsole(page);
+    const source = {
+      ...envelopeOf(mapOf('identity-b', '来源导图', [leaf('source-root', '来源内容')]), 1),
+      key: 'identity-a',
+    };
+    const peer = envelopeOf(mapOf('identity-b', '独立导图', [leaf('peer-root', '独立内容')]), 1);
+
+    await openSeeded(page, [source, peer], source.key);
+    await expect(page.getByText(UNREADABLE)).toBeVisible();
+    await expect(page.getByRole('link', { name: BACK })).toHaveAttribute('href', '/');
+    await expect(page.getByText(NOT_FOUND)).toHaveCount(0);
+    await expect(page.getByTestId('map-editor-ready')).toHaveCount(0);
+    await capture(page, 'map-editor-mismatched-identity');
+
+    await expectUnmodified(page, source);
+    await expectUnmodified(page, peer);
+    await page.getByRole('link', { name: BACK }).click();
+    await expect(page).toHaveURL('/');
+    await expect(page.getByTestId('app-ready')).toBeVisible();
+    await expectUnmodified(page, source);
+    await expectUnmodified(page, peer);
+    expect(log.noise).toStrictEqual([]);
+  });
+
+  test('matching map identity autosaves a node title under its own key and preserves its peer', async ({
+    page,
+  }) => {
+    const log = watchConsole(page);
+    const map = mapOf('matching-a', '编辑导图', [leaf('root', '编辑前内容')]);
+    const record = envelopeOf(map, 1);
+    const peer = envelopeOf(mapOf('matching-b', '独立导图', [leaf('peer-root', '独立内容')]), 1);
+
+    await openSeeded(page, [record, peer], map.id);
+    await expectEditorReady(page, '编辑导图');
+    await nodeAt(page, 'root').dblclick();
+    const input = page.getByRole('textbox', { name: '节点标题' });
+    await expect(input).toBeFocused();
+    await input.fill('自动保存后的内容');
+    await input.press('Enter');
+    await expect(input).toHaveCount(0);
+    await expect(nodeAt(page, 'root')).toHaveText('自动保存后的内容');
+    await expect(page.getByTestId('editor-title')).toHaveText('编辑导图');
+    await expect
+      .poll(() => readRecord(page, record.key))
+      .toStrictEqual({
+        schemaVersion: 1,
+        map: {
+          id: 'matching-a',
+          title: '编辑导图',
+          roots: [{ id: 'root', text: '自动保存后的内容', children: [] }],
+          createdAt: CREATED_AT,
+          updatedAt: expect.any(String),
+        },
+      });
+    await expectUnmodified(page, peer);
+    await capture(page, 'map-editor-matching-identity-autosave');
+    expect(log.noise).toStrictEqual([]);
+  });
+
   test('corrupt record shows the error state and leaves the record untouched', async ({ page }) => {
     const log = watchConsole(page);
     const record = envelopeOf(CORRUPT);

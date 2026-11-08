@@ -36,8 +36,14 @@ function StoredMap({
     let cancelled = false;
     repository.get(id).then(
       (map) => {
-        if (!cancelled)
-          setLoaded(map === undefined ? { status: 'not-found' } : { status: 'ready', map });
+        if (cancelled) return;
+        if (map === undefined) {
+          setLoaded({ status: 'not-found' });
+        } else if (map.id !== id) {
+          setLoaded({ status: 'error' });
+        } else {
+          setLoaded({ status: 'ready', map });
+        }
       },
       (error: unknown) => {
         if (!cancelled)
