@@ -481,22 +481,45 @@ fi
 diff_guard="$repo_root/scripts/check-diff-size.sh"
 diff_base="$(git rev-parse HEAD)"
 fixture_lines() {
-  seq 1 "$1" | sed 's/^/diff guard fixture line /'
+  if ! (set -o pipefail; seq 1 "$1" | sed 's/^/diff guard fixture line /'); then
+    echo "FATAL: fixture_lines failed to generate $1 lines" >&2
+    exit 1
+  fi
 }
 commit_fixture() {
   git add -A -- "$@" &&
+    fixture_tree=$(git write-tree) &&
     fixture_commit=$(GIT_AUTHOR_NAME=guardrails GIT_AUTHOR_EMAIL=guardrails@example.invalid \
       GIT_COMMITTER_NAME=guardrails GIT_COMMITTER_EMAIL=guardrails@example.invalid \
-      git commit-tree -p HEAD -m "guardrail diff fixture" "$(git write-tree)") &&
-    git checkout --quiet --detach "$fixture_commit"
+      git commit-tree -p HEAD -m "guardrail diff fixture" "$fixture_tree") &&
+    git checkout --quiet --detach "$fixture_commit" || {
+      echo "FATAL: could not commit fixture paths: $*" >&2
+      exit 1
+    }
+}
+assert_fixture_delta() {
+  local actual expected
+  actual=$(git diff --numstat --no-renames --no-ext-diff "$diff_base" HEAD -- ":(literal)$1") || {
+    echo "FATAL: could not inspect committed fixture delta for $1" >&2
+    exit 1
+  }
+  expected=$(printf '%s\t%s\t%s' "$2" "$3" "$1")
+  if [ "$actual" != "$expected" ]; then
+    echo "FATAL: committed fixture delta for $1 must be +$2/-$3; got: ${actual:-<no change>}" >&2
+    exit 1
+  fi
 }
 restore_fixture() {
-  git checkout --quiet --detach "$diff_base"
-  git checkout --quiet -- constraints.yaml
+  git checkout --quiet --detach "$diff_base" &&
+    git checkout --quiet -- constraints.yaml || {
+      echo "FATAL: could not restore fixture base $diff_base" >&2
+      exit 1
+    }
 }
 
 fixture_lines 401 > diff-guard-fixture.txt
 commit_fixture diff-guard-fixture.txt
+assert_fixture_delta diff-guard-fixture.txt 401 0
 expect_reject --line "Changed lines (excluding lockfiles/snapshots/records): 401 (limit: 400)" \
   "diff guard (401 lines, no label)" "diff limit" \
   env -u PR_LABELS bash "$diff_guard" "$diff_base"
@@ -508,6 +531,7 @@ restore_fixture
 
 fixture_lines 400 > diff-guard-fixture.txt
 commit_fixture diff-guard-fixture.txt
+assert_fixture_delta diff-guard-fixture.txt 400 0
 expect_accept --what "a PR at the limit" "diff guard (exactly 400 lines, no label)" \
   env -u PR_LABELS bash "$diff_guard" "$diff_base"
 restore_fixture
@@ -517,6 +541,9 @@ fixture_lines 401 > sub/pnpm-lock.yaml
 fixture_lines 401 > x.lock
 fixture_lines 401 > decisions/diff-guard-fixture.md
 commit_fixture sub/pnpm-lock.yaml x.lock decisions/diff-guard-fixture.md
+assert_fixture_delta sub/pnpm-lock.yaml 401 0
+assert_fixture_delta x.lock 401 0
+assert_fixture_delta decisions/diff-guard-fixture.md 401 0
 expect_accept --what "excluded lockfiles and records" \
   "diff guard (401+ lines in sub/pnpm-lock.yaml, x.lock, decisions/)" \
   env -u PR_LABELS bash "$diff_guard" "$diff_base"
@@ -524,6 +551,7 @@ restore_fixture
 
 fixture_lines 401 >> pnpm-lock.yaml
 commit_fixture pnpm-lock.yaml
+assert_fixture_delta pnpm-lock.yaml 401 0
 expect_accept --what "an excluded root lockfile" \
   --line "Changed lines (excluding lockfiles/snapshots/records): 0 (limit: 400)" \
   "diff guard (root pnpm-lock.yaml, 401 appended lines)" \
@@ -535,6 +563,8 @@ node -e 'const fs = require("node:fs");
   const text = fs.readFileSync("package.json", "utf8");
   fs.writeFileSync("package.json", text.replace(/^\{\n/, "{\n  \"diffGuardFixture\": true,\n"));'
 commit_fixture pnpm-lock.yaml package.json
+assert_fixture_delta pnpm-lock.yaml 401 0
+assert_fixture_delta package.json 1 0
 expect_accept --what "one manifest line paired with an excluded root lockfile" \
   --line "Changed lines (excluding lockfiles/snapshots/records): 1 (limit: 400)" \
   "diff guard (root pnpm-lock.yaml + package.json, 401 + 1 added lines)" \
@@ -546,6 +576,7 @@ for fixture_path in sub/pnpm-lock.yaml __snapshots__/fixture.txt sub/__snapshots
   mkdir -p "$(dirname "$fixture_path")"
   fixture_lines 401 > "$fixture_path"
   commit_fixture "$fixture_path"
+  assert_fixture_delta "$fixture_path" 401 0
   expect_accept --what "an excluded generated file" \
     --line "Changed lines (excluding lockfiles/snapshots/records): 0 (limit: 400)" \
     "diff guard ($fixture_path, 401 added lines)" \
@@ -557,6 +588,7 @@ for fixture_path in pnpm-lock.yaml.txt __snapshots__extra/fixture.txt fixture.sn
   mkdir -p "$(dirname "$fixture_path")"
   fixture_lines 401 > "$fixture_path"
   commit_fixture "$fixture_path"
+  assert_fixture_delta "$fixture_path" 401 0
   expect_reject --line "Changed lines (excluding lockfiles/snapshots/records): 401 (limit: 400)" \
     "diff guard (near-miss $fixture_path, 401 added lines)" "diff limit" \
     env -u PR_LABELS bash "$diff_guard" "$diff_base"
