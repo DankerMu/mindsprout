@@ -4,7 +4,7 @@
 
 - [x] 1.1 Add a native seeded-IndexedDB regression for row A with embedded ID B and a distinct peer B; parent qualifies semantic RED against unchanged source, retaining screenshot/noise evidence.
 - [x] 1.2 Reject the mismatch before ready/EditorSession using the existing error state; prove GREEN. Add component no-put/lifecycle and stale-result coverage plus native matching-ID edit/autosave and peer-preservation control. Add decision0016 and patch changeset.
-- [ ] 1.3 Run affected component/native browser suites and scoped checks, perform full-depth cross-review, obtain owner functional acceptance, satisfy genuine required CI and merge. Sync/archive the completed fixture separately.
+- [x] 1.3 Run affected component/native browser suites and scoped checks, perform full-depth cross-review, obtain owner functional acceptance, satisfy genuine required CI and merge. Sync/archive the completed fixture separately.
 
 ## Risk packs
 
