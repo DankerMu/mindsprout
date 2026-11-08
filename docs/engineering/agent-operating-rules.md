@@ -11,6 +11,8 @@ Relocated from `AGENTS.md ## Agent Operating Rules`, which keeps the hard rules 
 5. Re-run that layer locally, then the scoped checks (`.claude/skills/pre-push-checks/SKILL.md`), before pushing.
 6. If the failure is environment parity (OS/version/service), record the mismatch in `AGENTS.md ## Important Development Notes`.
 
+Hurl download-transport failures use the incident-scoped authorization, same-head recovery and evidence rules in [decision 0019](../../decisions/implemented/process/0019-incident-scoped-hurl-recovery.md). Recovery never substitutes local results for required CI or retries an application-test failure under a transport authorization.
+
 ## Environment tiers
 
 | Tier    | Agents may                                                       |
