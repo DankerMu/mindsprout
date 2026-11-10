@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "version": "16.4.5",
+  "target": "linux-x64-gnu",
+  "upstreamCommit": "4e5335a00314be7fbb2aace5e9be56a88e64e5a8",
+  "sourceCommit": "2e27664995e83148186f317499127a688ca3635a",
+  "sourceCommitShort": "2e27664995e8",
+  "sourceTree": "7894bf15a03496d837356e198b35bf91c851bb86",
+  "patchSha256": "006609c1cfbb3a7f366be9b6978deab773119e3967eced7ba8ff784ccaed6804",
+  "recipeSha256": "c2b836061c09c12aec2002120e619a56416696bc0978696b23e38bfbb3d719e3",
+  "metadataSha256": "dd0604e64a44be002bb5205db0d4717f07a26854ee007a9314519803b79569a8",
+  "cargoLockSha256": "2c9d1258bc518f6ab2c49b3b7530f6871a816a804934fb9ad009fd1ea0bf7489",
+  "toolchain": "nightly-2026-08-20",
+  "compiler": {
+    "channel": "nightly-2026-08-20",
+    "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)\nbinary: rustc\ncommit-hash: f7d782a3be46d6bb4b9792fe69a61db389ba1769\ncommit-date: 2026-08-19\nhost: x86_64-unknown-linux-gnu\nrelease: 1.100.0-nightly\nLLVM version: 23.1.0",
+    "cargo": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+    "sha256": "9914ac95032e54228adc02cb7db8e465624fbdebb94a7b195b61a54de55c595b"
+  },
+  "buildCommand": [
+    "cargo",
+    "build",
+    "--locked",
+    "--release",
+    "-p",
+    "next-napi-bindings",
+    "--features",
+    "image-extended,tracing/release_max_level_trace"
+  ],
+  "sourceDirectory": "/tmp/mindsprout-native-e2N0Wh/source",
+  "targetDirectory": "/tmp/mindsprout-native-e2N0Wh/target",
+  "binary": {
+    "file": "next-swc.linux-x64-gnu.node",
+    "sha256": "c5affdb1fc2b3163a9b71d5f90a6cd9379721b7527df6c53c49648e0ceb17e1d"
+  },
+  "tarball": {
+    "file": "next-swc-linux-x64-gnu-16.4.5-006609c1cfbb-503069bdd708d0b199c2e5741953954f925be9d4f700555cbbd3062ab58d862e.tgz",
+    "sha256": "503069bdd708d0b199c2e5741953954f925be9d4f700555cbbd3062ab58d862e",
+    "integrity": "sha512-EmpZ4z1n8rzGQogG3aTI3HCaobTuUgm0MgU80Jox5I9wbStNmP/bkkc0nZ2vI62mRjClECaRXYcKGF2kvBX7kg=="
+  },
+  "addon": {
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "cacheVersion": "v16.4.5-2e27664995e8"
+  }
+}

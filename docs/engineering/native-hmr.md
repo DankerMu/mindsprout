@@ -2,9 +2,9 @@
 
 The temporary native registration repair targets **Next 16.4.5 on macOS arm64 and Linux x64 GNU**. Ownership, alternatives, rollback and upstream replacement belong to [decision 0021](../../decisions/implemented/bug-fix/0021-native-hmr-registration-maintenance.md). Machine-readable pins are in [next-swc.json](../../patches/native/next-swc.json); do not maintain a second list of digests here.
 
-Building a candidate does not install it. Immutable published assets, exact-version package-manager overrides, a pnpm-generated lockfile, and clean frozen-install qualification on both platforms are required before this integration can merge. The native build workflow has read-only repository permissions and cannot publish releases.
+Supported frozen installations use the exact-version native overrides in [package.json](../../package.json), integrity recorded by [pnpm-lock.yaml](../../pnpm-lock.yaml), and byte-for-byte qualified manifests in [published/](../../patches/native/published/). The override map is the canonical publication URL inventory. Normal `postinstall` verifies the installed repair and fails if it is absent or mismatched; no Rust toolchain is needed to consume the published packages. Building another candidate does not install it. The native build workflow has read-only repository permissions and cannot publish releases.
 
-## Prerequisites
+## Native build prerequisites
 
 - The repository's Node and pnpm versions, a frozen dependency installation, Git, npm and tar.
 - The already installed `nightly-2026-08-20` Rust compiler and Cargo on `PATH`. The script selects that rustup toolchain when using rustup shims, but also accepts the exact standalone compiler. It checks the compiler commit and host target, does not install a toolchain, and rejects cross compilation.
@@ -54,35 +54,41 @@ The artifact suffix is GitHub's workflow SHA, which is the synthetic merge commi
 
 Publish each manifest as `<tarball filename without .tgz>.manifest.json` so the two platform manifests cannot collide. Its contents stay unchanged, and its `tarball.file` resolves beside it. Verification accepts either that published name or the local `manifest.json`.
 
+Package-manager overrides consume only the compact `<target>-<full-tarball-sha256>.tgz` assets in the same release. They contain identical qualified bytes; the original build filenames remain available for manifest-adjacent exact-tarball verification, not as installation fallbacks. Compact names avoid pnpm 10.28 embedding an overlong full URL in a CAFS index filename; [decision 0021](../../decisions/implemented/bug-fix/0021-native-hmr-registration-maintenance.md) records that boundary.
+
 The publisher must compare both platforms' upstream commit, patched source commit/tree, patch, recipe, Cargo.lock and compiler commit; target and binary/package digests intentionally differ. Verify each platform's actual addon load and behavior before publishing public immutable release assets. Record the actual release URLs, SHA-256 and npm SHA-512 integrity from those verified bytes. The package keeps its official name/version and adds explicit `mindsproutNativeRepair` provenance and a README identifying the local repair.
 
 Linux qualification evidence must record the actual runner OS release and glibc version alongside the artifact identity. The build workflow selects Ubuntu 24.04; the GNU target triple and preserved official package constraints do not establish compatibility with older glibc hosts. A broader compatibility claim requires inspection of the binary's ABI and minimum required symbol versions, plus runtime qualification on the claimed baseline.
 
-After publication, generate exact-version native overrides and the lockfile together with pnpm. Do not hand-write lockfile integrity or invent release URLs. In a clean checkout on each supported platform, run a frozen installation, then:
+For a maintenance publication, copy the unchanged qualified manifests into `patches/native/published/`, update exact-version native overrides, and regenerate the lockfile with pnpm. Do not hand-write lockfile integrity or alter published manifest bytes. In a clean checkout on each supported platform:
 
 ```bash
+pnpm install --frozen-lockfile
+pnpm native:installed
 pnpm native:verify /absolute/path/to/published/manifest.json --installed
 pnpm native:browser restored-lifecycle .run/installed-restored
 pnpm native:browser source-change .run/installed-source
 pnpm build
 ```
 
-The published tarball must be beside its manifest for verification. These installed checks run **without `NEXT_TEST_NATIVE_DIR`**; the verifier rejects that variable and checks the binary resolved from Next's installed dependency tree. Final CI must use this installed-package path and the same browser modes, not qualify delivery from the build-only seam. A deliberately wrong package integrity must independently fail a disposable frozen installation. Installation failure is a blocker, never permission to patch `node_modules` or enable a fallback.
+The stronger tarball qualification command requires the published tarball beside its manifest. Installed checks run **without `NEXT_TEST_NATIVE_DIR`**; the verifier rejects that variable and checks the binary resolved from Next's installed dependency tree. Installation failure is a blocker, never permission to patch `node_modules` or enable a fallback.
 
-Installed native loading and both browser contracts must feed the existing required **All checks passed** aggregate, not only the artifact-production workflow. A Next upgrade that bypasses the exact-version native override must fail closed until equivalent proof qualifies upstream replacement and the fork is removed atomically through Renovate.
+The required **All checks passed** aggregate includes both installed-native matrix targets: Linux x64 GNU on Ubuntu 24.04 and macOS arm64 on `macos-26`. Each must complete frozen installation, installed addon verification, corrupt-artifact installation regression, both browser modes and a production build. Matrix failure does not cancel the other target, but neither target may fail or be skipped. The independent native build workflow still qualifies freshly built candidates and cannot substitute for this required installed-package matrix. A Next upgrade that bypasses the exact-version native override fails closed until equivalent proof qualifies upstream replacement and the fork is removed atomically through Renovate.
 
 ### Installed-only guard
 
 `pnpm native:installed` verifies the installed tree without downloading or unpacking another tarball. It requires the unchanged qualified build manifest at `patches/native/published/<target>.json`, checks its source/patch/recipe/metadata pins, hashes the installed native binary, and checks package provenance and Next's actual loader. Missing publication inputs, an omitted optional package, stock or mismatched bytes, diagnostic binding variables, WASM, another loaded native addon, or an unqualified Next version all fail closed. It never repairs `node_modules` or selects a fallback.
 
-pnpm can report a successful frozen installation after omitting an optional package whose integrity check failed. The publication cutover must therefore wire the installed-only guard into normal `postinstall`; every workflow that uses `--ignore-scripts` must invoke it explicitly. Do not enable that lifecycle integration before both genuine per-target manifests and artifact overrides are available. No absent-manifest success path is permitted.
+pnpm can report a successful frozen installation after omitting an optional package whose integrity check failed. Normal `postinstall` therefore runs the installed-only guard with fixed committed manifests; every project installation that uses `--ignore-scripts` must explicitly run `pnpm native:installed` afterward. Lockfile-only generation does not install packages and does not qualify the installed tree. No absent-manifest success path is permitted.
 
 For qualification before publication, use `pnpm native:installed --manifest <qualified-build-manifest>`. The stronger `native:verify <manifest> --installed` command still qualifies installed metadata against the exact tarball; it is not replaced by the installation guard. `--project <directory>` selects an isolated installed tree for boundary tests; normal lifecycle invocation supplies no overrides.
 
 Run `pnpm native:installed:test <qualified-build-manifest> [stock-package-directory]` for real Next/native loader tests and controlled corrupt fixtures. The suite requires an actual unmodified official native package of the same version; supply its preserved directory after the main checkout installs the repair. It does not mock the native addon or Next loader.
 
+`pnpm native:install:test <fresh-evidence-directory>` downloads the exact current published artifact and checks its SHA-256 and SHA-512 against the committed manifest. A disposable project uses the real Next package and normal postinstall guard. The test generates a lockfile from those valid bytes, proves a successful frozen installation, then corrupts only the fixture tarball, removes only fixture dependencies, and repeats the unchanged frozen installation with a fresh store. The omitted optional native package must make postinstall fail. Download identities, generated lockfile, install logs and final outcomes are retained as evidence; published bytes and the working installation are never modified.
+
 ## Known Limitations
 
-- Maintenance targets are macOS arm64 and Linux x64 GNU on the Ubuntu 24.04 CI environment recorded in the qualification evidence. Compatibility with older glibc hosts is not established by this repair. Windows, macOS x64, Linux arm64 and musl are not represented as repaired.
+- Maintenance targets are macOS arm64 and Linux x64 GNU. Required installed qualification targets `macos-26` arm64 and Ubuntu 24.04 respectively. The published Linux artifact's qualification baseline is Ubuntu 24.04.5 with glibc 2.39; compatibility with older glibc hosts is not established. Windows, macOS x64, Linux arm64 and musl are not represented as repaired.
 - A distinct upstream [SPA-only HMR subscription gap](https://github.com/vercel/next.js/issues/98699) can leave an editor reached only through client navigation without its route-specific HMR subscription. Native registration repair does not fix that gap. The source-change regression's intentional retained-document setup proves preservation of legitimate subscribed HMR, not SPA-only subscription repair.
 - Clean source/cache identity and pinned inputs do not promise bit-for-bit compiler output across operating systems or tool installations. Manifests bind the actual built bytes; rebuilds with different bytes require different immutable assets and renewed qualification.

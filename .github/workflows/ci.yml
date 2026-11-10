@@ -230,6 +230,112 @@ jobs:
           path: .run/ui-evidence/
           if-no-files-found: ignore
 
+  native-installed-runtime:
+    name: Installed native HMR (${{ matrix.target }})
+    needs: layer1-fast-checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64-gnu
+            runner: ubuntu-24.04
+          - target: darwin-arm64
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Temporary transport workaround: remove both export steps after local offline qualification.
+      - name: Export complete macOS pnpm store
+        if: matrix.target == 'darwin-arm64'
+        shell: bash
+        run: |
+          store="$(pnpm store path)"
+          mkdir -p .run/native-pnpm-store
+          tar -czf .run/native-pnpm-store/pnpm-store.tgz -C "$store" .
+          (
+            cd .run/native-pnpm-store
+            shasum -a 256 pnpm-store.tgz > pnpm-store.tgz.sha256
+          )
+      - name: Upload macOS pnpm store for offline qualification
+        if: matrix.target == 'darwin-arm64'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-pnpm-store-${{ github.sha }}
+          path: |
+            .run/native-pnpm-store/pnpm-store.tgz
+            .run/native-pnpm-store/pnpm-store.tgz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - name: Verify the installed native package
+        shell: bash
+        env:
+          NATIVE_TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p .run/native-installed
+          {
+            uname -a
+            if [[ "$RUNNER_OS" == "macOS" ]]; then
+              sw_vers
+            else
+              cat /etc/os-release
+              getconf GNU_LIBC_VERSION
+            fi
+            printf 'target=%s\n' "$NATIVE_TARGET"
+            printf 'workflow_sha=%s\nrun_id=%s\nrun_attempt=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          } > .run/native-installed/runtime.log
+          pnpm native:installed | tee .run/native-installed/addon-load.log
+      - name: Frozen installation integrity contract
+        run: pnpm native:install:test .run/native-integrity
+      - name: Install Chromium
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            pnpm exec playwright install --with-deps chromium
+          else
+            pnpm exec playwright install chromium
+          fi
+      - run: pnpm native:browser:test
+      - name: Installed restored-lifecycle counterexample
+        run: pnpm native:browser restored-lifecycle .run/native-installed/restored
+      - name: Installed source HMR and first SPA navigation
+        run: pnpm native:browser source-change .run/native-installed/source
+      - name: Production build with the installed addon
+        run: pnpm build
+      - name: Upload installed native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-installed-${{ github.sha }}-${{ matrix.target }}
+          path: |
+            .run/native-installed/*.log
+            .run/native-installed/restored/*.json
+            .run/native-installed/restored/*.jsonl
+            .run/native-installed/restored/*.log
+            .run/native-installed/restored/*.png
+            .run/native-installed/restored/*.html
+            .run/native-installed/source/*.json
+            .run/native-installed/source/*.jsonl
+            .run/native-installed/source/*.log
+            .run/native-installed/source/*.png
+            .run/native-installed/source/*.html
+            .run/native-integrity/*.json
+            .run/native-integrity/*.log
+            .run/native-integrity/*.yaml
+          if-no-files-found: error
+          retention-days: 14
+
   layer8-sast:
     name: SAST (semgrep)
     runs-on: ubuntu-latest
@@ -254,6 +360,7 @@ jobs:
       - layer5-secret-scan
       - layer7-e2e
       - layer8-sast
+      - native-installed-runtime
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

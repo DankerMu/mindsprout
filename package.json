@@ -9,6 +9,7 @@
   },
   "scripts": {
     "prepare": "husky",
+    "postinstall": "node scripts/native-installed.mjs",
     "setup": "pnpm install --frozen-lockfile",
     "dev": "next dev --port 3000",
     "start": "next start --port 3000",
@@ -21,6 +22,7 @@
     "native:browser:test": "node --test scripts/native-hmr-support.test.mjs",
     "native:installed": "node scripts/native-installed.mjs",
     "native:installed:test": "node scripts/native-installed.test.mjs",
+    "native:install:test": "node scripts/native-install.test.mjs",
     "check": "pnpm fmt:check && pnpm lint && pnpm typecheck && pnpm boundaries && pnpm test:unit && pnpm test:integration && pnpm anti-drift && pnpm docs:check && pnpm decisions:check && pnpm build",
     "check:fast": "bash scripts/check-fast.sh",
     "fmt": "prettier --write .",
@@ -107,5 +109,11 @@
     "typescript-eslint": "^8.72.1",
     "vitest": "^5.1.0",
     "yaml": "2.9.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "@next/swc-darwin-arm64@16.4.5": "https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-006609c1cfbb/darwin-arm64-39884c6086b48feb0a93e1ce7a5d2b29c4aa5fd89aecc815087cc75c6d1b6ea8.tgz",
+      "@next/swc-linux-x64-gnu@16.4.5": "https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-006609c1cfbb/linux-x64-gnu-503069bdd708d0b199c2e5741953954f925be9d4f700555cbbd3062ab58d862e.tgz"
+    }
   }
 }

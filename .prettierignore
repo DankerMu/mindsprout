@@ -13,3 +13,5 @@ pnpm-lock.yaml
 .codex/
 .my-agents/
 CHANGELOG.md
+# Preserve byte-for-byte copies of qualified published manifests.
+patches/native/published/*.json
