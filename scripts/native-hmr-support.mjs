@@ -3,9 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { performance } from 'node:perf_hooks';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 
@@ -106,11 +108,45 @@ export async function waitForReadiness(state, start, expectedPath, started) {
 }
 
 export async function capturePage(state, name, out) {
-  await state.page.screenshot({ path: path.join(out, name + '.png'), timeout: 2000 });
+  const evidence = { url: state.page.url(), started: Date.now(), steps: {} };
+  const capture = async (kind, action) => {
+    const step = (evidence.steps[kind] = { started: Date.now(), monotonicMs: performance.now() });
+    try {
+      await action();
+    } catch (error) {
+      step.error = error.message;
+      throw error;
+    } finally {
+      step.finished = Date.now();
+    }
+  };
+  const outcomes = await Promise.allSettled([
+    capture('frame', async () => {
+      evidence.frame = (
+        await deadline(state.cdp.send('Page.getFrameTree'), 1000, 'Capture frame')
+      ).frameTree.frame;
+    }),
+    capture('screenshot', () =>
+      state.page.screenshot({ path: path.join(out, name + '.png'), timeout: 2000 }),
+    ),
+    capture('dom', async () => {
+      fs.writeFileSync(
+        path.join(out, name + '.html'),
+        await deadline(state.page.content(), 2000, 'DOM capture'),
+      );
+    }),
+  ]);
+  evidence.finished = Date.now();
   fs.writeFileSync(
-    path.join(out, name + '.html'),
-    await deadline(state.page.content(), 2000, 'DOM capture'),
+    path.join(out, name + '-capture.json'),
+    JSON.stringify(evidence, null, 2) + '\n',
   );
+  const failures = outcomes.filter((outcome) => outcome.status === 'rejected');
+  if (failures.length)
+    throw new AggregateError(
+      failures.map((outcome) => outcome.reason),
+      'Page capture failed',
+    );
 }
 
 export function changesEditor(event, sourceRelative) {
@@ -133,26 +169,50 @@ export function changesEditor(event, sourceRelative) {
   );
 }
 
-export function subscriptionPath(event, label) {
-  if (event.page !== label || event.type !== 'Network.webSocketFrameSent') return null;
-  let message;
-  try {
-    message = JSON.parse(event.data.response.payloadData);
-  } catch {
-    return null;
+export async function nativeIdentity(manifestPath) {
+  let candidate;
+  if (process.env.NEXT_TEST_NATIVE_DIR) {
+    assert(manifestPath, 'Candidate browser qualification requires its build manifest');
+    candidate = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    execFileSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL('./native-package.mjs', import.meta.url)),
+        'verify',
+        path.resolve(manifestPath),
+      ],
+      { stdio: 'inherit' },
+    );
+  } else {
+    assert(!manifestPath, 'Installed browser qualification must not select a candidate manifest');
   }
-  return message.type === 'turbopack-subscribe' && typeof message.path === 'string'
-    ? message.path
-    : null;
-}
-
-export async function nativeIdentity() {
   assert.equal(require('next/package.json').version, '16.4.5', 'Unexpected Next version');
   const binding = await require('next/dist/build/swc').loadBindings();
   assert.equal(binding.isWasm, false, 'WASM fallback is not permitted');
+  const loaded = Object.keys(require.cache).filter((filename) => filename.endsWith('.node'));
+  assert.equal(loaded.length, 1, 'Browser qualification requires one exclusive native addon');
+  if (candidate) {
+    const expected = fs.realpathSync(
+      path.join(process.env.NEXT_TEST_NATIVE_DIR, candidate.binary.file),
+    );
+    assert.equal(fs.realpathSync(loaded[0]), expected, 'Next loaded a different candidate');
+    assert.equal(
+      createHash('sha256').update(fs.readFileSync(expected)).digest('hex'),
+      candidate.binary.sha256,
+      'Loaded candidate binary differs from its manifest',
+    );
+    assert.equal(binding.turbopackCacheVersion('16.4.5'), candidate.addon.cacheVersion);
+    assert.equal(
+      binding.getTargetTriple(),
+      candidate.addon.targetTriple,
+      'Loaded candidate target mismatch',
+    );
+  }
   return {
     target: binding.getTargetTriple(),
     cacheVersion: binding.turbopackCacheVersion('16.4.5'),
+    binary: fs.realpathSync(loaded[0]),
+    binarySha256: createHash('sha256').update(fs.readFileSync(loaded[0])).digest('hex'),
     nativeDirectory: process.env.NEXT_TEST_NATIVE_DIR || null,
   };
 }

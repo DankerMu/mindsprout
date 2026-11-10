@@ -20,14 +20,15 @@ import {
   publicMap,
   waitForObserved as waitForEvent,
   changesEditor as changesSource,
-  subscriptionPath as observedSubscriptionPath,
 } from './native-hmr-support.mjs';
-import { waitForTargetHmrBaseline } from './native-hmr-baseline.mjs';
+import { waitForHmrBaseline, subscriptionResources } from './native-hmr-baseline.mjs';
+import { trackInitialScripts } from './native-hmr-inventory.mjs';
+import { observeNavigation } from './native-hmr-observation.mjs';
 
-const [mode, output] = process.argv.slice(2);
+const [mode, output, candidateManifest] = process.argv.slice(2);
 assert(
   ['restored-lifecycle', 'source-change'].includes(mode) && output,
-  'Usage: pnpm native:browser restored-lifecycle|source-change FRESH_OUTPUT_DIRECTORY',
+  'Usage: pnpm native:browser restored-lifecycle|source-change FRESH_OUTPUT_DIRECTORY [CANDIDATE_MANIFEST]',
 );
 const repo = process.cwd();
 const out = path.resolve(output);
@@ -227,6 +228,8 @@ async function attach(page, label) {
     frames: [],
     readiness: [],
   };
+  trackInitialScripts(state, observed);
+  state.navigationObservation = observeNavigation(state, record);
   page.on('console', (message) =>
     record(
       'console',
@@ -339,19 +342,25 @@ async function attach(page, label) {
   });
   await cdp.send('Page.enable');
   await cdp.send('Network.enable');
+  await cdp.send('Performance.enable');
   state.frameId = (await cdp.send('Page.getFrameTree')).frameTree.frame.id;
   return state;
 }
 const capture = (state, name) => capturePage(state, name, out);
 async function visitEditor(state, action, expectedPath) {
-  const start = now();
-  await guard(action());
-  await guard(readiness(state, start, 'public-navigation', expectedPath));
-  assert.equal(
-    await state.page.getByText('未保存到浏览器', { exact: true }).count(),
-    0,
-    'Map must be persisted',
-  );
+  if (expectedPath === undefined) await state.navigationObservation.begin();
+  try {
+    const start = now();
+    await guard(action());
+    await guard(readiness(state, start, 'public-navigation', expectedPath));
+    assert.equal(
+      await state.page.getByText('未保存到浏览器', { exact: true }).count(),
+      0,
+      'Map must be persisted',
+    );
+  } finally {
+    if (expectedPath === undefined) await state.navigationObservation.end();
+  }
 }
 async function homeBack(state) {
   await guard(state.page.goBack({ waitUntil: 'commit', timeout: 5000 }));
@@ -364,8 +373,9 @@ async function homeBack(state) {
 }
 const changesEditor = (event) => changesSource(event, sourceRelative);
 async function sourceChange(context, mapPath) {
-  const subscriptionPath = (event) => observedSubscriptionPath(event, retained.label);
-  const previousSubscriptions = new Set(result.events.map(subscriptionPath).filter(Boolean));
+  const previous = new Set(
+    subscriptionResources(result.events, retained.label).map((item) => item.path),
+  );
   phase = 'retained-document-setup';
   const setup = record('retained-editor-document-start', { mapPath });
   const setupRemaining = () => Math.max(1, 5000 - (performance.now() - started - setup.ms));
@@ -383,35 +393,26 @@ async function sourceChange(context, mapPath) {
       .filter({ hasText: valueA })
       .waitFor({ state: 'visible', timeout: setupRemaining() }),
   );
-  const subscriptions = () =>
-    result.events.filter((event) => {
-      const resource = subscriptionPath(event);
-      return (
-        event.ms >= setup.ms &&
-        resource &&
-        !previousSubscriptions.has(resource) &&
-        result.events.some(
-          (request) =>
-            request.page === retained.label &&
-            request.ms >= setup.ms &&
-            request.type === 'browser-request' &&
-            request.data.type === 'Script' &&
-            decodeURI(new URL(request.data.url).pathname) === '/_next/' + resource,
-        )
-      );
-    });
   await guard(
-    waitForObserved(
-      () => subscriptions().length > 0,
-      setupRemaining(),
-      'Editor chunk-list subscription prerequisite',
+    waitForHmrBaseline(
+      retained,
+      result.events,
+      observed,
+      record,
+      (baseline) => {
+        result.subscriptionPrerequisite = { setup, ...baseline };
+      },
+      { since: setup.ms, timeoutMs: setupRemaining() },
     ),
+  );
+  assert(
+    result.subscriptionPrerequisite.inventory.resources.some((item) => !previous.has(item.path)),
+    'Editor document must establish a new route-specific chunk-list subscription',
   );
   assert(
     performance.now() - started - setup.ms <= 5000,
     'Retained subscription setup exceeded 5000ms',
   );
-  result.subscriptionPrerequisite = { setup, resources: subscriptions().map(subscriptionPath) };
   phase = 'source-preparation';
   const target = await attach(await context.newPage(), 'first-navigation');
   await guard(target.page.goto(origin, { waitUntil: 'commit', timeout: 5000 }));
@@ -423,7 +424,7 @@ async function sourceChange(context, mapPath) {
     targetReloads = target.reloads.length;
   await capture(retained, 'source-before-A');
   await guard(
-    waitForTargetHmrBaseline(result.events, observed, target.label, record, (baseline) => {
+    waitForHmrBaseline(target, result.events, observed, record, (baseline) => {
       result.targetSubscriptionPrerequisite = baseline;
     }),
   );
@@ -633,7 +634,7 @@ async function startRuntime() {
   assert(!(await listening()), 'Port 3000 occupied; refusing an unowned runtime');
   assert(!Object.hasOwn(process.env, variable), 'Synthetic probe variable already set');
   assert(!process.env.__INTERNAL_CUSTOM_TURBOPACK_BINDINGS, 'Custom bindings are not permitted');
-  result.addon = await nativeIdentity();
+  result.addon = await nativeIdentity(candidateManifest);
   prepareSource();
   if (fs.existsSync(cache)) fs.renameSync(cache, file('cache-original'));
   cacheOwned = true;

@@ -24,6 +24,8 @@ Use compact `<target>-<full-tarball-sha256>.tgz` assets as the canonical package
 
 Normal `postinstall` runs a verification-only lifecycle guard against committed per-target publication manifests. pnpm can omit a failed optional native dependency without failing installation; lockfile integrity alone is therefore insufficient. The guard neither downloads nor replaces binaries. Script-disabled project installations invoke it explicitly. One installed-native CI matrix covers Ubuntu 24.04 Linux x64 GNU and `macos-26` arm64; each target exercises the guard, corrupt-artifact frozen installation, both browser modes and a production build. Required `All checks passed` depends on the entire matrix, with no allowed failures or fail-fast cancellation.
 
+Recipe or patch changes deliberately invalidate previous installed receipts. Candidate-only frozen bootstrap may disable lifecycle scripts so the replacement can be built; exact-manifest verification and both browser modes must then load that candidate exclusively. This is not permission for normal installation or required installed CI to bypass verification. Bind Cargo to the checked compiler executable and reject external compiler/configuration overrides. Any recipe change requires genuine two-platform rebuilding and qualification, new immutable assets and an atomic publication/override/lockfile cutover; never rewrite an old receipt's recipe hash.
+
 [Native development instructions](../../../docs/engineering/native-hmr.md) own commands, prerequisites, artifact handoff and the distinct SPA-only HMR limitation. Existing required checks are preserved; the aggregate adds installed-native qualification. Mutation configuration remains unchanged. No active decision is superseded.
 
 ## Alternatives considered

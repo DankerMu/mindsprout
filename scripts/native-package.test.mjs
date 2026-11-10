@@ -153,3 +153,119 @@ for (const [name, expected] of [
     }
   });
 }
+
+function assertCompilerPreflightRejected(setting, configure, expected) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-native-compiler-'));
+  const output = path.join(directory, 'output');
+  const bin = path.join(directory, 'bin');
+  const temporary = path.join(directory, 'tmp');
+  const gitLog = path.join(directory, 'git-invocations.log');
+  fs.mkdirSync(bin);
+  fs.mkdirSync(temporary);
+  // Git is the external IO boundary: an unguarded selection stops before any
+  // fetch or native compilation, while still exposing preflight side effects.
+  fs.writeFileSync(
+    path.join(bin, 'git'),
+    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$NATIVE_PREFLIGHT_GIT_LOG"\nprintf "GIT_BOUNDARY_REACHED\\n" >&2\nexit 97\n',
+    { mode: 0o755 },
+  );
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name]) =>
+        !compilerSelections.includes(name) &&
+        !['RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CARGO_BUILD_RUSTFLAGS'].includes(name) &&
+        !/^CARGO_TARGET_.+_RUSTFLAGS$/.test(name),
+    ),
+  );
+  const env = {
+    ...inherited,
+    PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
+    TMPDIR: fs.realpathSync(temporary),
+    NATIVE_PREFLIGHT_GIT_LOG: gitLog,
+  };
+  try {
+    configure(env, directory);
+    const result = spawnSync(process.execPath, [cli, 'build', output], {
+      encoding: 'utf8',
+      env,
+      timeout: 10000,
+    });
+    assert.equal(result.error, undefined, String(result.error));
+    assert.notEqual(result.status, 0, `${setting} must not produce a candidate`);
+    assert.equal(
+      fs.existsSync(output),
+      false,
+      `${setting} must be rejected before creating build output`,
+    );
+    assert.equal(
+      fs.existsSync(gitLog),
+      false,
+      `${setting} must be rejected before initializing or fetching source`,
+    );
+    assert.match(
+      result.stderr,
+      expected,
+      'Preflight must identify the compiler selection or flags it rejected',
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+const compilerSelections = [
+  'RUSTC',
+  'CARGO_BUILD_RUSTC',
+  'RUSTC_WRAPPER',
+  'RUSTC_WORKSPACE_WRAPPER',
+  'CARGO_BUILD_RUSTC_WRAPPER',
+  'CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER',
+];
+for (const name of compilerSelections) {
+  test(`${name} cannot select an unchecked compiler before native build preflight`, () => {
+    assertCompilerPreflightRejected(
+      name,
+      (env) => {
+        // A real executable distinct from the parent's pinned PATH rustc; no
+        // forged compiler identity, manifest hash, or compiler output is involved.
+        env[name] = process.execPath;
+      },
+      new RegExp(name),
+    );
+  });
+}
+
+const targetRustflags = `CARGO_TARGET_${manifest.addon.targetTriple.replaceAll('-', '_').toUpperCase()}_RUSTFLAGS`;
+for (const [name, value] of [
+  ['RUSTFLAGS', '-C opt-level=0'],
+  ['CARGO_ENCODED_RUSTFLAGS', '-C\u001fopt-level=0'],
+  ['CARGO_BUILD_RUSTFLAGS', '-C opt-level=0'],
+  [targetRustflags, '-C opt-level=0'],
+]) {
+  test(`${name} cannot replace the reviewed native compiler flags`, () => {
+    assertCompilerPreflightRejected(
+      name,
+      (env) => {
+        env[name] = value;
+      },
+      new RegExp(name),
+    );
+  });
+}
+
+for (const filename of ['config.toml', 'config']) {
+  test(`Cargo home ${filename} cannot select an unchecked build.rustc`, () => {
+    assertCompilerPreflightRejected(
+      `CARGO_HOME/${filename} build.rustc`,
+      (env, directory) => {
+        const cargoHome = path.join(directory, 'cargo-home');
+        fs.mkdirSync(cargoHome);
+        fs.writeFileSync(
+          path.join(cargoHome, filename),
+          `[build]\nrustc = ${JSON.stringify(process.execPath)}\n`,
+        );
+        env.CARGO_HOME = cargoHome;
+      },
+      /build\.rustc/,
+    );
+  });
+}

@@ -71,7 +71,8 @@ jobs:
           };
           fs.writeFileSync('.run/native-evidence/runtime.json', JSON.stringify(evidence, null, 2) + '\n');
           NODE
-      - run: pnpm install --frozen-lockfile
+      - name: Bootstrap candidate dependencies without qualifying the previous publication
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm exec playwright install --with-deps chromium
       - name: Owned process-group lifecycle contracts
         shell: bash
@@ -88,11 +89,11 @@ jobs:
       - name: Qualified restored-lifecycle counterexample
         env:
           NEXT_TEST_NATIVE_DIR: ${{ github.workspace }}/.run/native-linux/package
-        run: pnpm native:browser restored-lifecycle .run/native-restored
+        run: pnpm native:browser restored-lifecycle .run/native-restored .run/native-linux/manifest.json
       - name: Real source HMR and first SPA navigation
         env:
           NEXT_TEST_NATIVE_DIR: ${{ github.workspace }}/.run/native-linux/package
-        run: pnpm native:browser source-change .run/native-source
+        run: pnpm native:browser source-change .run/native-source .run/native-linux/manifest.json
       - name: Upload candidate package and evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

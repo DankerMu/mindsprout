@@ -29,11 +29,41 @@ function targetName() {
   throw new Error('Native repair supports only macOS arm64 and Linux x64 GNU');
 }
 
+function rejectExternalCargoConfig(directory) {
+  let current = path.resolve(directory);
+  const homes = new Set([process.env.CARGO_HOME || path.join(os.homedir(), '.cargo')]);
+  for (;;) {
+    homes.add(path.join(current, '.cargo'));
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  for (const home of homes) {
+    for (const name of ['config', 'config.toml']) {
+      const filename = path.join(home, name);
+      assert(
+        !fs.existsSync(filename),
+        `External Cargo configuration may override build.rustc, wrappers or rustflags: ${filename}`,
+      );
+    }
+  }
+}
+
 function environment() {
   for (const name of Object.keys(process.env)) {
     assert(!name.startsWith('VERGEN_'), `Refusing forged build metadata: ${name}`);
+    assert(
+      !/^CARGO_TARGET_.*_(RUSTFLAGS|LINKER|RUNNER)$/.test(name),
+      `Unset ${name}; use the pinned upstream target configuration`,
+    );
   }
   for (const name of [
+    'RUSTC',
+    'CARGO_BUILD_RUSTC',
+    'CARGO_BUILD_RUSTC_WRAPPER',
+    'CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER',
+    'CARGO_BUILD_RUSTFLAGS',
+    'CARGO_BUILD_TARGET',
     'RUSTFLAGS',
     'CARGO_ENCODED_RUSTFLAGS',
     'RUSTC_WRAPPER',
@@ -52,6 +82,8 @@ function environment() {
   }
   // Clean source, not CI's dirty-tree exception, must enable the persistent cache.
   const env = { ...process.env, RUSTUP_TOOLCHAIN: metadata.toolchain, RUSTUP_AUTO_INSTALL: '0' };
+  env.TMPDIR = fs.realpathSync(os.tmpdir());
+  rejectExternalCargoConfig(env.TMPDIR);
   delete env.CI;
   return env;
 }
@@ -172,10 +204,13 @@ function prepareSource(work, env) {
 }
 
 function toolchain(source, env, target) {
-  const rustc = command('rustc', ['--version', '--verbose'], source, env);
+  const sysroot = command('rustc', ['--print', 'sysroot'], source, env);
+  const executable = fs.realpathSync(path.join(sysroot, 'bin', 'rustc'));
+  const rustc = command(executable, ['--version', '--verbose'], source, env);
   assert(rustc.includes(`commit-hash: ${metadata.rustcCommit}`), 'Rust compiler commit mismatch');
   assert(rustc.includes(`host: ${metadata.targets[target]}`), 'Cross compilation is not supported');
   const cargo = command('cargo', ['--version'], source, env);
+  env.RUSTC = executable;
   return { channel: metadata.toolchain, rustc, cargo, sha256: sha256(rustc + '\n' + cargo) };
 }
 
@@ -230,13 +265,13 @@ function build(output) {
   const inputs = pinnedInputs();
   const target = targetName();
   const env = environment();
+  const compiler = toolchain(env.TMPDIR, env, target);
   const out = path.resolve(output);
   fs.mkdirSync(out, { recursive: false });
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-native-'));
+  const work = fs.mkdtempSync(path.join(env.TMPDIR, 'mindsprout-native-'));
   env.CARGO_TARGET_DIR = path.resolve(process.env.CARGO_TARGET_DIR || path.join(work, 'target'));
   save(path.join(out, 'workspace.json'), { work, targetDirectory: env.CARGO_TARGET_DIR });
   const { source, commit, short, tree } = prepareSource(work, env);
-  const compiler = toolchain(source, env, target);
   const args = [
     'build',
     '--locked',
@@ -449,6 +484,7 @@ async function nativeTests(filename) {
   const env = environment();
   env.CARGO_TARGET_DIR = manifest.targetDirectory;
   const source = manifest.sourceDirectory;
+  rejectExternalCargoConfig(path.dirname(source));
   cleanSource(source, env, manifest.sourceCommit);
   toolchain(source, env, manifest.target);
   const cases = [

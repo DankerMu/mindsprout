@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 import { waitForObserved } from './native-hmr-support.mjs';
+import { initialInventory } from './native-hmr-inventory.mjs';
 
 function frame(event, index) {
   if (!['Network.webSocketFrameSent', 'Network.webSocketFrameReceived'].includes(event.type))
@@ -25,6 +26,15 @@ function subscriptions(frames) {
       item.message.type === 'turbopack-subscribe' &&
       typeof item.message.path === 'string',
   );
+}
+
+export function subscriptionResources(events, label) {
+  return subscriptions(
+    events
+      .filter((event) => event.page === label)
+      .map(frame)
+      .filter(Boolean),
+  ).map((item) => resource(item.message));
 }
 
 function invalidSetup(events, frames, connections) {
@@ -52,7 +62,7 @@ function invalidSetup(events, frames, connections) {
   return null;
 }
 
-export function hmrBaseline(events, label) {
+export function hmrBaseline(events, label, inventory = []) {
   const selected = events.filter((event) => event.page === label);
   const frames = selected.map(frame).filter(Boolean);
   const connections = frames.filter(
@@ -76,6 +86,7 @@ export function hmrBaseline(events, label) {
     matchedResources: [],
     pendingResources: [],
   };
+  if (inventory.length === 0) state.invalid = 'Initial producer inventory is missing';
   if (!connected) return state;
   const version = connected.message.data?.hmrVersion;
   state.connection = { version, ms: connected.event.ms, requestId: connected.event.data.requestId };
@@ -87,7 +98,10 @@ export function hmrBaseline(events, label) {
     (item) => item.event.data.requestId === state.connection.requestId,
   );
   const required = new Map(
-    current.map((item) => [JSON.stringify(resource(item.message)), resource(item.message)]),
+    [...inventory, ...current.map((item) => resource(item.message))].map((item) => [
+      JSON.stringify(item),
+      item,
+    ]),
   );
   const before = new Map(
     current
@@ -115,32 +129,41 @@ export function hmrBaseline(events, label) {
   return state;
 }
 
-export async function waitForTargetHmrBaseline(events, observed, label, record, publish) {
+export async function waitForHmrBaseline(state, events, observed, record, publish, options = {}) {
   const started = performance.now();
-  const start = record('target-library-hmr-setup-start', {}, label);
-  let baseline;
+  const budget = options.timeoutMs ?? 5000;
+  const remaining = () => Math.max(1, budget - (performance.now() - started));
+  const start = record('initial-hmr-setup-start', {}, state.label);
+  let baseline = { start, deadlineMs: budget, ready: false };
+  let inventory;
   const inspect = () => {
     baseline = {
-      ...hmrBaseline(events, label),
+      ...hmrBaseline(
+        events.filter((event) => event.ms >= (options.since ?? 0)),
+        state.label,
+        inventory.resources,
+      ),
+      inventory,
       start,
-      deadlineMs: 5000,
+      deadlineMs: budget,
       elapsedMs: performance.now() - started,
     };
     publish(baseline);
     return baseline.ready || baseline.invalid !== null;
   };
   try {
-    await waitForObserved(observed, inspect, 5000, 'Target library HMR baseline');
-    assert.equal(baseline.invalid, null, 'Target library HMR baseline failed');
-    assert(performance.now() - started <= 5000, 'Target library HMR baseline exceeded 5000ms');
+    inventory = await initialInventory(state, observed, remaining);
+    await waitForObserved(observed, inspect, remaining(), 'Initial document HMR baseline');
+    assert.equal(baseline.invalid, null, 'Initial document HMR baseline failed');
+    assert(performance.now() - started <= budget, 'Initial document HMR baseline exceeded budget');
     baseline.armed = record(
-      'target-library-hmr-baseline-armed',
+      'initial-hmr-baseline-armed',
       { version: baseline.connection.version },
-      label,
+      state.label,
     );
     publish(baseline);
   } catch (error) {
-    inspect();
+    if (inventory) inspect();
     baseline.error = error.message;
     publish(baseline);
     throw error;
