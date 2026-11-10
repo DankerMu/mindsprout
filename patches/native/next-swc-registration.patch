@@ -1,0 +1,761 @@
+diff --git a/crates/next-api/src/versioned_content_map.rs b/crates/next-api/src/versioned_content_map.rs
+index 33a08101..8480dcc2 100644
+--- a/crates/next-api/src/versioned_content_map.rs
++++ b/crates/next-api/src/versioned_content_map.rs
+@@ -170,32 +170,15 @@ impl VersionedContentMap {
+         client_relative_path: FileSystemPath,
+         client_output_path: FileSystemPath,
+     ) -> Result<()> {
+-        let this = self.await?;
+-        let compute_entry = compute_entry_operation(
++        compute_entry_operation(
+             self,
+             assets_operation,
+             node_root,
+             client_relative_path,
+             client_output_path,
+-        );
+-        this.map_op_to_compute_entry.update_conditionally(|map| {
+-            if let Some(existing) = map.get(&assets_operation)
+-                && *existing.compute_entry == compute_entry
+-            {
+-                // No-op update.
+-                return false;
+-            }
+-
+-            let tt = turbo_tasks();
+-            map.insert(
+-                assets_operation,
+-                ComputeEntry {
+-                    assets_operation: GcRoot::pin(tt.clone(), assets_operation),
+-                    compute_entry: GcRoot::pin(tt, compute_entry),
+-                },
+-            );
+-            true
+-        });
++        )
++        .read_strongly_consistent()
++        .await?;
+         Ok(())
+     }
+ 
+@@ -205,6 +188,7 @@ impl VersionedContentMap {
+     async fn compute_entry(
+         &self,
+         assets_operation: OperationVc<ExpandedOutputAssets>,
++        compute_entry: OperationVc<OptionMapEntry>,
+         node_root: FileSystemPath,
+         client_relative_path: FileSystemPath,
+         client_output_path: FileSystemPath,
+@@ -215,6 +199,25 @@ impl VersionedContentMap {
+             // Any error should result in an empty list, which removes all assets from the map
+             .ok();
+ 
++        // Restoration can demand this publication independently of the insertion caller.
++        // Install both pins before any path can select this producer.
++        self.map_op_to_compute_entry.update_conditionally(|map| {
++            if let Some(existing) = map.get(&assets_operation)
++                && *existing.compute_entry == compute_entry
++            {
++                return false;
++            }
++            let tt = turbo_tasks();
++            map.insert(
++                assets_operation,
++                ComputeEntry {
++                    assets_operation: GcRoot::pin(tt.clone(), assets_operation),
++                    compute_entry: GcRoot::pin(tt, compute_entry),
++                },
++            );
++            true
++        });
++
+         self.map_path_to_op.update_conditionally(|map| {
+             let mut changed = false;
+ 
+@@ -364,7 +367,7 @@ async fn get_entries(assets: OperationVc<ExpandedOutputAssets>) -> Result<Vc<Get
+     Ok(Vc::cell(entries))
+ }
+ 
+-#[turbo_tasks::function(operation, root)]
++#[turbo_tasks::function(operation, root, self_operation = operation)]
+ fn compute_entry_operation(
+     map: ResolvedVc<VersionedContentMap>,
+     assets_operation: OperationVc<ExpandedOutputAssets>,
+@@ -374,8 +377,359 @@ fn compute_entry_operation(
+ ) -> Vc<OptionMapEntry> {
+     map.compute_entry(
+         assets_operation,
++        operation,
+         node_root,
+         client_relative_path,
+         client_output_path,
+     )
+ }
++
++#[cfg(test)]
++mod tests {
++    use std::{path::Path, sync::Arc};
++
++    use anyhow::Context;
++    use turbo_tasks::TurboTasks;
++    use turbo_tasks_backend::{
++        BackendOptions, BackingStorageOptions, EvictionMode, GitVersionInfo, StorageMode,
++        TurboTasksBackend, turbo_backing_storage,
++    };
++    use turbo_tasks_fs::{DiskFileSystem, File, FileSystem, VirtualFileSystem};
++    use turbopack_core::virtual_output::VirtualOutputAsset;
++
++    use super::*;
++
++    #[turbo_tasks::function]
++    fn fixture_map() -> Vc<VersionedContentMap> {
++        *VersionedContentMap::new()
++    }
++
++    #[turbo_tasks::function]
++    fn fixture_root() -> Vc<FileSystemPath> {
++        VirtualFileSystem::new().root()
++    }
++
++    #[turbo_tasks::function]
++    fn fixture_node_root(output_path: RcStr) -> Vc<FileSystemPath> {
++        DiskFileSystem::new("registration-test".into(), Vc::cell(output_path)).root()
++    }
++
++    async fn fixture_asset(
++        root: &FileSystemPath,
++        name: &str,
++        content: &'static str,
++    ) -> Result<ResolvedVc<Box<dyn OutputAsset>>> {
++        Ok(ResolvedVc::upcast(
++            VirtualOutputAsset::new(
++                root.join(name)?,
++                AssetContent::file(FileContent::Content(File::from(content)).cell()),
++            )
++            .to_resolved()
++            .await?,
++        ))
++    }
++
++    #[turbo_tasks::function(operation, root)]
++    async fn producer_a(root: FileSystemPath) -> Result<Vc<ExpandedOutputAssets>> {
++        Ok(Vc::cell(vec![
++            fixture_asset(&root, "main.js", "main from A").await?,
++            fixture_asset(&root, "home.js", "home from A").await?,
++        ]))
++    }
++
++    #[turbo_tasks::function(operation, root)]
++    async fn producer_b(root: FileSystemPath) -> Result<Vc<ExpandedOutputAssets>> {
++        // Different content at the shared path makes first-producer selection observable.
++        Ok(Vc::cell(vec![
++            fixture_asset(&root, "main.js", "main from B").await?,
++            fixture_asset(&root, "editor.js", "editor from B").await?,
++        ]))
++    }
++
++    type AssetSnapshot = Option<(String, String, bool)>;
++
++    #[turbo_tasks::function(operation, root)]
++    fn lookup_asset_operation(
++        map: ResolvedVc<VersionedContentMap>,
++        path: FileSystemPath,
++    ) -> Vc<OptionOutputAsset> {
++        map.get_asset(path)
++    }
++
++    async fn lookup_asset(
++        map: ResolvedVc<VersionedContentMap>,
++        path: FileSystemPath,
++        expected_asset: ResolvedVc<Box<dyn OutputAsset>>,
++    ) -> Result<AssetSnapshot> {
++        let Some(asset) = *lookup_asset_operation(map, path)
++            .read_strongly_consistent()
++            .await?
++        else {
++            return Ok(None);
++        };
++        let path = asset.path().await?.path.to_string();
++        let content = asset.content().file_content().await?;
++        let file = content.as_content().context("expected a file asset")?;
++        Ok(Some((
++            path,
++            file.content().to_str()?.to_string(),
++            asset == expected_asset,
++        )))
++    }
++
++    fn open_backend(path: &Path) -> Arc<TurboTasks<TurboTasksBackend>> {
++        TurboTasks::new(TurboTasksBackend::new(
++            BackendOptions {
++                num_workers: Some(2),
++                small_preallocation: true,
++                storage_mode: Some(StorageMode::ReadWriteOnShutdown),
++                eviction_mode: EvictionMode::Full,
++                gc: Some(true),
++                ..Default::default()
++            },
++            turbo_backing_storage(
++                path,
++                &GitVersionInfo {
++                    describe: "versioned-content-map-test",
++                    dirty: false,
++                },
++                BackingStorageOptions {
++                    is_short_session: true,
++                    skip_compaction: true,
++                    ..Default::default()
++                },
++            )
++            .unwrap()
++            .0,
++        ))
++    }
++
++    #[turbo_tasks::value(transparent)]
++    struct SessionSnapshot((AssetSnapshot, AssetSnapshot, AssetSnapshot, bool));
++
++    #[turbo_tasks::value(transparent)]
++    struct RestoredSessionSnapshot(
++        (
++            AssetSnapshot,
++            AssetSnapshot,
++            AssetSnapshot,
++            bool,
++            OperationVc<ExpandedOutputAssets>,
++        ),
++    );
++
++    #[turbo_tasks::function(operation, root)]
++    async fn session_snapshot(
++        output_path: RcStr,
++        restored: bool,
++    ) -> Result<Vc<RestoredSessionSnapshot>> {
++        let map = fixture_map().to_resolved().await?;
++        let root = fixture_root().owned().await?;
++        let node_root = fixture_node_root(output_path).owned().await?;
++        let client_output = node_root.join("client")?;
++        let a = producer_a(root.clone());
++        let b = producer_b(root.clone());
++
++        if !restored {
++            map.insert_output_assets(a, node_root.clone(), root.clone(), client_output.clone())
++                .await?;
++        }
++        // Demand the same persisted compute root, not A's registration caller.
++        compute_entry_operation(
++            map,
++            a,
++            node_root.clone(),
++            root.clone(),
++            client_output.clone(),
++        )
++        .read_strongly_consistent()
++        .await?;
++
++        map.insert_output_assets(b, node_root.clone(), root.clone(), client_output.clone())
++            .await?;
++        compute_entry_operation(map, b, node_root, root.clone(), client_output)
++            .read_strongly_consistent()
++            .await?;
++
++        let a_assets = a.read_strongly_consistent().await?;
++        let b_assets = b.read_strongly_consistent().await?;
++        let main = lookup_asset(map, root.join("main.js")?, a_assets[0]).await?;
++        let home = lookup_asset(map, root.join("home.js")?, a_assets[1]).await?;
++        let editor = lookup_asset(map, root.join("editor.js")?, b_assets[1]).await?;
++        let missing = lookup_asset_operation(map, root.join("missing.js")?)
++            .read_strongly_consistent()
++            .await?
++            .is_none();
++        Ok(Vc::cell((main, home, editor, missing, a)))
++    }
++
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn restored_producer_assets_remain_available_without_reinsertion() {
++        let cache = tempfile::tempdir().unwrap();
++        let output = tempfile::tempdir().unwrap();
++        let mut seeded_operation = None;
++
++        for restored in [false, true] {
++            let tt = open_backend(cache.path());
++            if let Some((task, session_root)) = seeded_operation {
++                // A has persistent parents; the session operation is the persisted GC root.
++                assert!(
++                    tt.backend()
++                        .persisted_gc_roots_for_testing()
++                        .iter()
++                        .any(|(root, _)| *root == session_root),
++                    "the seed session root must persist before any fixture task is requested"
++                );
++                tt.backend()
++                    .assert_task_exists_for_testing(session_root, &tt);
++                tt.backend().assert_task_exists_for_testing(task, &tt);
++            }
++            let output_path: RcStr = output.path().to_str().unwrap().into();
++            let result = tt
++                .run_once(async move {
++                    let session = session_snapshot(output_path, restored);
++                    let snapshot = session.read_strongly_consistent().await?;
++                    let (main, home, editor, missing, a) = (*snapshot).clone();
++                    anyhow::Ok((
++                        (main, home, editor, missing),
++                        GcRoot::pin(turbo_tasks(), a),
++                        GcRoot::pin(turbo_tasks(), session),
++                    ))
++                })
++                .await;
++            tt.stop_and_wait().await;
++            let ((main, home, editor, missing), pin, session_pin) = result.unwrap();
++            let task = pin.task_id();
++            let session_root = session_pin.task_id();
++            drop(session_pin);
++            drop(pin);
++            drop(tt);
++            if let Some((seeded, _)) = seeded_operation {
++                assert_eq!(
++                    task, seeded,
++                    "producer A must retain its persisted task identity"
++                );
++            } else {
++                seeded_operation = Some((task, session_root));
++            }
++            assert!(missing, "an unpublished path must remain absent");
++            assert_eq!(
++                editor,
++                Some(("editor.js".into(), "editor from B".into(), true)),
++                "producer B must retain its asset identity and content (restored={restored})"
++            );
++            assert_eq!(
++                main,
++                Some(("main.js".into(), "main from A".into(), true)),
++                "shared main must retain the first producer's asset (restored={restored})"
++            );
++            assert_eq!(
++                home,
++                Some(("home.js".into(), "home from A".into(), true)),
++                "sole-producer home must remain available (restored={restored})"
++            );
++        }
++    }
++
++    #[turbo_tasks::value(transparent)]
++    struct HomeIncluded(State<bool>);
++
++    #[turbo_tasks::function(operation, root)]
++    fn home_included() -> Vc<HomeIncluded> {
++        HomeIncluded(State::new(true)).cell()
++    }
++
++    #[turbo_tasks::function(operation, root)]
++    async fn removable_producer(
++        root: FileSystemPath,
++        included: ResolvedVc<HomeIncluded>,
++    ) -> Result<Vc<ExpandedOutputAssets>> {
++        let include_home = *included.await?.get();
++        let mut assets = vec![fixture_asset(&root, "main.js", "main from A").await?];
++        if include_home {
++            assets.push(fixture_asset(&root, "home.js", "home from A").await?);
++        }
++        Ok(Vc::cell(assets))
++    }
++
++    #[turbo_tasks::function(operation, root)]
++    async fn removal_snapshot(
++        output_path: RcStr,
++        included: ResolvedVc<HomeIncluded>,
++    ) -> Result<Vc<SessionSnapshot>> {
++        let map = fixture_map().to_resolved().await?;
++        let root = fixture_root().owned().await?;
++        let node_root = fixture_node_root(output_path).owned().await?;
++        let client_output = node_root.join("client")?;
++        let a = removable_producer(root.clone(), included);
++        let b = producer_b(root.clone());
++        map.insert_output_assets(a, node_root.clone(), root.clone(), client_output.clone())
++            .await?;
++        compute_entry_operation(
++            map,
++            a,
++            node_root.clone(),
++            root.clone(),
++            client_output.clone(),
++        )
++        .read_strongly_consistent()
++        .await?;
++        map.insert_output_assets(b, node_root.clone(), root.clone(), client_output.clone())
++            .await?;
++        compute_entry_operation(map, b, node_root, root.clone(), client_output)
++            .read_strongly_consistent()
++            .await?;
++        let a_assets = a.read_strongly_consistent().await?;
++        let b_assets = b.read_strongly_consistent().await?;
++        // After removal no identity can match: lookup must return None.
++        let home_asset = a_assets.get(1).copied().unwrap_or(a_assets[0]);
++        let main = lookup_asset(map, root.join("main.js")?, a_assets[0]).await?;
++        let home = lookup_asset(map, root.join("home.js")?, home_asset).await?;
++        let editor = lookup_asset(map, root.join("editor.js")?, b_assets[1]).await?;
++        let missing = lookup_asset_operation(map, root.join("missing.js")?)
++            .read_strongly_consistent()
++            .await?
++            .is_none();
++        Ok(Vc::cell((main, home, editor, missing)))
++    }
++
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn removed_sole_asset_disappears_without_changing_shared_precedence() {
++        let cache = tempfile::tempdir().unwrap();
++        let output = tempfile::tempdir().unwrap();
++        let tt = open_backend(cache.path());
++        let output_path: RcStr = output.path().to_str().unwrap().into();
++        let result = tt
++            .run_once(async move {
++                let included_op = home_included();
++                let included = included_op.resolve().strongly_consistent().await?;
++                let state = included_op.read_strongly_consistent().await?;
++                let snapshot = removal_snapshot(output_path, included);
++                let before = snapshot.read_strongly_consistent().await?;
++                assert_eq!(
++                    *before,
++                    (
++                        Some(("main.js".into(), "main from A".into(), true)),
++                        Some(("home.js".into(), "home from A".into(), true)),
++                        Some(("editor.js".into(), "editor from B".into(), true)),
++                        true,
++                    )
++                );
++                state.set(false);
++                let after = snapshot.read_strongly_consistent().await?;
++                assert_eq!(
++                    *after,
++                    (
++                        Some(("main.js".into(), "main from A".into(), true)),
++                        None,
++                        Some(("editor.js".into(), "editor from B".into(), true)),
++                        true,
++                    )
++                );
++                anyhow::Ok(())
++            })
++            .await;
++        tt.stop_and_wait().await;
++        result.unwrap();
++    }
++}
+diff --git a/turbopack/crates/turbo-tasks-backend/tests/operation_vc.rs b/turbopack/crates/turbo-tasks-backend/tests/operation_vc.rs
+index e1cefe1f..626325bd 100644
+--- a/turbopack/crates/turbo-tasks-backend/tests/operation_vc.rs
++++ b/turbopack/crates/turbo-tasks-backend/tests/operation_vc.rs
+@@ -1,8 +1,10 @@
+ #![feature(arbitrary_self_types)]
+ #![allow(clippy::needless_return)] // tokio macro-generated code doesn't respect this
+ 
++mod util;
++
+ use anyhow::Result;
+-use turbo_tasks::{OperationVc, ResolvedVc, Vc};
++use turbo_tasks::{GcRoot, OperationVc, ResolvedVc, Vc};
+ use turbo_tasks_testing::{Registration, register, run};
+ 
+ static REGISTRATION: Registration = register!();
+@@ -33,3 +35,72 @@ async fn test_use_operations() -> Result<()> {
+     })
+     .await
+ }
++
++#[turbo_tasks::function]
++fn identity_from_handle(operation: OperationVc<u32>) -> Vc<u32> {
++    Vc::cell(*operation.task_id())
++}
++
++#[turbo_tasks::function(operation, root, self_operation = operation)]
++fn own_identity() -> Vc<u32> {
++    identity_from_handle(operation)
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn self_operation_preserves_identity_without_a_backedge_and_releases_pins() {
++    let (tt, _dir) = util::create_tt("self_operation_identity");
++    let backend = tt.clone();
++    let result = tt
++        .run_once(async move {
++            let operation = own_identity();
++            assert_eq!(
++                *operation.read_strongly_consistent().await?,
++                *operation.task_id()
++            );
++            assert_eq!(
++                backend
++                    .backend()
++                    .parent_count_for_testing(operation.task_id()),
++                0,
++                "passing the canonical handle to a child must not connect the child back"
++            );
++            let before = backend
++                .backend()
++                .transient_ref_count_for_testing(operation.task_id());
++            let pin = GcRoot::pin(backend.clone(), operation);
++            assert_eq!(
++                backend
++                    .backend()
++                    .transient_ref_count_for_testing(operation.task_id()),
++                before + 1
++            );
++            drop(pin);
++            assert_eq!(
++                backend
++                    .backend()
++                    .transient_ref_count_for_testing(operation.task_id()),
++                before
++            );
++            anyhow::Ok(())
++        })
++        .await;
++    tt.stop_and_wait().await;
++    result.unwrap();
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn self_operation_rejects_top_level_context() {
++    let (tt, _dir) = util::create_tt("self_operation_top_level");
++    let result = tt
++        .run_once(async {
++            // Exercise the helper's rejection path; no handle may escape this invalid context.
++            let rejected = std::panic::catch_unwind(|| unsafe {
++                OperationVc::<u32>::current_operation_private()
++            });
++            assert!(rejected.is_err());
++            anyhow::Ok(())
++        })
++        .await;
++    tt.stop_and_wait().await;
++    result.unwrap();
++}
+diff --git a/turbopack/crates/turbo-tasks-macros-tests/tests/function/pass_self_operation.rs b/turbopack/crates/turbo-tasks-macros-tests/tests/function/pass_self_operation.rs
+new file mode 100644
+index 00000000..991363f3
+--- /dev/null
++++ b/turbopack/crates/turbo-tasks-macros-tests/tests/function/pass_self_operation.rs
+@@ -0,0 +1,22 @@
++use anyhow::Result;
++use turbo_tasks::{OperationVc, Vc};
++
++#[turbo_tasks::function(operation, self_operation = operation)]
++fn sync_identity(value: u32) -> Vc<u32> {
++    let _: OperationVc<u32> = operation;
++    Vc::cell(value)
++}
++
++#[turbo_tasks::function(operation, root, self_operation = operation)]
++async fn async_identity(value: u32) -> Result<Vc<u32>> {
++    let _: OperationVc<u32> = operation;
++    Ok(Vc::cell(value))
++}
++
++#[allow(dead_code)]
++fn unchanged_call_signature() {
++    let _: OperationVc<u32> = sync_identity(1);
++    let _: OperationVc<u32> = async_identity(2);
++}
++
++fn main() {}
+diff --git a/turbopack/crates/turbo-tasks-macros/src/func.rs b/turbopack/crates/turbo-tasks-macros/src/func.rs
+index dcdc5510..f45a7ef9 100644
+--- a/turbopack/crates/turbo-tasks-macros/src/func.rs
++++ b/turbopack/crates/turbo-tasks-macros/src/func.rs
+@@ -31,6 +31,7 @@ pub struct TurboFn<'a> {
+     exposed_inputs: Vec<Input>,
+     /// Should we return `OperationVc` and require that all arguments are `NonLocalValue`s?
+     operation: bool,
++    self_operation: Option<Ident>,
+ }
+ 
+ #[derive(Debug)]
+@@ -207,6 +208,7 @@ impl TurboFn<'_> {
+             is_self_used,
+             exposed_inputs,
+             operation: args.operation.is_some(),
++            self_operation: args.self_operation,
+             inline_ident,
+         })
+     }
+@@ -382,7 +384,18 @@ impl TurboFn<'_> {
+                 }
+             })
+             .unzip();
+-        let transform_stmts: Vec<Stmt> = transform_stmts.into_iter().flatten().collect();
++        let mut transform_stmts: Vec<Stmt> = transform_stmts.into_iter().flatten().collect();
++        if let Some(binding) = &self.self_operation {
++            let operation_type =
++                expand_vc_return_type(&self.output, Some(parse_quote!(turbo_tasks::OperationVc)));
++            transform_stmts.push(parse_quote! {
++                // SAFETY: this implementation executes the operation whose output type is
++                // declared in this macro's signature. Operation inputs are fully resolved.
++                let #binding: #operation_type = unsafe {
++                    turbo_tasks::OperationVc::current_operation_private()
++                };
++            });
++        }
+ 
+         let inline_signature = Signature {
+             ident: self.inline_ident.clone(),
+@@ -747,6 +760,8 @@ pub struct FunctionArguments {
+     ///
+     /// If there is an error due to this option being set, it should be reported to this span.
+     pub operation: Option<Span>,
++    /// Bind the executing operation without constructing another task call.
++    pub self_operation: Option<Ident>,
+     /// Should the task be marked as a root in the aggregation graph on initial creation?
+     /// Root tasks start with aggregation number `u32::MAX`.
+     pub root: Option<Span>,
+@@ -778,6 +793,27 @@ impl Parse for FunctionArguments {
+                 ("operation", Meta::Path(_)) => {
+                     parsed_args.operation = Some(meta.span());
+                 }
++                ("self_operation", Meta::NameValue(value)) => {
++                    let Expr::Path(path) = &value.value else {
++                        return Err(syn::Error::new_spanned(
++                            &value.value,
++                            "self_operation must name a local binding",
++                        ));
++                    };
++                    let Some(binding) = path.path.get_ident() else {
++                        return Err(syn::Error::new_spanned(
++                            &value.value,
++                            "self_operation must name a local binding",
++                        ));
++                    };
++                    if parsed_args
++                        .self_operation
++                        .replace(binding.clone())
++                        .is_some()
++                    {
++                        return Err(syn::Error::new_spanned(meta, "duplicate self_operation"));
++                    }
++                }
+                 ("root", Meta::Path(_)) => {
+                     parsed_args.root = Some(meta.span());
+                 }
+@@ -793,6 +829,14 @@ impl Parse for FunctionArguments {
+                 }
+             }
+         }
++        if let Some(binding) = &parsed_args.self_operation
++            && parsed_args.operation.is_none()
++        {
++            return Err(syn::Error::new_spanned(
++                binding,
++                "self_operation requires operation",
++            ));
++        }
+ 
+         Ok(parsed_args)
+     }
+@@ -1235,3 +1279,26 @@ pub fn split_function_attributes(
+     };
+     (func_args, attrs)
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::FunctionArguments;
++
++    #[test]
++    fn self_operation_requires_an_operation_declaration() {
++        for arguments in [
++            "self_operation = operation",
++            "root, self_operation = operation",
++            "session_dependent, self_operation = operation",
++        ] {
++            assert!(syn::parse_str::<FunctionArguments>(arguments).is_err());
++        }
++        for arguments in [
++            "operation, self_operation = operation",
++            "self_operation = operation, operation",
++            "operation, root, session_dependent, self_operation = operation",
++        ] {
++            assert!(syn::parse_str::<FunctionArguments>(arguments).is_ok());
++        }
++    }
++}
+diff --git a/turbopack/crates/turbo-tasks/README.md b/turbopack/crates/turbo-tasks/README.md
+index 2bf0dea0..c78c738f 100644
+--- a/turbopack/crates/turbo-tasks/README.md
++++ b/turbopack/crates/turbo-tasks/README.md
+@@ -36,6 +36,15 @@ There are a few design patterns that are commonly used with Turbo Tasks:
+ 
+ [Tokio task]: https://tokio.rs/tokio/tutorial/spawning#tasks
+ 
++### Registering an executing operation
++
++An operation may request `#[turbo_tasks::function(operation, self_operation = operation)]`
++to bind its canonical `OperationVc` inside its implementation. The binding's type comes from
++the declared output; it adds no caller argument or cache-key input and creates no dependency edge.
++Use it for registration or GC pinning, not to connect or await the executing operation itself.
++Pass the handle to a publication task when registration must precede visibility of its output.
++
++
+ ## Task Graph
+ 
+ <figure style="display: flex; flex-direction: column; justify-content: center;">
+diff --git a/turbopack/crates/turbo-tasks/src/manager.rs b/turbopack/crates/turbo-tasks/src/manager.rs
+index 4e8053b4..fce1872b 100644
+--- a/turbopack/crates/turbo-tasks/src/manager.rs
++++ b/turbopack/crates/turbo-tasks/src/manager.rs
+@@ -2036,6 +2036,17 @@ pub(crate) fn current_task(from: &str) -> TaskId {
+     }
+ }
+ 
++pub(crate) fn current_operation_task() -> TaskId {
++    let task = current_task("self_operation");
++    CURRENT_TASK_STATE.with(|state| {
++        assert!(
++            !state.read().unwrap().in_top_level_task,
++            "self_operation cannot be used in a top-level task"
++        );
++    });
++    task
++}
++
+ /// Panics if we're not in a top-level task (e.g. [`run_once`]). Some function calls should only
+ /// happen in a top-level task (e.g. [`Effects::apply`][crate::Effects::apply]).
+ #[track_caller]
+@@ -2776,6 +2787,12 @@ pub(crate) async fn read_local_output(
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    #[should_panic(expected = "self_operation can only be used in the context")]
++    fn self_operation_rejects_missing_task_context() {
++        current_operation_task();
++    }
++
+     #[test]
+     fn test_inline_execution_depth_guard_restores_depth() {
+         assert_eq!(INLINE_EXECUTION_DEPTH.get(), 0);
+diff --git a/turbopack/crates/turbo-tasks/src/vc/operation.rs b/turbopack/crates/turbo-tasks/src/vc/operation.rs
+index a88e77b0..91a2be80 100644
+--- a/turbopack/crates/turbo-tasks/src/vc/operation.rs
++++ b/turbopack/crates/turbo-tasks/src/vc/operation.rs
+@@ -103,6 +103,21 @@ where
+ }
+ 
+ impl<T: ?Sized> OperationVc<T> {
++    /// Returns the executing operation without constructing or connecting a task.
++    ///
++    /// # Safety
++    ///
++    /// The caller must be executing the non-local implementation of an operation whose
++    /// declared output is `Vc<T>`. Only the operation macro may establish these conditions;
++    /// an ordinary task, local task, or a mismatched `T` does not satisfy them.
++    #[doc(hidden)]
++    pub unsafe fn current_operation_private() -> Self {
++        Self {
++            task: crate::manager::current_operation_task(),
++            _t: PhantomData,
++        }
++    }
++
+     /// Called by the `#[turbo_tasks::function]` macro.
+     ///
+     /// The macro ensures that the `Vc` is not a local task and it points to a single operation.

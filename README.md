@@ -44,6 +44,7 @@
 - **保存窗口**：最后一次已提交的编辑后等待 500 ms 触发自动保存，连续编辑会重置计时；立即刷新可能丢失自上次成功保存以来的全部待保存修改，包括早于 500 ms 的修改。页面卸载时仅尽力保存，不保证成功；未提交的编辑草稿或保存失败的修改不保证保留。
 - **仅 LR 布局**：只支持从左向右排列，不能切换布局方向。
 - **无导出**：暂不支持 PNG、SVG、Markdown 或 OPML 导出。
+- **开发热更新**：原生修复的平台范围与独立的 SPA-only HMR 限制见 [原生开发说明](docs/engineering/native-hmr.md#known-limitations)。
 
 ## 开发
 
@@ -55,6 +56,7 @@ pnpm dev
 ```
 
 完整本地 setup、环境配置与日常命令见 [开发工作流](AGENTS.md#development-workflow)。
+原生 HMR 修复的构建、验证、安装和故障处理见 [原生开发说明](docs/engineering/native-hmr.md)。
 
 ## 许可
 

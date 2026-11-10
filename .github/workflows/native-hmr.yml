@@ -1,0 +1,89 @@
+name: Native HMR repair
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/native-hmr.yml"
+      - "patches/native/**"
+      - "scripts/native-*"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".tool-versions"
+      - "next.config.ts"
+      - "src/app/maps/**/MapEditor.tsx"
+      - "src/app/providers/MapRepositoryProvider.tsx"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-hmr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-native:
+    name: Linux x64 GNU native repair
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: "2" # Bound simultaneous LLVM links on the hosted runner.
+      CARGO_PROFILE_DEV_DEBUG: "0" # Native test symbols otherwise exhaust runner disk.
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+      - name: Native build prerequisites
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get update
+          sudo apt-get install -y clang cmake pkg-config libssl-dev
+          rustup toolchain install nightly-2026-08-20 --profile minimal
+          mkdir -p .run
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Build and package pinned source
+        run: pnpm native:build .run/native-linux
+      - name: Verify package and rejection boundaries
+        shell: bash
+        run: |
+          pnpm native:verify .run/native-linux/manifest.json | tee .run/native-linux/addon-load.log
+          pnpm native:package:test .run/native-linux/manifest.json | tee .run/native-linux/package-tests.log
+      - name: Native persistent registration and operation contracts
+        run: pnpm native:test .run/native-linux/manifest.json
+      - name: Qualified restored-lifecycle counterexample
+        env:
+          NEXT_TEST_NATIVE_DIR: ${{ github.workspace }}/.run/native-linux/package
+        run: pnpm native:browser restored-lifecycle .run/native-restored
+      - name: Real source HMR and first SPA navigation
+        env:
+          NEXT_TEST_NATIVE_DIR: ${{ github.workspace }}/.run/native-linux/package
+        run: pnpm native:browser source-change .run/native-source
+      - name: Upload candidate package and evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-linux-x64-gnu-${{ github.sha }}
+          path: |
+            .run/native-linux/*.tgz
+            .run/native-linux/*.json
+            .run/native-linux/*.log
+            .run/native-restored/*.json
+            .run/native-restored/*.jsonl
+            .run/native-restored/*.log
+            .run/native-restored/*.png
+            .run/native-restored/*.html
+            .run/native-source/*.json
+            .run/native-source/*.jsonl
+            .run/native-source/*.log
+            .run/native-source/*.png
+            .run/native-source/*.html
+          if-no-files-found: error
+          retention-days: 14
