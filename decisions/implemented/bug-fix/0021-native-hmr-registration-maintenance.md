@@ -20,6 +20,8 @@ Keep the clean corrective patch and machine-readable source/toolchain/lockfile p
 
 Preserve the official native package name, version, platform constraints, entrypoint, license and engine contract, adding explicit local-repair provenance. Immutable asset names bind patch and binary identity; manifests bind upstream and patched commits, source tree, patch, build recipe, Rust compiler, Cargo.lock, binary and tarball. The read-only build job uploads candidates and behavioral evidence, never release credentials. Publication requires parent verification; exact-version overrides and the pnpm-generated lockfile must then install those assets with integrity verification. Both platforms require actual installed-package loading and browser proof without the diagnostic native-directory environment variable before merge.
 
+Normal installation must run a verification-only lifecycle guard against committed per-target publication manifests. pnpm can omit a failed optional native dependency without failing installation; lockfile integrity alone is therefore insufficient. The guard may neither download nor replace binaries. Script-disabled workflows must invoke it explicitly, and installed loading plus both browser modes must feed the required CI aggregate before merge.
+
 [Native development instructions](../../../docs/engineering/native-hmr.md) own commands, prerequisites, artifact handoff and the distinct SPA-only HMR limitation. Existing CI gates and mutation configuration remain unchanged. No active decision is superseded.
 
 ## Alternatives considered
@@ -29,6 +31,7 @@ Preserve the official native package name, version, platform constraints, entryp
 - **Wait for an upstream release:** leaves the demonstrated development reload loop unresolved. A version change alone is not evidence of a repair; the inspected 16.4.6 resource-map file is byte-identical to 16.4.5.
 - **Manual node_modules replacement or diagnostic native-directory loading as delivery:** bypasses frozen installation and cannot bind installed bytes to reviewed artifacts.
 - **Publish all upstream platforms:** exceeds the owner's explicit two-platform maintenance authorization and the available native evidence.
+- **Rely on optional-dependency integrity failure to stop installation:** pnpm's optional-package semantics can return success with no native package installed; a fail-closed installed verification step is required.
 
 ## Consequences
 

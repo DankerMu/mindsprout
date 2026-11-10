@@ -68,6 +68,16 @@ The published tarball must be beside its manifest for verification. These instal
 
 Installed native loading and both browser contracts must feed the existing required **All checks passed** aggregate, not only the artifact-production workflow. A Next upgrade that bypasses the exact-version native override must fail closed until equivalent proof qualifies upstream replacement and the fork is removed atomically through Renovate.
 
+### Installed-only guard
+
+`pnpm native:installed` verifies the installed tree without downloading or unpacking another tarball. It requires the unchanged qualified build manifest at `patches/native/published/<target>.json`, checks its source/patch/recipe/metadata pins, hashes the installed native binary, and checks package provenance and Next's actual loader. Missing publication inputs, an omitted optional package, stock or mismatched bytes, diagnostic binding variables, WASM, another loaded native addon, or an unqualified Next version all fail closed. It never repairs `node_modules` or selects a fallback.
+
+pnpm can report a successful frozen installation after omitting an optional package whose integrity check failed. The publication cutover must therefore wire the installed-only guard into normal `postinstall`; every workflow that uses `--ignore-scripts` must invoke it explicitly. Do not enable that lifecycle integration before both genuine per-target manifests and artifact overrides are available. No absent-manifest success path is permitted.
+
+For qualification before publication, use `pnpm native:installed --manifest <qualified-build-manifest>`. The stronger `native:verify <manifest> --installed` command still qualifies installed metadata against the exact tarball; it is not replaced by the installation guard. `--project <directory>` selects an isolated installed tree for boundary tests; normal lifecycle invocation supplies no overrides.
+
+Run `pnpm native:installed:test <qualified-build-manifest> [stock-package-directory]` for real Next/native loader tests and controlled corrupt fixtures. The suite requires an actual unmodified official native package of the same version; supply its preserved directory after the main checkout installs the repair. It does not mock the native addon or Next loader.
+
 ## Known Limitations
 
 - Maintenance targets are macOS arm64 and Linux x64 GNU on the Ubuntu 24.04 CI environment recorded in the qualification evidence. Compatibility with older glibc hosts is not established by this repair. Windows, macOS x64, Linux arm64 and musl are not represented as repaired.
