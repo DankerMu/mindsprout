@@ -8,13 +8,13 @@
 
 ## 2. Reproducible native delivery
 
-- [ ] 2.1 Add minimal source-pinned native build/package commands and macOS arm64/Linux x64 GNU delivery; verify source/patch/Cargo.lock/binary/package digest manifest and actual addon target identity without changing upstream version or trusting unreviewed binary bytes.
-- [ ] 2.2 Generate package-manager overrides/lockfile for immutable candidate artifacts; clean frozen installs use the fixed binaries on both platforms, wrong integrity fails, and no diagnostic environment/native fallback is needed.
-- [ ] 2.3 Add decision and developer instructions covering maintenance, platform limitation, build/install failure, rollback and Renovate removal; verify docs/decisions gates and command accuracy.
+- [x] 2.1 Add minimal source-pinned native build/package commands and macOS arm64/Linux x64 GNU delivery; verify source/patch/Cargo.lock/binary/package digest manifest and actual addon target identity without changing upstream version or trusting unreviewed binary bytes.
+- [x] 2.2 Generate package-manager overrides/lockfile for immutable candidate artifacts; clean frozen installs use the fixed binaries on both platforms, wrong integrity fails, and no diagnostic environment/native fallback is needed.
+- [x] 2.3 Add decision and developer instructions covering maintenance, platform limitation, build/install failure, rollback and Renovate removal; verify docs/decisions gates and command accuracy.
 
 ## 3. Integration and merge
 
-- [ ] 3.1 Run scoped build, native/browser regressions and guardrails for build/workflow changes; verify existing application behavior and original mutation configuration remain unchanged.
+- [x] 3.1 Run scoped build, native/browser regressions and guardrails for build/workflow changes; verify existing application behavior and original mutation configuration remain unchanged.
 - [ ] 3.2 Complete full critical-path four-seat review, source-locked final-head CI, work summary and protected merge; satisfy all issue AC before closing and synchronizing/archiving this fixture.
 
 ## Risk-pack mapping

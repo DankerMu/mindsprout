@@ -255,29 +255,6 @@ jobs:
           node-version-file: .tool-versions
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Temporary transport workaround: remove both export steps after local offline qualification.
-      - name: Export complete macOS pnpm store
-        if: matrix.target == 'darwin-arm64'
-        shell: bash
-        run: |
-          store="$(pnpm store path)"
-          mkdir -p .run/native-pnpm-store
-          tar -czf .run/native-pnpm-store/pnpm-store.tgz -C "$store" .
-          (
-            cd .run/native-pnpm-store
-            shasum -a 256 pnpm-store.tgz > pnpm-store.tgz.sha256
-          )
-      - name: Upload macOS pnpm store for offline qualification
-        if: matrix.target == 'darwin-arm64'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: native-pnpm-store-${{ github.sha }}
-          path: |
-            .run/native-pnpm-store/pnpm-store.tgz
-            .run/native-pnpm-store/pnpm-store.tgz.sha256
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 1
       - name: Verify the installed native package
         shell: bash
         env:

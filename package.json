@@ -19,7 +19,7 @@
     "native:test": "node scripts/native-package.mjs test",
     "native:package:test": "node scripts/native-package.test.mjs",
     "native:browser": "node scripts/native-hmr.mjs",
-    "native:browser:test": "node --test scripts/native-hmr-support.test.mjs",
+    "native:browser:test": "node --test scripts/native-hmr-support.test.mjs scripts/native-hmr-baseline.test.mjs",
     "native:installed": "node scripts/native-installed.mjs",
     "native:installed:test": "node scripts/native-installed.test.mjs",
     "native:install:test": "node scripts/native-install.test.mjs",

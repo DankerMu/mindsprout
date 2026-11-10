@@ -22,6 +22,7 @@ import {
   changesEditor as changesSource,
   subscriptionPath as observedSubscriptionPath,
 } from './native-hmr-support.mjs';
+import { waitForTargetHmrBaseline } from './native-hmr-baseline.mjs';
 
 const [mode, output] = process.argv.slice(2);
 assert(
@@ -421,6 +422,11 @@ async function sourceChange(context, mapPath) {
   const targetDocuments = target.documents.length,
     targetReloads = target.reloads.length;
   await capture(retained, 'source-before-A');
+  await guard(
+    waitForTargetHmrBaseline(result.events, observed, target.label, record, (baseline) => {
+      result.targetSubscriptionPrerequisite = baseline;
+    }),
+  );
   phase = 'source-observation';
   const stimulus = record('source-change-start', { from: valueA, to: valueB });
   cas(stimulatedB);
