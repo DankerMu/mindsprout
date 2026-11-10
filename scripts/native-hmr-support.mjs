@@ -5,6 +5,7 @@ import net from 'node:net';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { performance } from 'node:perf_hooks';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 const require = createRequire(import.meta.url);
 
@@ -55,6 +56,39 @@ export function processGroup(pid) {
     .map((line) => line.trim().split(/\s+/))
     .filter(([, group]) => Number(group) === pid)
     .map(([id, group, state]) => ({ pid: Number(id), group: Number(group), state }));
+}
+
+export async function stopOwnedProcessGroup(
+  owned,
+  closed,
+  timeoutMs = 10000,
+  isListening = listening,
+) {
+  const end = performance.now() + timeoutMs;
+  const remaining = () => {
+    const ms = end - performance.now();
+    if (ms <= 0) throw new Error(`Owned server shutdown exceeded ${timeoutMs}ms`);
+    return ms;
+  };
+  assert(
+    owned.exitCode === null && owned.signalCode === null,
+    'Owned server leader disappeared; refusing stale PID signal',
+  );
+  assert(
+    processGroup(owned.pid).some((item) => item.pid === owned.pid && !item.state.startsWith('Z')),
+    'Owned server leader disappeared; refusing stale PID signal',
+  );
+  remaining();
+  process.kill(-owned.pid, 'SIGTERM');
+  await deadline(closed, remaining(), 'Owned server shutdown');
+  while (processGroup(owned.pid).some((item) => !item.state.startsWith('Z'))) {
+    await sleep(Math.min(50, remaining()));
+  }
+  assert(
+    !(await deadline(isListening(), remaining(), 'Owned server shutdown')),
+    'Listener survived shutdown; refusing restoration',
+  );
+  remaining();
 }
 
 export async function waitForReadiness(state, start, expectedPath, started) {

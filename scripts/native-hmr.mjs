@@ -13,6 +13,7 @@ import {
   deadline,
   listening,
   processGroup,
+  stopOwnedProcessGroup,
   waitForReadiness,
   capturePage,
   nativeIdentity,
@@ -163,18 +164,7 @@ async function startServer(value) {
 async function stopServer() {
   if (!server) return;
   const owned = server;
-  assert(
-    processGroup(owned.pid).some((item) => item.pid === owned.pid),
-    'Owned server leader disappeared; refusing stale PID signal',
-  );
-  process.kill(-owned.pid, 'SIGTERM');
-  await deadline(serverExit, 10000, 'Owned server shutdown');
-  assert.equal(
-    processGroup(owned.pid).filter((item) => !item.state.startsWith('Z')).length,
-    0,
-    'Server group survived shutdown',
-  );
-  assert(!(await listening()), 'Listener survived shutdown; refusing restoration');
+  await stopOwnedProcessGroup(owned, serverExit);
   server = undefined;
   record('server-stopped', { pid: owned.pid });
 }

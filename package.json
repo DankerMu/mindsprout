@@ -18,6 +18,7 @@
     "native:test": "node scripts/native-package.mjs test",
     "native:package:test": "node scripts/native-package.test.mjs",
     "native:browser": "node scripts/native-hmr.mjs",
+    "native:browser:test": "node --test scripts/native-hmr-support.test.mjs",
     "native:installed": "node scripts/native-installed.mjs",
     "native:installed:test": "node scripts/native-installed.test.mjs",
     "check": "pnpm fmt:check && pnpm lint && pnpm typecheck && pnpm boundaries && pnpm test:unit && pnpm test:integration && pnpm anti-drift && pnpm docs:check && pnpm decisions:check && pnpm build",

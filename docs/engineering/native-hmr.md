@@ -22,6 +22,7 @@ pnpm native:build .run/native-package
 pnpm native:verify .run/native-package/manifest.json
 pnpm native:package:test .run/native-package/manifest.json
 pnpm native:test .run/native-package/manifest.json
+pnpm native:browser:test
 NEXT_TEST_NATIVE_DIR="$PWD/.run/native-package/package" pnpm native:browser restored-lifecycle .run/native-restored
 NEXT_TEST_NATIVE_DIR="$PWD/.run/native-package/package" pnpm native:browser source-change .run/native-source
 ```
@@ -43,11 +44,13 @@ Both modes use one maintained [entrypoint](../../scripts/native-hmr.mjs), real C
 - **`restored-lifecycle`** retains the qualified provider's compiled environment-value trigger. It exercises unchanged A→A first, A→B, a second editor round trip, and a retained library document. Before each restart it pauses only its verified Chromium process group, executes exactly one health route request on the restarted server, then resumes the browser. Each 15-second observation requires route-handler-first connection/subscription ordering, the expected compiled client literal, exactly one normal reconnect document/reload, zero resource restart messages and editor readiness within five seconds. SPA preparation must not request a document.
 - **`source-change`** edits an actual rendered MapEditor literal from A to B within one dev-server lifecycle. During setup, a retained editor document load establishes and proves its route-specific chunk-list subscription. Only then does a separate library tab make its first SPA editor navigation concurrently with the source edit. The retained page must receive an actual partial MapEditor update and visibly render B without replacing its document; the target must reach editor readiness and B without a document request or reload. No manual recovery occurs after the stimulus.
 
-The entrypoint refuses occupied port 3000 and unexpected source seams. It backs up source and the existing development cache, preserves cache contents in its owned working copy, and restores only source bytes whose hash it still owns. Cache restoration happens only after its server has stopped. On an ownership conflict, inspect `handles.json`, `cleanup.json`, the source backup and raw events; do not overwrite changed source or signal a PID copied from stale evidence.
+The entrypoint refuses occupied port 3000 and unexpected source seams. It backs up source and the existing development cache, preserves cache contents in its owned working copy, and restores only source bytes whose hash it still owns. Shutdown sends one SIGTERM to the verified owned process group, then waits for both leader closure and every non-zombie member to exit within one total 10,000 ms deadline. It sends no further group signal after the leader exits. Source/cache restoration requires completed shutdown and a closed listener; deadline or ownership failures retain the backups. Inspect `handles.json`, `cleanup.json`, the source backup and raw events rather than overwriting changed source or signaling a PID from stale evidence. `native:browser:test` exercises these lifecycle boundaries with real processes.
 
 ## Publication and frozen installation
 
 The Linux PR workflow uploads `native-linux-x64-gnu-<workflow SHA>`. A candidate handoff consists of the emitted `.tgz`, `manifest.json`, native-test/build logs, both browser results and cleanup evidence. The tarball filename includes target, unchanged upstream version, patch identity and the complete tarball digest. Preserve that filename when publishing; do not overwrite an asset to change its bytes.
+
+The artifact suffix is GitHub's workflow SHA, which is the synthetic merge commit for a pull-request run, not necessarily its source head. The uploaded `native-evidence/runtime.json` records the actual checkout commit, workflow SHA, PR head SHA, run/attempt, runner image, OS release and glibc version. The lifecycle test log accompanies that identity evidence.
 
 Publish each manifest as `<tarball filename without .tgz>.manifest.json` so the two platform manifests cannot collide. Its contents stay unchanged, and its `tarball.file` resolves beside it. Verification accepts either that published name or the local `manifest.json`.
 
