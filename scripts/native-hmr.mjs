@@ -23,7 +23,13 @@ import {
 } from './native-hmr-support.mjs';
 import { waitForHmrBaseline, subscriptionResources } from './native-hmr-baseline.mjs';
 import { trackInitialScripts } from './native-hmr-inventory.mjs';
-import { observeNavigation } from './native-hmr-observation.mjs';
+import {
+  saveCacheIdentity,
+  observeNavigation,
+  observeScripts,
+  probeLiterals,
+  probeTimeline,
+} from './native-hmr-observation.mjs';
 
 const [mode, output, candidateManifest] = process.argv.slice(2);
 assert(
@@ -310,35 +316,15 @@ async function attach(page, label) {
         window.subscriptions.push(event);
     });
   }
-  const scripts = new Map();
-  cdp.on('Network.responseReceived', (data) => {
-    if (
-      mode === 'restored-lifecycle' &&
-      data.type === 'Script' &&
-      data.response.url.startsWith(origin + '/')
-    ) {
-      scripts.set(data.requestId, { url: data.response.url, generation, trial });
-    }
-  });
-  cdp.on('Network.loadingFinished', (data) => {
-    const response = scripts.get(data.requestId);
-    if (!response) return;
-    scripts.delete(data.requestId);
-    const pending = cdp
-      .send('Network.getResponseBody', { requestId: data.requestId })
-      .then((body) => {
-        const bytes = Buffer.from(body.body, body.base64Encoded ? 'base64' : 'utf8');
-        const literals = ['probe79-A', 'probe79-B', 'probe79-C', 'probe79-D'].filter((value) =>
-          bytes.toString('utf8').includes(value),
-        );
-        const entry = { ...response, sha256: hash(bytes), literals };
-        fs.writeFileSync(file(`chunk-${entry.sha256}.js`), bytes);
-        chunks.push(entry);
-        record('chunk-body', entry, label);
-      })
-      .catch((error) => record('chunk-body-error', { message: error.message }, label))
-      .finally(() => pendingBodies.delete(pending));
-    pendingBodies.add(pending);
+  observeScripts(state, {
+    origin,
+    out,
+    record,
+    chunks,
+    pendingBodies,
+    literals: probeLiterals(mode),
+    elapsed: () => now().ms,
+    context: () => ({ generation, trial }),
   });
   await cdp.send('Page.enable');
   await cdp.send('Network.enable');
@@ -456,7 +442,21 @@ async function sourceChange(context, mapPath) {
     remaining(),
     'Changed editor module HMR',
   );
-  await guard(Promise.all([retainedUpdate, navigate, editorReady, newValue, moduleUpdate]));
+  const timeline = probeTimeline(target, {
+    probe,
+    values: [valueA, valueB],
+    elapsed: () => now().ms,
+    record,
+  });
+  result.targetProbe = timeline.samples;
+  timeline.follow(editorReady, endMs);
+  await guard(Promise.all([retainedUpdate, navigate, editorReady, newValue, moduleUpdate])).catch(
+    async (error) => {
+      await timeline.failure(() => capture(target, 'failure-first-navigation'));
+      throw error;
+    },
+  );
+  timeline.stop();
   const loaderAfter = (await retained.cdp.send('Page.getFrameTree')).frameTree.frame.loaderId;
   result.sourceProof = {
     retainedDocuments: retained.documents.length - documents,
@@ -479,6 +479,7 @@ async function sourceChange(context, mapPath) {
   assert.equal(new URL(target.page.url()).pathname, mapPath);
   await capture(retained, 'source-retained-B');
   await capture(target, 'source-first-navigation-B');
+  await timeline.finish();
 }
 async function restoredLifecycle(mapPath) {
   let currentValue = 'probe79-A';
@@ -638,6 +639,7 @@ async function startRuntime() {
   prepareSource();
   if (fs.existsSync(cache)) fs.renameSync(cache, file('cache-original'));
   cacheOwned = true;
+  result.cacheIdentity = saveCacheIdentity(file('cache-original'), file('cache-identity.json'));
   if (fs.existsSync(file('cache-original')))
     fs.cpSync(file('cache-original'), cache, { recursive: true, preserveTimestamps: true });
   await startServer(mode === 'restored-lifecycle' ? 'probe79-A' : undefined);
@@ -677,6 +679,10 @@ async function run() {
     }
   } finally {
     phase = 'cleanup';
+    // Observation only: bodies requested before shutdown are saved, never affecting status.
+    await deadline(Promise.all([...pendingBodies]), 5000, 'Script body capture').catch((error) =>
+      record('chunk-body-error', { message: error.message }),
+    );
     await cleanup();
     save('chunks.json', chunks);
     save('readiness.json', readies);

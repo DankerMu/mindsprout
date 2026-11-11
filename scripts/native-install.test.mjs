@@ -36,24 +36,51 @@ function save(name, value) {
   fs.writeFileSync(path.join(output, name), JSON.stringify(value, null, 2) + '\n');
 }
 
-async function pnpm(project, args, name) {
-  const log = path.join(output, `${name}.log`);
-  const fd = fs.openSync(log, 'wx');
+async function spawnPnpm(project, args, logs, env) {
+  const fds = logs.map((log) => fs.openSync(log, 'wx'));
   try {
     const child = spawn('pnpm', args, {
       cwd: project,
-      env: process.env,
-      stdio: ['ignore', fd, fd],
+      env,
+      stdio: ['ignore', fds[0], fds.at(-1)],
       timeout: 120000,
     });
     const status = await new Promise((resolve, reject) => {
       child.once('error', reject);
       child.once('close', (code, signal) => resolve({ code, signal }));
     });
-    return { ...status, log, text: fs.readFileSync(log, 'utf8') };
+    return { ...status, streams: logs.map((log) => fs.readFileSync(log, 'utf8')) };
   } finally {
-    fs.closeSync(fd);
+    for (const fd of fds) fs.closeSync(fd);
   }
+}
+
+async function pnpm(project, args, name) {
+  const log = path.join(output, `${name}.log`);
+  const {
+    streams: [text],
+    ...status
+  } = await spawnPnpm(project, args, [log], process.env);
+  return { ...status, log, text };
+}
+
+async function pnpmVersion(project, directory, env = process.env) {
+  // Only stdout is the version; Node warnings (e.g. the env-proxy agent) go to stderr.
+  const logs = ['pnpm-version.stdout.log', 'pnpm-version.stderr.log'].map((name) =>
+    path.join(directory, name),
+  );
+  const {
+    streams: [stdout, stderr],
+    ...status
+  } = await spawnPnpm(project, ['--version'], logs, env);
+  return { ...status, stdout, stderr };
+}
+
+function assertPnpmVersion(result, expected) {
+  const diagnostic = `pnpm --version exited ${result.code}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`;
+  assert.equal(result.code, 0, diagnostic);
+  assert.equal(result.stdout.trim(), expected, diagnostic);
+  return result.stdout.trim();
 }
 
 function fixture(directory) {
@@ -115,10 +142,10 @@ test('ordinary frozen installation rejects corrupt optional native bytes through
   };
   try {
     const project = fixture(directory);
-    const version = await pnpm(project, ['--version'], 'pnpm-version');
-    assert.equal(version.code, 0, version.text);
-    evidence.actualPnpmVersion = version.text.trim();
-    assert.equal(evidence.actualPnpmVersion, rootPackage.packageManager.replace('pnpm@', ''));
+    evidence.actualPnpmVersion = assertPnpmVersion(
+      await pnpmVersion(project, output),
+      rootPackage.packageManager.replace('pnpm@', ''),
+    );
     const tarball = path.join(project, 'candidate.tgz');
     const response = await fetch(publishedUrl, { signal: AbortSignal.timeout(120000) });
     assert(response.ok && response.body, `Published artifact download failed: ${response.status}`);
@@ -183,5 +210,44 @@ test('ordinary frozen installation rejects corrupt optional native bytes through
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
     save('result.json', evidence);
+  }
+});
+
+test('pnpm version comes from stdout only; stderr warnings stay diagnostic', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-pnpm-version-'));
+  try {
+    const bin = path.join(directory, 'bin');
+    fs.mkdirSync(bin);
+    // A stub pnpm at the process boundary reproduces Node's proxy warning on stderr.
+    fs.writeFileSync(
+      path.join(bin, 'pnpm'),
+      '#!/bin/sh\n' +
+        'echo "(node:1) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental" >&2\n' +
+        'echo "$STUB_PNPM_VERSION"\n',
+      { mode: 0o755 },
+    );
+    const env = (version) => ({
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      STUB_PNPM_VERSION: version,
+    });
+    const run = async (name, version) => {
+      const logs = path.join(directory, name);
+      fs.mkdirSync(logs);
+      return pnpmVersion(directory, logs, env(version));
+    };
+    const good = await run('good', '10.28.0');
+    assert.equal(assertPnpmVersion(good, '10.28.0'), '10.28.0');
+    assert.match(good.stderr, /EnvHttpProxyAgent is experimental/);
+    const wrong = await run('wrong', '10.27.0');
+    assert.throws(
+      () => assertPnpmVersion(wrong, '10.28.0'),
+      (error) =>
+        error instanceof assert.AssertionError &&
+        /stdout:\n10\.27\.0/.test(error.message) &&
+        /EnvHttpProxyAgent is experimental/.test(error.message),
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
   }
 });
