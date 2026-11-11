@@ -112,8 +112,8 @@
   },
   "pnpm": {
     "overrides": {
-      "@next/swc-darwin-arm64@16.4.5": "https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-006609c1cfbb/darwin-arm64-39884c6086b48feb0a93e1ce7a5d2b29c4aa5fd89aecc815087cc75c6d1b6ea8.tgz",
-      "@next/swc-linux-x64-gnu@16.4.5": "https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-006609c1cfbb/linux-x64-gnu-503069bdd708d0b199c2e5741953954f925be9d4f700555cbbd3062ab58d862e.tgz"
+      "@next/swc-darwin-arm64@16.4.5": "https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-14a728f1035b/darwin-arm64-cde8d3b30f82ecc08ae16bac32364ea8dda8bed9a35f147d836ce3d3137e8c1a.tgz",
+      "@next/swc-linux-x64-gnu@16.4.5": "https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-14a728f1035b/linux-x64-gnu-485ae46232beedd2b53fe79b441cd9c2b840f5689c079e7c091564dcb34d90cf.tgz"
     }
   }
 }

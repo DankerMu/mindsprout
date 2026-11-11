@@ -7,7 +7,7 @@
   "sourceCommitShort": "2e27664995e8",
   "sourceTree": "7894bf15a03496d837356e198b35bf91c851bb86",
   "patchSha256": "006609c1cfbb3a7f366be9b6978deab773119e3967eced7ba8ff784ccaed6804",
-  "recipeSha256": "c2b836061c09c12aec2002120e619a56416696bc0978696b23e38bfbb3d719e3",
+  "recipeSha256": "14a728f1035b2c765384f540ce3a182ec0646e919c2029d02ae58d6468de6f0e",
   "metadataSha256": "dd0604e64a44be002bb5205db0d4717f07a26854ee007a9314519803b79569a8",
   "cargoLockSha256": "2c9d1258bc518f6ab2c49b3b7530f6871a816a804934fb9ad009fd1ea0bf7489",
   "toolchain": "nightly-2026-08-20",
@@ -27,16 +27,16 @@
     "--features",
     "image-extended,tracing/release_max_level_trace"
   ],
-  "sourceDirectory": "/tmp/mindsprout-native-e2N0Wh/source",
-  "targetDirectory": "/tmp/mindsprout-native-e2N0Wh/target",
+  "sourceDirectory": "/tmp/mindsprout-native-1nZTCl/source",
+  "targetDirectory": "/tmp/mindsprout-native-1nZTCl/target",
   "binary": {
     "file": "next-swc.linux-x64-gnu.node",
-    "sha256": "c5affdb1fc2b3163a9b71d5f90a6cd9379721b7527df6c53c49648e0ceb17e1d"
+    "sha256": "ec45938ca04cb715d7b80d846f6110d50079fd077a5f38196a00984702075e1b"
   },
   "tarball": {
-    "file": "next-swc-linux-x64-gnu-16.4.5-006609c1cfbb-503069bdd708d0b199c2e5741953954f925be9d4f700555cbbd3062ab58d862e.tgz",
-    "sha256": "503069bdd708d0b199c2e5741953954f925be9d4f700555cbbd3062ab58d862e",
-    "integrity": "sha512-EmpZ4z1n8rzGQogG3aTI3HCaobTuUgm0MgU80Jox5I9wbStNmP/bkkc0nZ2vI62mRjClECaRXYcKGF2kvBX7kg=="
+    "file": "next-swc-linux-x64-gnu-16.4.5-006609c1cfbb-485ae46232beedd2b53fe79b441cd9c2b840f5689c079e7c091564dcb34d90cf.tgz",
+    "sha256": "485ae46232beedd2b53fe79b441cd9c2b840f5689c079e7c091564dcb34d90cf",
+    "integrity": "sha512-sXfe0UKPdX36COjI70oqilLtxafqSNcEhLGp8JTOfTy1ziSS7RJ+o+odBvu0IQ7QgY7o3XdPhMPgwIQgcM9XPg=="
   },
   "addon": {
     "targetTriple": "x86_64-unknown-linux-gnu",
