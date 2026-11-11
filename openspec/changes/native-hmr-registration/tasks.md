@@ -4,13 +4,13 @@
 
 - [x] 1.1 Add a real persistent-backend regression for independently restored producer A plus newly registered B; parent records semantic RED on shared/sole asset lookup without private State mutation or reinserting A.
 - [x] 1.2 Repair publication/registration ownership without self-dependency using the macro-typed canonical self-operation binding; parent observes GREEN for restoration, precedence, missing path and removal, plus macro invalid-context rejection, handle identity/no-self-edge and pin release, preserving pins/effects and genuine update semantics.
-- [ ] 1.3 Prove uninstrumented native runtime closes the retained-cache reload counterexample and meaningful same-lifecycle source-edit first-navigation scenario within existing5s and browser noise assertions; capture screenshots and source restoration hashes.
+- [x] 1.3 Prove uninstrumented native runtime closes the retained-cache reload counterexample and meaningful same-lifecycle source-edit first-navigation scenario within existing5s and browser noise assertions; capture screenshots and source restoration hashes.
 
 ## 2. Reproducible native delivery
 
-- [ ] 2.1 Add minimal source-pinned native build/package commands and macOS arm64/Linux x64 GNU delivery; verify source/patch/Cargo.lock/binary/package digest manifest and actual addon target identity without changing upstream version or trusting unreviewed binary bytes.
-- [ ] 2.2 Generate package-manager overrides/lockfile for immutable candidate artifacts; clean frozen installs use the fixed binaries on both platforms, wrong integrity fails, and no diagnostic environment/native fallback is needed.
-- [ ] 2.3 Add decision and developer instructions covering maintenance, platform limitation, build/install failure, rollback and Renovate removal; verify docs/decisions gates and command accuracy.
+- [x] 2.1 Add minimal source-pinned native build/package commands and macOS arm64/Linux x64 GNU delivery; verify source/patch/Cargo.lock/binary/package digest manifest and actual addon target identity without changing upstream version or trusting unreviewed binary bytes.
+- [x] 2.2 Generate package-manager overrides/lockfile for immutable candidate artifacts; clean frozen installs use the fixed binaries on both platforms, wrong integrity fails, and no diagnostic environment/native fallback is needed.
+- [x] 2.3 Add decision and developer instructions covering maintenance, platform limitation, build/install failure, rollback and Renovate removal; verify docs/decisions gates and command accuracy.
 
 ## 3. Integration and merge
 
