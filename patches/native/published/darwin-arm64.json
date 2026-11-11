@@ -7,7 +7,7 @@
   "sourceCommitShort": "2e27664995e8",
   "sourceTree": "7894bf15a03496d837356e198b35bf91c851bb86",
   "patchSha256": "006609c1cfbb3a7f366be9b6978deab773119e3967eced7ba8ff784ccaed6804",
-  "recipeSha256": "14a728f1035b2c765384f540ce3a182ec0646e919c2029d02ae58d6468de6f0e",
+  "recipeSha256": "2029f3bbd2141d9ebc7b0476e6999a0d61d24e78c4e286bd345850d2b748913f",
   "metadataSha256": "dd0604e64a44be002bb5205db0d4717f07a26854ee007a9314519803b79569a8",
   "cargoLockSha256": "2c9d1258bc518f6ab2c49b3b7530f6871a816a804934fb9ad009fd1ea0bf7489",
   "toolchain": "nightly-2026-08-20",
@@ -27,16 +27,16 @@
     "--features",
     "image-extended,tracing/release_max_level_trace"
   ],
-  "sourceDirectory": "/private/var/folders/lc/n1j4ywl5451brjdj_6zfq86h0000gn/T/mindsprout-native-760hbE/source",
+  "sourceDirectory": "/private/var/folders/lc/n1j4ywl5451brjdj_6zfq86h0000gn/T/mindsprout-native-vlrjub/source",
   "targetDirectory": "/tmp/mindsprout-79-native-8iu_alho/target",
   "binary": {
     "file": "next-swc.darwin-arm64.node",
     "sha256": "74609cdc0a127f787c5f6d1bb3d985bc5e1212aac816813302d86831d61ce6d4"
   },
   "tarball": {
-    "file": "next-swc-darwin-arm64-16.4.5-006609c1cfbb-cde8d3b30f82ecc08ae16bac32364ea8dda8bed9a35f147d836ce3d3137e8c1a.tgz",
-    "sha256": "cde8d3b30f82ecc08ae16bac32364ea8dda8bed9a35f147d836ce3d3137e8c1a",
-    "integrity": "sha512-FcZN7RHlbBvFdVOFjWX1Of/zlylTVmdvw666AkpIJkULxDTdhUWpz87VYg/jbSHJA1cosXEL+gv6mTrkJCSP5A=="
+    "file": "next-swc-darwin-arm64-16.4.5-006609c1cfbb-59b673ceef51a286bdf8295f83528735dce427c6c3c749da66b7d824c0a3da85.tgz",
+    "sha256": "59b673ceef51a286bdf8295f83528735dce427c6c3c749da66b7d824c0a3da85",
+    "integrity": "sha512-uA3Jcgg1q/38jwV06yvrhAXbgS9wb1dyGoHOeCzkewvdtVKcvvSJo5zfUgJSxcYl/quIEodUaLRw2iN/KAOncQ=="
   },
   "addon": {
     "targetTriple": "aarch64-apple-darwin",

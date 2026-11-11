@@ -5,8 +5,8 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@next/swc-darwin-arm64@16.4.5': https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-14a728f1035b/darwin-arm64-cde8d3b30f82ecc08ae16bac32364ea8dda8bed9a35f147d836ce3d3137e8c1a.tgz
-  '@next/swc-linux-x64-gnu@16.4.5': https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-14a728f1035b/linux-x64-gnu-485ae46232beedd2b53fe79b441cd9c2b840f5689c079e7c091564dcb34d90cf.tgz
+  '@next/swc-darwin-arm64@16.4.5': https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/darwin-arm64-59b673ceef51a286bdf8295f83528735dce427c6c3c749da66b7d824c0a3da85.tgz
+  '@next/swc-linux-x64-gnu@16.4.5': https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/linux-x64-gnu-01d31631d320667b0c3610070cd9cd997110e2885e5780c80bf60153525a2e08.tgz
 
 importers:
 
@@ -1032,8 +1032,8 @@ packages:
   '@next/eslint-plugin-next@16.4.5':
     resolution: {integrity: sha512-dNmc4y4En/34tWxaBFF2tG/R9GeiRwVPf7v8Az/Pqk8FcT4Uv0ePmrZKvWBL2nFy1QprPgJW+6XjfyV6jbRV3Q==}
 
-  '@next/swc-darwin-arm64@https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-14a728f1035b/darwin-arm64-cde8d3b30f82ecc08ae16bac32364ea8dda8bed9a35f147d836ce3d3137e8c1a.tgz':
-    resolution: {integrity: sha512-FcZN7RHlbBvFdVOFjWX1Of/zlylTVmdvw666AkpIJkULxDTdhUWpz87VYg/jbSHJA1cosXEL+gv6mTrkJCSP5A==, tarball: https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-14a728f1035b/darwin-arm64-cde8d3b30f82ecc08ae16bac32364ea8dda8bed9a35f147d836ce3d3137e8c1a.tgz}
+  '@next/swc-darwin-arm64@https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/darwin-arm64-59b673ceef51a286bdf8295f83528735dce427c6c3c749da66b7d824c0a3da85.tgz':
+    resolution: {integrity: sha512-uA3Jcgg1q/38jwV06yvrhAXbgS9wb1dyGoHOeCzkewvdtVKcvvSJo5zfUgJSxcYl/quIEodUaLRw2iN/KAOncQ==, tarball: https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/darwin-arm64-59b673ceef51a286bdf8295f83528735dce427c6c3c749da66b7d824c0a3da85.tgz}
     version: 16.4.5
     engines: {node: '>= 10'}
     cpu: [arm64]
@@ -1057,8 +1057,8 @@ packages:
     cpu: [arm64]
     os: [linux]
 
-  '@next/swc-linux-x64-gnu@https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-14a728f1035b/linux-x64-gnu-485ae46232beedd2b53fe79b441cd9c2b840f5689c079e7c091564dcb34d90cf.tgz':
-    resolution: {integrity: sha512-sXfe0UKPdX36COjI70oqilLtxafqSNcEhLGp8JTOfTy1ziSS7RJ+o+odBvu0IQ7QgY7o3XdPhMPgwIQgcM9XPg==, tarball: https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-14a728f1035b/linux-x64-gnu-485ae46232beedd2b53fe79b441cd9c2b840f5689c079e7c091564dcb34d90cf.tgz}
+  '@next/swc-linux-x64-gnu@https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/linux-x64-gnu-01d31631d320667b0c3610070cd9cd997110e2885e5780c80bf60153525a2e08.tgz':
+    resolution: {integrity: sha512-Ol8rzWzxYXOQtAz7Otp8pyYF+6Zoj03GiRlgzqIbwPVg9jXTj+kaz+g0uoLk0Nd+xPbGc6Mgv73+qzUwfdzlPA==, tarball: https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/linux-x64-gnu-01d31631d320667b0c3610070cd9cd997110e2885e5780c80bf60153525a2e08.tgz}
     version: 16.4.5
     engines: {node: '>= 10'}
     cpu: [x64]
@@ -4782,7 +4782,7 @@ snapshots:
     transitivePeerDependencies:
       - eslint
 
-  '@next/swc-darwin-arm64@https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-14a728f1035b/darwin-arm64-cde8d3b30f82ecc08ae16bac32364ea8dda8bed9a35f147d836ce3d3137e8c1a.tgz':
+  '@next/swc-darwin-arm64@https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/darwin-arm64-59b673ceef51a286bdf8295f83528735dce427c6c3c749da66b7d824c0a3da85.tgz':
     optional: true
 
   '@next/swc-darwin-x64@16.4.5':
@@ -4794,7 +4794,7 @@ snapshots:
   '@next/swc-linux-arm64-musl@16.4.5':
     optional: true
 
-  '@next/swc-linux-x64-gnu@https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-14a728f1035b/linux-x64-gnu-485ae46232beedd2b53fe79b441cd9c2b840f5689c079e7c091564dcb34d90cf.tgz':
+  '@next/swc-linux-x64-gnu@https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/linux-x64-gnu-01d31631d320667b0c3610070cd9cd997110e2885e5780c80bf60153525a2e08.tgz':
     optional: true
 
   '@next/swc-linux-x64-musl@16.4.5':
@@ -6675,11 +6675,11 @@ snapshots:
       react-dom: 19.3.1(react@19.3.1)
       styled-jsx: 5.1.6(@babel/core@7.29.13)(react@19.3.1)
     optionalDependencies:
-      '@next/swc-darwin-arm64': https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-14a728f1035b/darwin-arm64-cde8d3b30f82ecc08ae16bac32364ea8dda8bed9a35f147d836ce3d3137e8c1a.tgz
+      '@next/swc-darwin-arm64': https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/darwin-arm64-59b673ceef51a286bdf8295f83528735dce427c6c3c749da66b7d824c0a3da85.tgz
       '@next/swc-darwin-x64': 16.4.5
       '@next/swc-linux-arm64-gnu': 16.4.5
       '@next/swc-linux-arm64-musl': 16.4.5
-      '@next/swc-linux-x64-gnu': https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-14a728f1035b/linux-x64-gnu-485ae46232beedd2b53fe79b441cd9c2b840f5689c079e7c091564dcb34d90cf.tgz
+      '@next/swc-linux-x64-gnu': https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/linux-x64-gnu-01d31631d320667b0c3610070cd9cd997110e2885e5780c80bf60153525a2e08.tgz
       '@next/swc-linux-x64-musl': 16.4.5
       '@next/swc-win32-arm64-msvc': 16.4.5
       '@next/swc-win32-x64-msvc': 16.4.5
