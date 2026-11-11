@@ -169,6 +169,114 @@ export function changesEditor(event, sourceRelative) {
   );
 }
 
+export function assertSourceProof(proof) {
+  assert.equal(proof.retainedDocuments, 0);
+  assert.equal(proof.retainedReloads, 0);
+  assert.equal(proof.loaderAfter, proof.retainedLoader, 'Retained HMR replaced its document');
+  assert.equal(proof.targetDocuments, 0);
+  assert.equal(proof.targetReloads, 0);
+  assert(proof.receivedUpdateFrames > 0, 'Missing partial MapEditor HMR');
+}
+
+export function editorUpdates(events, page, sinceMs, sourceRelative) {
+  return events.filter(
+    (event) => event.page === page && event.ms >= sinceMs && changesEditor(event, sourceRelative),
+  );
+}
+
+// Visibility on a clock. Callers join it after other awaits, so an early rejection is observed
+// here instead of escaping as an unhandled rejection that would skip cleanup.
+export function visibleWithin(locator, budget, visible, message) {
+  const waiting = locator
+    .waitFor({ state: 'visible', timeout: budget.remaining() })
+    .then(() => assert(visible().ms <= budget.endMs, message));
+  waiting.catch(() => {
+    // Observes an early rejection only; the same rejection still reaches the caller's join.
+  });
+  return waiting;
+}
+
+export function clock(startMs, elapsed, ms = 5000) {
+  const endMs = startMs + ms;
+  return { endMs, remaining: () => Math.max(1, endMs - elapsed()) };
+}
+
+// Dev chunk URLs map to their emitted file: /_next/static/chunks/X -> <.next/dev>/static/chunks/X.
+export function editorChunkFile(cacheDirectory, chunks, page, literal) {
+  const urls = [
+    ...new Set(
+      chunks
+        .filter((entry) => entry.page === page && entry.literals.includes(literal))
+        .map((entry) => entry.url),
+    ),
+  ];
+  assert.equal(urls.length, 1, `Expected exactly one retained editor chunk carrying ${literal}`);
+  const { pathname } = new URL(urls[0]);
+  assert(pathname.startsWith('/_next/static/chunks/'), `Not an emitted chunk URL: ${urls[0]}`);
+  return path.join(cacheDirectory, decodeURIComponent(pathname.slice('/_next/'.length)));
+}
+
+// Complete B build: B present, A absent, and the trailing source-map line is already written.
+export function emittedB(bytes, file, [valueA, valueB]) {
+  const text = bytes.toString('utf8');
+  return (
+    text.includes(valueB) &&
+    !text.includes(valueA) &&
+    text.trimEnd().endsWith(`//# sourceMappingURL=${path.basename(file)}.map`)
+  );
+}
+
+function readEmitted(file, values) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+  try {
+    const { size, mtimeMs } = fs.fstatSync(fd);
+    const bytes = fs.readFileSync(fd);
+    if (!emittedB(bytes, file, values)) return null;
+    return { path: file, size, mtimeMs, sha256: createHash('sha256').update(bytes).digest('hex') };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+export async function waitForEmitted(file, values, ms, intervalMs = 5) {
+  let polling = true;
+  const poll = async () => {
+    while (polling) {
+      const emitted = readEmitted(file, values);
+      if (emitted) return emitted;
+      await sleep(intervalMs);
+    }
+  };
+  try {
+    return await deadline(poll(), ms, 'Emitted B chunk');
+  } finally {
+    polling = false;
+  }
+}
+
+// First navigation starts only after the retained page received the changed module and the
+// emitted chunk on disk is the complete B build, so the navigation cannot fetch A.
+export async function firstNavigationGate({ observed, updates, file, values, clock: budget }) {
+  await waitForObserved(
+    observed,
+    () => updates().length > 0,
+    budget.remaining(),
+    'Changed editor module HMR',
+  );
+  const emitted = await waitForEmitted(file, values, budget.remaining());
+  return {
+    waitedOn: ['retained-editor-partial', 'emitted-B-chunk'],
+    partialMs: updates()[0].ms,
+    emitted,
+  };
+}
+
 export async function nativeIdentity(manifestPath) {
   let candidate;
   if (process.env.NEXT_TEST_NATIVE_DIR) {

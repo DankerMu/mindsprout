@@ -9,6 +9,7 @@ import { EventEmitter } from 'node:events';
 import { chromium } from '@playwright/test';
 import {
   assertQuiet,
+  assertSourceProof,
   sourceStimulus,
   deadline,
   listening,
@@ -18,8 +19,11 @@ import {
   capturePage,
   nativeIdentity,
   publicMap,
-  waitForObserved as waitForEvent,
-  changesEditor as changesSource,
+  clock,
+  editorChunkFile,
+  editorUpdates,
+  firstNavigationGate,
+  visibleWithin,
 } from './native-hmr-support.mjs';
 import { waitForHmrBaseline, subscriptionResources } from './native-hmr-baseline.mjs';
 import { trackInitialScripts } from './native-hmr-inventory.mjs';
@@ -49,6 +53,7 @@ const variable = 'NEXT_PUBLIC_MINDSPROUT_79_PROBE';
 const probe = mode === 'source-change' ? 'native-hmr-proof' : 'probe79-compiled-value';
 const valueA = 'Native HMR A';
 const valueB = 'Native HMR B';
+const values = [valueA, valueB];
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const file = (name) => path.join(out, name);
 const started = performance.now();
@@ -102,7 +107,6 @@ const sigint = () => interrupt(new Error('Interrupted by SIGINT'));
 process.on('SIGTERM', sigterm);
 process.on('SIGINT', sigint);
 
-const waitForObserved = (predicate, ms, label) => waitForEvent(observed, predicate, ms, label);
 function handles() {
   save('handles.json', {
     active: Boolean(server || browserServer),
@@ -357,7 +361,6 @@ async function homeBack(state) {
   );
   assert.equal(new URL(state.page.url()).pathname, '/');
 }
-const changesEditor = (event) => changesSource(event, sourceRelative);
 async function sourceChange(context, mapPath) {
   const previous = new Set(
     subscriptionResources(result.events, retained.label).map((item) => item.path),
@@ -414,43 +417,37 @@ async function sourceChange(context, mapPath) {
       result.targetSubscriptionPrerequisite = baseline;
     }),
   );
+  await guard(deadline(Promise.all([...pendingBodies]), 5000, 'Retained script bodies'));
+  const editorChunk = editorChunkFile(cache, chunks, retained.label, valueA);
   phase = 'source-observation';
   const stimulus = record('source-change-start', { from: valueA, to: valueB });
   cas(stimulatedB);
   handles();
+  const sinceStimulus = clock(stimulus.ms, () => now().ms);
+  const retainedUpdate = visibleWithin(
+    retained.page.getByTestId(probe).filter({ hasText: valueB }),
+    sinceStimulus,
+    () => record('visible-HMR-B', {}, retained.label),
+    'Source HMR exceeded 5000ms',
+  );
+  const updates = () => editorUpdates(result.events, retained.label, stimulus.ms, sourceRelative);
+  const waited = await guard(
+    firstNavigationGate({ observed, updates, file: editorChunk, values, clock: sinceStimulus }),
+  );
+  const gate = record('first-navigation-gate', waited);
   const navigation = record('first-navigation-start', { mapPath });
-  const endMs = navigation.ms + 5000;
-  const remaining = () => Math.max(1, endMs - (performance.now() - started));
-  const retainedUpdate = retained.page
-    .getByTestId(probe)
-    .filter({ hasText: valueB })
-    .waitFor({ state: 'visible', timeout: remaining() })
-    .then(() => {
-      assert(record('visible-HMR-B', {}, retained.label).ms <= endMs, 'Source HMR exceeded 5000ms');
-    });
+  const { endMs, remaining } = clock(navigation.ms, () => now().ms);
   const navigate = target.page.locator(`a[href="${mapPath}"]`).click({ timeout: remaining() });
   const editorReady = readiness(target, navigation, 'first-source-navigation', mapPath);
   const newValue = target.page
     .getByTestId(probe)
     .filter({ hasText: valueB })
-    .waitFor({ state: 'visible', timeout: remaining() });
-  const moduleUpdate = waitForObserved(
-    () =>
-      result.events.some(
-        (event) => event.page === retained.label && event.ms >= stimulus.ms && changesEditor(event),
-      ),
-    remaining(),
-    'Changed editor module HMR',
-  );
-  const timeline = probeTimeline(target, {
-    probe,
-    values: [valueA, valueB],
-    elapsed: () => now().ms,
-    record,
-  });
+    .waitFor({ state: 'visible', timeout: remaining() })
+    .then(() => record('visible-first-navigation-B', {}, target.label));
+  const timeline = probeTimeline(target, { probe, values, elapsed: () => now().ms, record });
   result.targetProbe = timeline.samples;
   timeline.follow(editorReady, endMs);
-  await guard(Promise.all([retainedUpdate, navigate, editorReady, newValue, moduleUpdate])).catch(
+  await guard(Promise.all([retainedUpdate, navigate, editorReady, newValue])).catch(
     async (error) => {
       await timeline.failure(() => capture(target, 'failure-first-navigation'));
       throw error;
@@ -466,16 +463,12 @@ async function sourceChange(context, mapPath) {
     targetDocuments: target.documents.length - targetDocuments,
     targetReloads: target.reloads.length - targetReloads,
     sourceToNavigationMs: navigation.ms - stimulus.ms,
-    receivedUpdateFrames: result.events.filter(
-      (event) => event.page === retained.label && event.ms >= stimulus.ms && changesEditor(event),
-    ).length,
+    stimulusToGateMs: gate.ms - stimulus.ms,
+    gateToNavigationMs: navigation.ms - gate.ms,
+    gate: gate.data,
+    receivedUpdateFrames: updates().length,
   };
-  assert.equal(result.sourceProof.retainedDocuments, 0);
-  assert.equal(result.sourceProof.retainedReloads, 0);
-  assert.equal(loaderAfter, retainedLoader, 'Retained HMR replaced its document');
-  assert.equal(result.sourceProof.targetDocuments, 0);
-  assert.equal(result.sourceProof.targetReloads, 0);
-  assert(result.sourceProof.receivedUpdateFrames > 0, 'Missing partial MapEditor HMR');
+  assertSourceProof(result.sourceProof);
   assert.equal(new URL(target.page.url()).pathname, mapPath);
   await capture(retained, 'source-retained-B');
   await capture(target, 'source-first-navigation-B');
