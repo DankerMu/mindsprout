@@ -154,12 +154,16 @@ for (const [name, expected] of [
   });
 }
 
-function assertCompilerPreflightRejected(setting, configure, expected) {
+function assertCompilerPreflightRejected(setting, configure, expected, operation = 'build') {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-native-compiler-'));
   const output = path.join(directory, 'output');
   const bin = path.join(directory, 'bin');
   const temporary = path.join(directory, 'tmp');
   const gitLog = path.join(directory, 'git-invocations.log');
+  const cargoLog = path.join(directory, 'cargo-invocations.log');
+  const wrapperLog = path.join(directory, 'wrapper-invocations.log');
+  const cwd = path.join(directory, 'caller', 'nested');
+  fs.mkdirSync(cwd, { recursive: true });
   fs.mkdirSync(bin);
   fs.mkdirSync(temporary);
   // Git is the external IO boundary: an unguarded selection stops before any
@@ -167,6 +171,11 @@ function assertCompilerPreflightRejected(setting, configure, expected) {
   fs.writeFileSync(
     path.join(bin, 'git'),
     '#!/bin/sh\nprintf "%s\\n" "$*" >> "$NATIVE_PREFLIGHT_GIT_LOG"\nprintf "GIT_BOUNDARY_REACHED\\n" >&2\nexit 97\n',
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(
+    path.join(bin, 'cargo'),
+    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$NATIVE_PREFLIGHT_CARGO_LOG"\nprintf "CARGO_BOUNDARY_REACHED\\n" >&2\nexit 98\n',
     { mode: 0o755 },
   );
   const inherited = Object.fromEntries(
@@ -182,12 +191,16 @@ function assertCompilerPreflightRejected(setting, configure, expected) {
     PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
     TMPDIR: fs.realpathSync(temporary),
     NATIVE_PREFLIGHT_GIT_LOG: gitLog,
+    NATIVE_PREFLIGHT_CARGO_LOG: cargoLog,
+    NATIVE_PREFLIGHT_WRAPPER_LOG: wrapperLog,
   };
   try {
     configure(env, directory);
-    const result = spawnSync(process.execPath, [cli, 'build', output], {
+    const argument = operation === 'build' ? output : manifestPath;
+    const result = spawnSync(process.execPath, [cli, operation, argument], {
       encoding: 'utf8',
       env,
+      cwd,
       timeout: 10000,
     });
     assert.equal(result.error, undefined, String(result.error));
@@ -202,6 +215,15 @@ function assertCompilerPreflightRejected(setting, configure, expected) {
       false,
       `${setting} must be rejected before initializing or fetching source`,
     );
+    assert.equal(fs.existsSync(cargoLog), false, `${setting} must be rejected before Cargo`);
+    assert.equal(fs.existsSync(wrapperLog), false, 'Unchecked Cargo wrapper must not execute');
+    if (operation === 'test') {
+      assert.match(
+        result.stdout,
+        /"status":"verified"/,
+        'Native-test preflight must use the genuine verified artifact',
+      );
+    }
     assert.match(
       result.stderr,
       expected,
@@ -268,4 +290,47 @@ for (const filename of ['config.toml', 'config']) {
       /build\.rustc/,
     );
   });
+}
+
+for (const operation of ['build', 'test']) {
+  for (const config of [null, 'config.toml', 'config']) {
+    const variant = config ? `wrapper trap in ${config}` : 'configuration-free home';
+    test(`${operation} rejects relative CARGO_HOME before native work: ${variant}`, () => {
+      assertCompilerPreflightRejected(
+        'relative CARGO_HOME',
+        (env, directory) => {
+          const home = path.join(fs.realpathSync(path.join(directory, 'tmp')), 'external-home');
+          fs.mkdirSync(home);
+          env.CARGO_HOME =
+            operation === 'build'
+              ? '../../external-home'
+              : path.relative(manifest.sourceDirectory, home);
+          const caller = fs.realpathSync(path.join(directory, 'caller', 'nested'));
+          const callerHome = path.resolve(caller, env.CARGO_HOME);
+          assert(!path.isAbsolute(env.CARGO_HOME));
+          assert.notEqual(
+            callerHome,
+            home,
+            'Fixture must expose different Node/Cargo home resolution',
+          );
+          assert(!fs.existsSync(path.join(callerHome, 'config')));
+          assert(!fs.existsSync(path.join(callerHome, 'config.toml')));
+          if (config) {
+            const wrapper = path.join(home, 'unchecked-wrapper');
+            fs.writeFileSync(
+              wrapper,
+              '#!/bin/sh\nprintf "WRAPPER_BOUNDARY_REACHED\\n" >> "$NATIVE_PREFLIGHT_WRAPPER_LOG"\nexit 99\n',
+              { mode: 0o755 },
+            );
+            fs.writeFileSync(
+              path.join(home, config),
+              `[build]\nrustc-wrapper = ${JSON.stringify(wrapper)}\n`,
+            );
+          }
+        },
+        /CARGO_HOME.*absolute/i,
+        operation,
+      );
+    });
+  }
 }

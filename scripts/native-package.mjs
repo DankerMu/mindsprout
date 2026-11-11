@@ -29,9 +29,9 @@ function targetName() {
   throw new Error('Native repair supports only macOS arm64 and Linux x64 GNU');
 }
 
-function rejectExternalCargoConfig(directory) {
+function rejectExternalCargoConfig(directory, cargoHome) {
   let current = path.resolve(directory);
-  const homes = new Set([process.env.CARGO_HOME || path.join(os.homedir(), '.cargo')]);
+  const homes = new Set([cargoHome]);
   for (;;) {
     homes.add(path.join(current, '.cargo'));
     const parent = path.dirname(current);
@@ -80,10 +80,17 @@ function environment() {
   ]) {
     assert(!process.env[name], `Unset ${name}; native builds must use their owned checkout`);
   }
+  const cargoHome = process.env.CARGO_HOME ?? path.join(os.homedir(), '.cargo');
+  assert(path.isAbsolute(cargoHome), 'CARGO_HOME must be an absolute, configuration-free path');
   // Clean source, not CI's dirty-tree exception, must enable the persistent cache.
-  const env = { ...process.env, RUSTUP_TOOLCHAIN: metadata.toolchain, RUSTUP_AUTO_INSTALL: '0' };
+  const env = {
+    ...process.env,
+    CARGO_HOME: path.resolve(cargoHome),
+    RUSTUP_TOOLCHAIN: metadata.toolchain,
+    RUSTUP_AUTO_INSTALL: '0',
+  };
   env.TMPDIR = fs.realpathSync(os.tmpdir());
-  rejectExternalCargoConfig(env.TMPDIR);
+  rejectExternalCargoConfig(env.TMPDIR, env.CARGO_HOME);
   delete env.CI;
   return env;
 }
@@ -484,7 +491,7 @@ async function nativeTests(filename) {
   const env = environment();
   env.CARGO_TARGET_DIR = manifest.targetDirectory;
   const source = manifest.sourceDirectory;
-  rejectExternalCargoConfig(path.dirname(source));
+  rejectExternalCargoConfig(path.dirname(source), env.CARGO_HOME);
   cleanSource(source, env, manifest.sourceCommit);
   toolchain(source, env, manifest.target);
   const cases = [
