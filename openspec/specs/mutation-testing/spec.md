@@ -92,3 +92,14 @@ Enabling Stryker debug logging SHALL NOT change whether the Vitest runner initia
 - **THEN** runner initialization completes and the initial test run starts
 - **AND** the debug log contains a `vitest final config:` message naming the top-level keys `root`, `include` and `resolvedProjects`
 - **AND** an info-level run executes the same number of initial tests and logs no `vitest final config:` message
+
+### Requirement: Collected runner errors are always reportable
+
+Formatting a collected error for a mutation report SHALL NOT throw because the value cannot be converted with `String`; a value whose `name`, `message` or `stack` accessor itself throws is outside this guarantee (upstream parity). When a value cannot be converted with `String`, the formatter MUST return its `name: message` and stack when present, or the object tag otherwise, and the runner MUST return its original error result with every collected message.
+
+#### Scenario: Unstringifiable value in the Vitest error set
+
+- **WHEN** a Vitest run collects a null-prototype error-like value together with an ordinary `Error`
+- **THEN** the runner returns an error result instead of throwing
+- **AND** its error message contains the formatted null-prototype value and the ordinary error's message
+- **AND** values that were already formattable produce the same text as before

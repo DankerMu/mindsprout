@@ -2,14 +2,14 @@
 
 ## 1. Patch and regression
 
-- [ ] 1.1 Extend the installed-seam regression with the five formatter inputs and runner `dryRun` + `mutantRun` scenarios; parent records RED on unpatched `@stryker-mutator/util@10.1.1` with each input's listed unpatched error message.
-- [ ] 1.2 Create the util pnpm patch mirroring stryker-js#6226; regression GREEN; existing `errorToString` outputs unchanged; frozen install applies both patches; lockfile delta matches the measured list in design.md; measured negative path.
-- [ ] 1.3 Coexistence: #118 scenarios, `pnpm native:installed`, `pnpm native:install:test` pass.
+- [x] 1.1 Extend the installed-seam regression with the five formatter inputs and runner `dryRun` + `mutantRun` scenarios; parent records RED on unpatched `@stryker-mutator/util@10.1.1` with each input's listed unpatched error message.
+- [x] 1.2 Create the util pnpm patch mirroring stryker-js#6226; regression GREEN; existing `errorToString` outputs unchanged; frozen install applies both patches; lockfile delta matches the measured list in design.md; measured negative path.
+- [x] 1.3 Coexistence: #118 scenarios, `pnpm native:installed`, `pnpm native:install:test` pass.
 
 ## 2. Docs and merge
 
-- [ ] 2.1 Decision 0022 patch inventory and `docs/engineering/dependency-patches.md` (current patches, Known Limitations: unguarded exotic property access); docs/decisions gates; `pnpm test:guardrails` if any workflow/hook changes.
-- [ ] 2.2 Scoped checks, cross-review, exact-head CI, merge, archive.
+- [x] 2.1 Decision 0022 patch inventory and `docs/engineering/dependency-patches.md` (current patches, Known Limitations: unguarded exotic property access); docs/decisions gates; `pnpm test:guardrails` if any workflow/hook changes.
+- [x] 2.2 Scoped checks, cross-review, exact-head CI, merge, archive.
 
 ## Risk packs
 
