@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "version": "16.4.5",
+  "target": "darwin-arm64",
+  "upstreamCommit": "4e5335a00314be7fbb2aace5e9be56a88e64e5a8",
+  "sourceCommit": "2e27664995e83148186f317499127a688ca3635a",
+  "sourceCommitShort": "2e27664995e8",
+  "sourceTree": "7894bf15a03496d837356e198b35bf91c851bb86",
+  "patchSha256": "006609c1cfbb3a7f366be9b6978deab773119e3967eced7ba8ff784ccaed6804",
+  "recipeSha256": "2029f3bbd2141d9ebc7b0476e6999a0d61d24e78c4e286bd345850d2b748913f",
+  "metadataSha256": "dd0604e64a44be002bb5205db0d4717f07a26854ee007a9314519803b79569a8",
+  "cargoLockSha256": "2c9d1258bc518f6ab2c49b3b7530f6871a816a804934fb9ad009fd1ea0bf7489",
+  "toolchain": "nightly-2026-08-20",
+  "compiler": {
+    "channel": "nightly-2026-08-20",
+    "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)\nbinary: rustc\ncommit-hash: f7d782a3be46d6bb4b9792fe69a61db389ba1769\ncommit-date: 2026-08-19\nhost: aarch64-apple-darwin\nrelease: 1.100.0-nightly\nLLVM version: 23.1.0",
+    "cargo": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+    "sha256": "01a789e9bcc2d85bb95c3e7e3f53fdbf09aaff188f107ad69ab74500f83b7920"
+  },
+  "buildCommand": [
+    "cargo",
+    "build",
+    "--locked",
+    "--release",
+    "-p",
+    "next-napi-bindings",
+    "--features",
+    "image-extended,tracing/release_max_level_trace"
+  ],
+  "sourceDirectory": "/private/var/folders/lc/n1j4ywl5451brjdj_6zfq86h0000gn/T/mindsprout-native-vlrjub/source",
+  "targetDirectory": "/tmp/mindsprout-79-native-8iu_alho/target",
+  "binary": {
+    "file": "next-swc.darwin-arm64.node",
+    "sha256": "74609cdc0a127f787c5f6d1bb3d985bc5e1212aac816813302d86831d61ce6d4"
+  },
+  "tarball": {
+    "file": "next-swc-darwin-arm64-16.4.5-006609c1cfbb-59b673ceef51a286bdf8295f83528735dce427c6c3c749da66b7d824c0a3da85.tgz",
+    "sha256": "59b673ceef51a286bdf8295f83528735dce427c6c3c749da66b7d824c0a3da85",
+    "integrity": "sha512-uA3Jcgg1q/38jwV06yvrhAXbgS9wb1dyGoHOeCzkewvdtVKcvvSJo5zfUgJSxcYl/quIEodUaLRw2iN/KAOncQ=="
+  },
+  "addon": {
+    "targetTriple": "aarch64-apple-darwin",
+    "cacheVersion": "v16.4.5-2e27664995e8"
+  }
+}
