@@ -57,6 +57,7 @@ pnpm dev
 
 完整本地 setup、环境配置与日常命令见 [开发工作流](AGENTS.md#development-workflow)。
 原生 HMR 修复的构建、验证、安装和故障处理见 [原生开发说明](docs/engineering/native-hmr.md)。
+依赖补丁（pnpm `patchedDependencies`）的维护与移除见 [依赖补丁说明](docs/engineering/dependency-patches.md)。
 
 ## 许可
 

@@ -8,6 +8,11 @@ overrides:
   '@next/swc-darwin-arm64@16.4.5': https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/darwin-arm64-59b673ceef51a286bdf8295f83528735dce427c6c3c749da66b7d824c0a3da85.tgz
   '@next/swc-linux-x64-gnu@16.4.5': https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/linux-x64-gnu-01d31631d320667b0c3610070cd9cd997110e2885e5780c80bf60153525a2e08.tgz
 
+patchedDependencies:
+  '@stryker-mutator/vitest-runner@10.1.1':
+    hash: 7ffd5b0d791b765b681fffaba7eed3a74e1575ba3c259b55a99412e689c59a26
+    path: patches/@stryker-mutator__vitest-runner@10.1.1.patch
+
 importers:
 
   .:
@@ -72,7 +77,7 @@ importers:
         version: 10.1.1(@types/node@22.20.5)
       '@stryker-mutator/vitest-runner':
         specifier: ^10.1.1
-        version: 10.1.1(@stryker-mutator/core@10.1.1(@types/node@22.20.5))(vitest@5.1.0)
+        version: 10.1.1(patch_hash=7ffd5b0d791b765b681fffaba7eed3a74e1575ba3c259b55a99412e689c59a26)(@stryker-mutator/core@10.1.1(@types/node@22.20.5))(vitest@5.1.0)
       '@testing-library/dom':
         specifier: ^10.4.2
         version: 10.4.2
@@ -5119,7 +5124,7 @@ snapshots:
 
   '@stryker-mutator/util@10.1.1': {}
 
-  '@stryker-mutator/vitest-runner@10.1.1(@stryker-mutator/core@10.1.1(@types/node@22.20.5))(vitest@5.1.0)':
+  '@stryker-mutator/vitest-runner@10.1.1(patch_hash=7ffd5b0d791b765b681fffaba7eed3a74e1575ba3c259b55a99412e689c59a26)(@stryker-mutator/core@10.1.1(@types/node@22.20.5))(vitest@5.1.0)':
     dependencies:
       '@stryker-mutator/api': 10.1.1
       '@stryker-mutator/core': 10.1.1(@types/node@22.20.5)
