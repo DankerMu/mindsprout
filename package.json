@@ -117,7 +117,8 @@
       "@next/swc-linux-x64-gnu@16.4.5": "https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/linux-x64-gnu-01d31631d320667b0c3610070cd9cd997110e2885e5780c80bf60153525a2e08.tgz"
     },
     "patchedDependencies": {
-      "@stryker-mutator/vitest-runner@10.1.1": "patches/@stryker-mutator__vitest-runner@10.1.1.patch"
+      "@stryker-mutator/vitest-runner@10.1.1": "patches/@stryker-mutator__vitest-runner@10.1.1.patch",
+      "@stryker-mutator/util@10.1.1": "patches/@stryker-mutator__util@10.1.1.patch"
     }
   }
 }
