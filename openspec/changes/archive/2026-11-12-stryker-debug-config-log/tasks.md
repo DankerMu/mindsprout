@@ -9,7 +9,7 @@
 ## 2. Mechanism, docs, merge
 
 - [x] 2.1 Decision record for repo-maintained dependency patches (location, exact-version pin, loud failure on non-applying patch, removal via Renovate once upstream releases); developer doc; AGENTS.md command row and CI step for the regression; `pnpm test:guardrails`, docs/decisions gates.
-- [ ] 2.2 Scoped checks, cross-review, exact-head CI, merge, archive.
+- [x] 2.2 Scoped checks, cross-review, exact-head CI, merge, archive.
 
 ## Risk packs
 
