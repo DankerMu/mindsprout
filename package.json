@@ -35,6 +35,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:contract": "vitest run --config vitest.contract.config.ts",
     "test:licenses": "node --test scripts/check-licenses.test.mjs",
+    "test:stryker-patch": "node --test scripts/stryker-vitest-runner-patch.test.mjs",
     "dead-code": "knip --reporter compact",
     "duplicate-code": "jscpd --config jscpd.json src",
     "anti-drift": "pnpm test:licenses && pnpm licenses:check && pnpm dead-code && pnpm duplicate-code",
@@ -114,6 +115,9 @@
     "overrides": {
       "@next/swc-darwin-arm64@16.4.5": "https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/darwin-arm64-59b673ceef51a286bdf8295f83528735dce427c6c3c749da66b7d824c0a3da85.tgz",
       "@next/swc-linux-x64-gnu@16.4.5": "https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/linux-x64-gnu-01d31631d320667b0c3610070cd9cd997110e2885e5780c80bf60153525a2e08.tgz"
+    },
+    "patchedDependencies": {
+      "@stryker-mutator/vitest-runner@10.1.1": "patches/@stryker-mutator__vitest-runner@10.1.1.patch"
     }
   }
 }

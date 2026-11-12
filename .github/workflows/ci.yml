@@ -105,6 +105,8 @@ jobs:
         run: grep -q 'constraints\.yaml' .git-hooks/check-naming.sh
       - name: License audit contract tests
         run: pnpm test:licenses
+      - name: Patched Stryker Vitest runner regression
+        run: pnpm test:stryker-patch
       - name: Installed dependency license audit
         run: pnpm licenses:check
       - name: Duplicate code

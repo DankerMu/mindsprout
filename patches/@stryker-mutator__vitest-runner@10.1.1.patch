@@ -1,0 +1,13 @@
+diff --git a/dist/src/vitest-test-runner.js b/dist/src/vitest-test-runner.js
+index ea9f88cbc22d06e514c049ccbfdb0b46439df1aa..6cd7a764f76ae288a21b34e0bb6b4b395160fb26 100644
+--- a/dist/src/vitest-test-runner.js
++++ b/dist/src/vitest-test-runner.js
+@@ -150,7 +150,7 @@ export class VitestTestRunner {
+             project.config.browser.screenshotFailures = false;
+         });
+         if (this.log.isDebugEnabled()) {
+-            this.log.debug(`vitest final config: ${JSON.stringify(this.ctx.config, null, 2)}`);
++            this.log.debug('vitest final config: %O', this.ctx.config);
+         }
+     }
+     async dryRun(options) {

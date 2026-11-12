@@ -108,6 +108,7 @@ pnpm setup && docker compose up -d && cp .env.example .env
 | Format / lint / typecheck / boundaries                            | `pnpm fmt` (`pnpm fmt:check`) / `pnpm lint` / `pnpm typecheck` / `pnpm boundaries` |
 | Anti-drift / docs gate / decisions gate                           | `pnpm anti-drift` / `pnpm docs:check` / `pnpm decisions:check`                     |
 | License audit / contract tests                                    | `pnpm licenses:check` / `pnpm test:licenses`                                       |
+| Patched Stryker Vitest runner regression                          | `pnpm test:stryker-patch`                                                          |
 | Build / change inventory                                          | `pnpm build` / `pnpm change-scope <base-ref>`                                      |
 
 All commands route through `package.json` scripts. Do not invent ad-hoc commands; if a workflow is missing, add it to the scripts and to this table.
