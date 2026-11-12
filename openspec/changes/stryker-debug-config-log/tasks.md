@@ -2,13 +2,13 @@
 
 ## 1. Patch and regression
 
-- [ ] 1.1 Add the patched-runner regression first; parent records RED on unpatched installed `@stryker-mutator/vitest-runner@10.1.1` (circular JSON from debug config logging).
-- [ ] 1.2 Create the pnpm patch (`pnpm patch` / `patch-commit`) mirroring upstream stryker-js#6261 debug config formatting; regression GREEN; frozen install applies the patch; lockfile changes only by patch metadata.
-- [ ] 1.3 Real `stryker run --dryRunOnly` at debug level prints `vitest final config:` and `Initial test run succeeded. Ran N tests`; at info level the same N and no config line.
+- [x] 1.1 Add the patched-runner regression first; parent records RED on unpatched installed `@stryker-mutator/vitest-runner@10.1.1` (circular JSON from debug config logging).
+- [x] 1.2 Create the pnpm patch (`pnpm patch` / `patch-commit`) mirroring upstream stryker-js#6261 debug config formatting; regression GREEN; frozen install applies the patch; lockfile changes only by patch metadata.
+- [x] 1.3 Real `stryker run --dryRunOnly` at debug level prints `vitest final config:` and `Initial test run succeeded. Ran N tests`; at info level the same N and no config line.
 
 ## 2. Mechanism, docs, merge
 
-- [ ] 2.1 Decision record for repo-maintained dependency patches (location, exact-version pin, loud failure on non-applying patch, removal via Renovate once upstream releases); developer doc; AGENTS.md command row and CI step for the regression; `pnpm test:guardrails`, docs/decisions gates.
+- [x] 2.1 Decision record for repo-maintained dependency patches (location, exact-version pin, loud failure on non-applying patch, removal via Renovate once upstream releases); developer doc; AGENTS.md command row and CI step for the regression; `pnpm test:guardrails`, docs/decisions gates.
 - [ ] 2.2 Scoped checks, cross-review, exact-head CI, merge, archive.
 
 ## Risk packs
