@@ -1,0 +1,30 @@
+diff --git a/dist/src/errors.js b/dist/src/errors.js
+index 69413bd51ceda6a6d914f38859284352a52afc90..8848bd0b07564bd85d419730335070d3a9f6060b 100644
+--- a/dist/src/errors.js
++++ b/dist/src/errors.js
+@@ -18,8 +18,23 @@ export function errorToString(error) {
+             return message;
+         }
+     }
+-    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- Ignore as error is most likely a string. Don't use JSON.stringify as circular graphs could cause an error
+-    return String(error);
++    try {
++        // eslint-disable-next-line @typescript-eslint/no-base-to-string -- Ignore as error is most likely a string. Don't use JSON.stringify as circular graphs could cause an error
++        return String(error);
++    }
++    catch {
++        // `String` throws a TypeError for a value that cannot be coerced to a primitive. An object with a
++        // null prototype is the common case: it has no `toString`, and it is exactly what a
++        // structured-clone-style serializer produces for an error that crossed a worker boundary. Throwing
++        // here would replace the error being reported with a TypeError about reporting it, losing the only
++        // diagnostic the caller had.
++        const { name, message, stack } = error;
++        if (typeof message !== 'string') {
++            return Object.prototype.toString.call(error);
++        }
++        const header = typeof name === 'string' ? `${name}: ${message}` : message;
++        return typeof stack === 'string' ? `${header}\n${stack}` : header;
++    }
+ }
+ export const ERROR_CODES = Object.freeze({
+     NoSuchFileOrDirectory: 'ENOENT',

@@ -9,6 +9,9 @@ overrides:
   '@next/swc-linux-x64-gnu@16.4.5': https://github.com/DankerMu/mindsprout/releases/download/native-next-16.4.5-2029f3bbd214/linux-x64-gnu-01d31631d320667b0c3610070cd9cd997110e2885e5780c80bf60153525a2e08.tgz
 
 patchedDependencies:
+  '@stryker-mutator/util@10.1.1':
+    hash: 5a802007294fe7c07ea41d061e868f8e489b4512b515afbf7e19e358d73e4176
+    path: patches/@stryker-mutator__util@10.1.1.patch
   '@stryker-mutator/vitest-runner@10.1.1':
     hash: 7ffd5b0d791b765b681fffaba7eed3a74e1575ba3c259b55a99412e689c59a26
     path: patches/@stryker-mutator__vitest-runner@10.1.1.patch
@@ -5079,7 +5082,7 @@ snapshots:
       '@inquirer/prompts': 8.7.5(@types/node@22.20.5)
       '@stryker-mutator/api': 10.1.1
       '@stryker-mutator/instrumenter': 10.1.1
-      '@stryker-mutator/util': 10.1.1
+      '@stryker-mutator/util': 10.1.1(patch_hash=5a802007294fe7c07ea41d061e868f8e489b4512b515afbf7e19e358d73e4176)
       ajv: 8.20.0
       chalk: 5.6.2
       commander: 14.0.3
@@ -5116,19 +5119,19 @@ snapshots:
       '@babel/preset-typescript': 8.0.7(@babel/core@8.0.10)
       '@babel/traverse': 8.0.10
       '@stryker-mutator/api': 10.1.1
-      '@stryker-mutator/util': 10.1.1
+      '@stryker-mutator/util': 10.1.1(patch_hash=5a802007294fe7c07ea41d061e868f8e489b4512b515afbf7e19e358d73e4176)
       angular-html-parser: 10.11.0
       semver: 7.8.6
       tslib: 2.8.1
       weapon-regex: 2.0.6
 
-  '@stryker-mutator/util@10.1.1': {}
+  '@stryker-mutator/util@10.1.1(patch_hash=5a802007294fe7c07ea41d061e868f8e489b4512b515afbf7e19e358d73e4176)': {}
 
   '@stryker-mutator/vitest-runner@10.1.1(patch_hash=7ffd5b0d791b765b681fffaba7eed3a74e1575ba3c259b55a99412e689c59a26)(@stryker-mutator/core@10.1.1(@types/node@22.20.5))(vitest@5.1.0)':
     dependencies:
       '@stryker-mutator/api': 10.1.1
       '@stryker-mutator/core': 10.1.1(@types/node@22.20.5)
-      '@stryker-mutator/util': 10.1.1
+      '@stryker-mutator/util': 10.1.1(patch_hash=5a802007294fe7c07ea41d061e868f8e489b4512b515afbf7e19e358d73e4176)
       semver: 7.8.6
       tslib: 2.8.1
       vitest: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(@vitest/coverage-v8@5.1.0)(jsdom@30.1.3)(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1))

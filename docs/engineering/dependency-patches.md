@@ -4,15 +4,16 @@ Repository-maintained fixes to published JavaScript dependencies are pnpm `patch
 
 ## Current patches
 
-| Package and exact version               | Patch                                                                                          | Upstream                                                                   | Regression                |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------- |
-| `@stryker-mutator/vitest-runner@10.1.1` | [debug config `%O` logging](../../patches/@stryker-mutator__vitest-runner@10.1.1.patch) (#118) | [stryker-js#6261](https://github.com/stryker-mutator/stryker-js/pull/6261) | `pnpm test:stryker-patch` |
+| Package and exact version               | Patch                                                                                                           | Upstream                                                                   | Regression                |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------- |
+| `@stryker-mutator/vitest-runner@10.1.1` | [debug config `%O` logging](../../patches/@stryker-mutator__vitest-runner@10.1.1.patch) (#118)                  | [stryker-js#6261](https://github.com/stryker-mutator/stryker-js/pull/6261) | `pnpm test:stryker-patch` |
+| `@stryker-mutator/util@10.1.1`          | [`errorToString` fallback for unstringifiable values](../../patches/@stryker-mutator__util@10.1.1.patch) (#119) | [stryker-js#6226](https://github.com/stryker-mutator/stryker-js/pull/6226) | `pnpm test:stryker-patch` |
 
 ## Add or regenerate a patch
 
 1. Write the regression first. It must import the installed file under `node_modules/` and assert that its real path contains `patch_hash=`. Run it once against the stock package and keep the failing output.
 2. Edit outside the working tree: `pnpm patch <name>@<exact-version> --edit-dir <scratch directory>`. Change shipped files only, mirroring the upstream fix.
-3. Run `pnpm patch-commit <scratch directory>`. pnpm writes `patches/`, the exact-version `patchedDependencies` key and the lockfile hash.
+3. Run `pnpm patch-commit <scratch directory>`. pnpm writes `patches/`, the exact-version `patchedDependencies` key and the lockfile hash. If `git diff pnpm-lock.yaml` is then empty, as it was for the util patch, regenerate the lockfile with `pnpm install --lockfile-only --store-dir <empty scratch directory>`. Re-resolving against a store that already holds the native tarball overrides drops their `integrity` from the lockfile.
 4. Check that `git diff pnpm-lock.yaml` shows only the `patchedDependencies` block and the `patch_hash` suffixes. Then remove `node_modules`, run `pnpm install --frozen-lockfile`, and run the regression plus the behavior it protects.
 
 ## Failure modes
@@ -31,3 +32,4 @@ Once a released version contains the fix, delete the patch file and its `patched
 
 - Patches edit compiled `dist/` output, not upstream TypeScript. Source maps for a patched line can be off by a few columns.
 - The Stryker runner patch prints config with `util.inspect` at depth 2. Values nested more than two levels deep appear as `[Object]`.
+- The Stryker util patch reads `name`, `message` and `stack` without a guard once `String` has thrown, as upstream does. An unstringifiable value with a throwing `message` getter still makes `errorToString` throw. A revoked `Proxy` throws earlier, at the `instanceof Error` check, with or without the patch.
