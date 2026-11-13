@@ -46,10 +46,13 @@ test('the committed lockfile installs every native override with sha512 integrit
 
 // Fixtures are edits of the committed lockfile text, located independently of the YAML parser.
 function nativeOverride(name) {
-  const match = lockText.match(new RegExp(`^  '(${literal(name)}@[^']+)': (https://\\S+)$`, 'm'));
-  assert.ok(match, `the committed lockfile overrides ${name}`);
-  const [, key, url] = match;
-  return { key, url, entry: `  '${name}@${url}':\n` };
+  const line = lockText
+    .split('\n')
+    .find((candidate) => candidate.startsWith(`  '${name}@`) && candidate.includes("': https://"));
+  assert.ok(line, `the committed lockfile overrides ${name}`);
+  const separator = line.indexOf("': ");
+  const url = line.slice(separator + 3);
+  return { key: line.slice(3, separator), url, entry: `  '${name}@${url}':` };
 }
 
 function edit(text, from, to) {
@@ -58,42 +61,66 @@ function edit(text, from, to) {
   return edited;
 }
 
-const literal = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const resolutionOf = ({ entry }) => new RegExp(`(${literal(entry)}    resolution: \\{)([^}]*)\\}`);
+const RESOLUTION = '    resolution: {';
+
+// Index of the packages entry key line: the entry line directly followed by its resolution line.
+function packagesEntry(lines, { entry }) {
+  const index = lines.findIndex(
+    (line, at) => line === entry && lines[at + 1]?.startsWith(RESOLUTION),
+  );
+  assert.notEqual(index, -1, `the lockfile has the packages entry ${entry}`);
+  return index;
+}
+
+// Replaces the `{...}` body of the native packages entry's resolution line with rewrite(body).
+function editResolution(text, native, rewrite) {
+  const lines = text.split('\n');
+  const index = packagesEntry(lines, native) + 1;
+  assert.ok(lines[index].endsWith('}'), lines[index]);
+  const body = lines[index].slice(RESOLUTION.length, -1);
+  lines[index] = `${RESOLUTION}${rewrite(body)}}`;
+  const edited = lines.join('\n');
+  assert.notEqual(edited, text, `fixture edit of ${native.entry} must change the lockfile`);
+  return edited;
+}
+
+// Removes the packages entry key line and every following four-space-indented line.
+function deletePackagesEntry(text, native) {
+  const lines = text.split('\n');
+  const index = packagesEntry(lines, native);
+  let end = index + 1;
+  while (lines[end].startsWith('    ')) end += 1;
+  lines.splice(index, end - index);
+  return lines.join('\n');
+}
 
 const mutations = [
   {
     title: 'integrity removed, as a warm-store re-resolution writes it',
-    apply: (text, native) =>
-      edit(text, resolutionOf(native), (_, head) => `${head}tarball: ${native.url}}`),
+    apply: (text, native) => editResolution(text, native, () => `tarball: ${native.url}`),
     reason: /integrity/,
   },
   {
     title: 'integrity replaced with a sha1 value',
     apply: (text, native) =>
-      edit(
+      editResolution(
         text,
-        resolutionOf(native),
-        (_, head) => `${head}integrity: sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk=, tarball: ${native.url}}`,
+        native,
+        () => `integrity: sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk=, tarball: ${native.url}`,
       ),
     reason: /integrity/,
   },
   {
     title: 'tarball differs from the override URL',
     apply: (text, native) =>
-      edit(text, resolutionOf(native), (whole) =>
-        whole.replace(/tarball: \S+\}$/, 'tarball: https://example.com/x.tgz}'),
+      editResolution(text, native, (body) =>
+        body.replace(`tarball: ${native.url}`, 'tarball: https://example.com/x.tgz'),
       ),
     reason: /tarball/,
   },
   {
     title: 'packages entry deleted',
-    apply: (text, native) =>
-      edit(
-        text,
-        new RegExp(`\\n${literal(native.entry)}    resolution:[^\\n]*\\n(    [^\\n]*\\n)*`),
-        '\n',
-      ),
+    apply: deletePackagesEntry,
     reason: /packages entry/,
   },
 ];
