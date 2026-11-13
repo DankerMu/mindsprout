@@ -52,7 +52,7 @@ Opening `/maps/<id>` SHALL show an error state with a link back to the library w
 
 ### Requirement: Published canvas limitations
 
-The README SHALL disclose under `## Known Limitations`:
+The README SHALL disclose at least the following among the entries under `## Known Limitations`; other entries that are still true MAY remain:
 
 - no AI;
 - editing one map on two devices at once keeps the last save;

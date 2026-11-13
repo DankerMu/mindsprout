@@ -67,6 +67,7 @@ PRD §8 M2 acceptance is "换设备能看到同一张图". Today maps live only 
   - `src/proxy.ts`
   - `/login`, `/register` and `/admin` pages, and the header session menu
   - `db/migrations/`, a migration runner in `scripts/`, and integration tests under `tests/integration/`
+  - `e2e/support/expected-responses.ts`, which lets an e2e test declare the non-2xx responses it expects (design D13, decision 0024)
 - **Removed code:**
   - The IndexedDB adapter and its tests
   - The in-memory fallback wiring, the storage-unavailable banner and `StorageUnavailableError`
@@ -87,4 +88,4 @@ PRD §8 M2 acceptance is "换设备能看到同一张图". Today maps live only 
   - `constraints.yaml` updates the key routes and adds the `verification` surface entry for DB migrations.
   - `AGENTS.md` adds the `db:*` commands, a migration verification row and the new critical paths.
   - Every edit to a gate or Critical Path above is flagged in its PR, with `pnpm test:guardrails` evidence.
-- **Documents:** decision 0023 and the PRD/TECH/CONTEXT/AGENTS/README revisions already landed on this branch. This change adds the database and deployment procedure to `docs/engineering/database.md`, and updates README `## Known Limitations`, TECH §3 (the schema, with migration 0001) and TECH §7 as the code lands.
+- **Documents:** decision 0023 and the PRD/TECH/CONTEXT/AGENTS/README revisions already landed on this branch. This change adds the testing decision record 0024 (declared expected HTTP errors in e2e), the database and deployment procedure in `docs/engineering/database.md`, and updates README `## Known Limitations`, TECH §3 (the schema, with migration 0001) and TECH §7 as the code lands.

@@ -8,7 +8,7 @@
 
 - Every task lands its own tests: TDD is required, coverage is ≥ 90% per file, and every new `src/**` file ships with its paired test.
 - Every task also lands the docs its own work calls for.
-- A task that edits a Critical Path (`src/contexts/account/`, `src/app/api/`, `.github/workflows/`, `constraints.yaml`, `AGENTS.md`) flags that edit in its PR and attaches `pnpm test:guardrails` evidence.
+- A task that edits a Critical Path (`src/contexts/account/`, `src/app/api/`, `src/app/server/` from task 5.1 on, `.github/workflows/`, `constraints.yaml`, `AGENTS.md`) flags that edit in its PR and attaches `pnpm test:guardrails` evidence.
 
 **Verification tiers.**
 
@@ -25,14 +25,14 @@
 **Ordering.** The cut-over order is design D10. Every task has a place in it:
 
 1. Groups 1–5 are server-only. Group 5 starts after 4.2 (5.1–5.3 and 5.6) and 4.3 (5.4 and 5.5).
-2. 6.1–6.2 add the HTTP adapter and its error outcomes before the flip; the UI does not use them until 6.7.
-3. 6.3–6.4 move e2e onto its own database and a signed-in fixture (after 5.2).
-4. 6.5 gives the native HMR probe a database and a signed-in user (after 5.2). It merges before 7.2 and before the flip.
-5. 6.6 adds the component tests that replace the raw-record e2e cases. It is independent and merges before the flip.
-6. 7.1 adds the sign-in pages (after 5.2 and 6.3). 7.2 adds the proxy after 6.4, 6.5 and 7.1. 7.3 adds the header after 5.3, 6.4, 6.5 and 7.1, because its session fetch on a signed-out page logs a 401 console error that the e2e and native HMR console assertions reject.
-7. 6.7 flips the browser to the cloud store after 6.1–6.6, 7.1 and 7.2. 6.8 removes the leftovers after 6.7.
-8. Group 8 follows the admin routes (5.6) and the header (7.3).
-9. Group 9 follows the removal (6.8).
+2. 6.1–6.2 add the HTTP adapter and its error outcomes before the flip; the UI does not use them until 6.8.
+3. 6.3 moves e2e onto its own database and a signed-in fixture (after 5.2). 6.4 adds the declared expected-response helper (design D13) after 6.3, and 6.5 switches every spec to the fixture after 6.3.
+4. 6.6 gives the native HMR probe a database and a signed-in user (after 5.2). It merges before 7.2 and before the flip.
+5. 6.7 adds the component tests that replace the raw-record e2e cases. It is independent and merges before the flip.
+6. 7.1 adds the sign-in pages (after 5.2 and 6.3). 7.2 adds the proxy after 6.5, 6.6 and 7.1. 7.3 adds the header after 5.3, 6.5, 6.6 and 7.1, because its session fetch on a signed-out page logs a 401 console error that the e2e and native HMR console assertions reject.
+7. 6.8 flips the browser to the cloud store after 6.1–6.7, 7.1 and 7.2. 6.9 removes the leftovers after 6.8.
+8. Group 8 follows the admin routes (5.6) and the header (7.3); 8.2 also follows the expected-response helper (6.4).
+9. Group 9 follows the removal (6.9).
 
 ## 1. Database foundation
 
@@ -150,8 +150,9 @@ Minimal mergeable slice: 4.1 - the hasher and token source are pure adapters wit
 - [ ] 5.1 Add the server-only composition `src/app/server/account-services.ts` and `GET /api/auth/session` (design D3, D5, D6).
   - The module holds one lazy `postgres` client per process (`max: 5`) from `loadEnv().DATABASE_URL`, wires the use cases, and fails loud when `DATABASE_URL` is missing.
   - It provides `requireUser(request)` and the cookie helpers (design D3).
+  - Add `src/app/server/` to the `src/app/api/` row of the `AGENTS.md` Critical Paths table, because `requireUser` is the single session check for every map and admin route (design D6). Trim existing prose so the file stays within the instruction-guard limits, as 1.1 does.
   - `GET /api/auth/session` returns 200 `{username,isAdmin}` or 401.
-  - Register this task's routes in `schemas/openapi.yaml`, review and update the snapshot hunk by hunk, add its section of `smoke/api.hurl`, and add its routes to `constraints.yaml` `key_api_routes`. Flag the Critical Path edit in the PR.
+  - Register this task's routes in `schemas/openapi.yaml`, review and update the snapshot hunk by hunk, add its section of `smoke/api.hurl`, and add its routes to `constraints.yaml` `key_api_routes`. Flag the Critical Path edits (`src/app/api/`, `src/app/server/` and `AGENTS.md`) in the PR.
   - Smoke: a request without a cookie answers 401.
   - Verify (unit, composition module mocked):
     - session 200 for a valid cookie, and 401 for no cookie, a forged cookie and an expired session;
@@ -211,7 +212,7 @@ Minimal mergeable slice: 4.1 - the hasher and token source are pure adapters wit
     - 200 `{temporaryPassword}` for the admin, and the list ordered by `created_at` ascending.
   - Verify (contract and smoke): cloud-map-storage "Published contract matches", with every auth, map and admin route present. Prerequisite: 5.1–5.5 have merged, so this task merges last in group 5. Verify (gate): `pnpm test:guardrails` passes.
 
-Suggested fixture level: expanded - Critical Path (`src/app/api/`: public API contract) plus `schemas/openapi.yaml`, `smoke/` and `constraints.yaml` updates.
+Suggested fixture level: expanded - Critical Path (`src/app/api/`: public API contract; `src/app/server/` from 5.1: the shared session check) plus `schemas/openapi.yaml`, `smoke/` and `constraints.yaml` updates.
 Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/session` merge and smoke-test alone (after 3.1 and 4.2); 5.2 depends on 5.1; 5.3 depends on 5.2 (it applies the guard to register and login); 5.4 depends on 5.1 and 4.3; 5.5 depends on 5.3 (guard), 5.4 (same route file) and 2.1 (`parseMindMap`); 5.6 depends on 5.1, 5.3 and 3.2 for its code and merges last, because "Published contract matches" needs 5.2–5.5.
 
 ## 6. Browser storage cut-over
@@ -253,15 +254,27 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
     - with `pnpm dev:bg` serving `:3000`, `pnpm e2e` still starts its own server and passes;
     - `pnpm e2e` passes on a database server where `app_e2e` does not yet exist.
   - Verify (gate): `pnpm test:guardrails` passes and the PR flags the workflow edit.
-- [ ] 6.4 Switch every e2e spec to the signed-in `test` fixture from `e2e/support/session.ts`. This is a mechanical import change with no assertion edits.
+- [ ] 6.4 Add the declared expected-response helper for e2e (design D13). Depends on 6.3.
+  - Add `e2e/support/expected-responses.ts`. A test declares each expected non-2xx response as a URL pattern and a status; the helper records page responses through `page.on('response')` and exports the console-noise collector.
+  - The collector drops a `Failed to load resource` console message only when its URL and status match a declaration that was observed as a response with that URL and status. It reports every other console error or warning, every page error, every failed load without a matching declaration, and every declaration that was never observed.
+  - A spec adopts the collector in the task that first declares a response in it (6.8, 8.2, 9.1). Specs without declarations keep their current collectors.
+  - Add the decision record `decisions/implemented/testing/0024-declared-expected-http-errors-in-e2e.md` (procedure: `.claude/skills/decision-record-lifecycle/SKILL.md`).
+  - Verify (e2e): the self-test `e2e/expected-responses.spec.ts`, the helper's first consumer, opens `/api/healthz` signed out and has the page `fetch('/api/auth/session')`, which answers 401:
+    - declared as 401 and observed: the collector reports nothing;
+    - undeclared: the collector reports the `Failed to load resource` message;
+    - declared as 404: the collector reports the message and the unused declaration;
+    - declared but never requested: the collector reports the unused declaration;
+    - a `console.error` from the page next to a declared, observed 401 is still reported.
+  - Verify (gate): `pnpm decisions:check` and `pnpm dead-code` pass.
+- [ ] 6.5 Switch every e2e spec to the signed-in `test` fixture from `e2e/support/session.ts`. This is a mechanical import change with no assertion edits.
   - Verify (e2e): the full suite passes with zero skips and zero console errors.
-- [ ] 6.5 Give the native HMR probe a database and a signed-in user (design D11). Depends on 5.2; merges before 7.2 and 6.7.
+- [ ] 6.6 Give the native HMR probe a database and a signed-in user (design D11). Depends on 5.2; merges before 7.2 and 6.8.
   - CI `native-installed-runtime` runs `pnpm db:setup` against a reachable Postgres 16 on both matrix legs, with `MIGRATION_DATABASE_URL` and `DATABASE_URL` set. The Linux leg uses a service container. GitHub runs service containers only on Linux runners, so the `macos-26` leg needs another mechanism; the implementer chooses it, for example starting a Homebrew Postgres 16 in a step.
-  - `scripts/native-hmr.mjs` registers and signs in a fresh random user over the API, in the probe's browser context, before `publicMap` runs.
-  - The source-seam anchors in `sourceStimulus` (`scripts/native-hmr-support.mjs`) move off `<EditorView storageUnavailable={storageUnavailable} />` in `MapEditor.tsx` and the `RepositoryContext` return line in `MapRepositoryProvider.tsx`. The new anchors are lines that 6.7 and 6.8 do not touch; the implementer chooses them.
+  - `scripts/native-hmr.mjs` registers and signs in a fresh random user over the API, in the probe's browser context, before `publicMap` runs. It signs in before it opens any page that calls an authenticated API, so it receives no expected non-2xx response, needs no design D13 declaration, and keeps its console check unchanged.
+  - The source-seam anchors in `sourceStimulus` (`scripts/native-hmr-support.mjs`) move off `<EditorView storageUnavailable={storageUnavailable} />` in `MapEditor.tsx` and the `RepositoryContext` return line in `MapRepositoryProvider.tsx`. The new anchors are lines that 6.8 and 6.9 do not touch; the implementer chooses them.
   - Update `docs/engineering/native-hmr.md` with the database prerequisite and the sign-in step.
   - Verify: development-navigation "First editor navigation after source invalidation" and "Retained session restores cached resource producers" still hold with the signed-in probe. `pnpm native:browser:test` passes; `pnpm native:browser source-change` and `restored-lifecycle` pass locally against a `pnpm db:setup` database; the CI `native-installed-runtime` job passes on both legs. Verify (gate): `pnpm test:guardrails` passes, `pnpm docs:check` passes, and the PR flags the workflow edit (Critical Path `.github/workflows/`).
-- [ ] 6.6 Add the component tests that replace the raw-record e2e cases (design D10 step 2). Every test runs over a repository double that returns the given value, and stays green alongside the e2e cases it replaces until the flip deletes them.
+- [ ] 6.7 Add the component tests that replace the raw-record e2e cases (design D10 step 2). Every test runs over a repository double that returns the given value, and stays green alongside the e2e cases it replaces until the flip deletes them.
   - The cases and their new seams:
     - `e2e/map-editor.spec.ts` "corrupt record shows the error state and leaves the record untouched" → map-library "Corrupt record";
     - `e2e/map-editor.spec.ts` "mismatched map identity shows the error state and preserves source and peer records" → map-library "Mismatched stored map identity";
@@ -271,21 +284,24 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
     - `e2e/map-library.spec.ts` "Rename refuses a mismatched embedded ID without overwriting its peer" (record under key `selected`) → map-library "Rename target identity is invalid";
     - `e2e/map-library.spec.ts` `Odd-version "1"` and `Odd-version 0` (with the hidden `{ title: 42 }` record) → no component test. These rows cannot exist under `schema_version integer` plus server validation; the task 4.3 integration test that `list` skips a row without a title replaces them.
   - Verify (unit/component): map-library "Corrupt record", "Mismatched stored map identity", "Matching identity preserves normal persistence", "Unsupported version in the library" and "Rename target identity is invalid", and map-persistence "Future version". Verify (e2e): the full suite still passes, with the replaced cases still present.
-- [ ] 6.7 Flip the browser to the cloud store (design D10 step 3). Depends on 6.1–6.6, 7.1 and 7.2.
+- [ ] 6.8 Flip the browser to the cloud store (design D10 step 3). Depends on 6.1–6.7, 7.1 and 7.2.
   - `MapRepositoryProvider` constructs one `HttpMapRepository` per document session.
   - In the same PR, delete `indexed-db-map-repository.ts` and its test, because nothing uses them any more, and rewrite the provider tests for the HTTP adapter.
   - Remove the `idb` and `fake-indexeddb` dependencies with the lockfile change. They are what `pnpm dead-code` would report once the adapter is gone.
-  - In `e2e/support/seed.ts`, switch `seedRecords` to API `PUT` and reimplement `readRecord` over API `GET /api/maps/{id}` (404 → `undefined`). Both keep their call signatures, and every assertion stays unchanged.
-  - Delete `e2e/storage-fallback.spec.ts` and the e2e cases listed in 6.6.
+  - In `e2e/support/seed.ts`, switch `seedRecords` to API `PUT` and reimplement `readRecord` over API `GET /api/maps/{id}` (404 → `undefined`). Both keep their call signatures and send their requests through `page.request`, which shares the context's cookies and logs nothing to the page console.
+  - Assertions are unchanged except that tests hitting an expected 404 declare it through the design D13 helper (6.4) and adopt its collector:
+    - `e2e/map-editor.spec.ts` `stale link shows not-found with a link back to the library` declares `GET /api/maps/does-not-exist` 404;
+    - `e2e/map-library.spec.ts` `Delete with confirmation` declares `GET /api/maps/A` 404 for its open after the delete.
+  - Delete `e2e/storage-fallback.spec.ts` and the e2e cases listed in 6.7.
   - Remove the "browser-only storage" README limitation.
-  - Verify (e2e): the full suite passes against the cloud store with unchanged assertions, including map-persistence "Reload after edits" and "Edits older than the save window survive reload", and map-library "Stale link". Verify (gate): `pnpm dead-code` and `pnpm licenses:check` pass, and the lockfile guard passes.
-- [ ] 6.8 Remove the browser-storage leftovers (design D10 step 4).
+  - Verify (e2e): the full suite passes against the cloud store with assertions unchanged apart from those two declarations, including map-persistence "Reload after edits" and "Edits older than the save window survive reload", and map-library "Stale link". Both declared 404s are observed, and no other console error appears. Verify (gate): `pnpm dead-code` and `pnpm licenses:check` pass, and the lockfile guard passes.
+- [ ] 6.9 Remove the browser-storage leftovers (design D10 step 4).
   - Delete `StorageUnavailableError`, the storage-unavailable banner, every `storageUnavailable` flag and the autosave `onUnavailable` path.
   - Move `InMemoryMapRepository` into `tests/support/` as the contract suite's in-memory double, keeping the contract suite running against it.
   - Verify: `pnpm test:unit`, `pnpm dead-code` and `pnpm e2e` pass. `grep -rE "StorageUnavailable|storageUnavailable|未保存到浏览器|indexedDB" src e2e scripts` finds nothing.
 
 Suggested fixture level: expanded - cross-module cut-over of the persisted-state boundary with e2e infrastructure and CI workflow edits (layer7 and the required native HMR job); a slip loses user edits.
-Minimal mergeable slice: 6.1 - the HTTP adapter is fully contract-tested and unused by the UI until the flip; 6.2 depends on 6.1; 6.3 depends on 5.2, and 6.4 on 6.3; 6.5 depends on 5.2; 6.6 depends on nothing in this change; the 6.7 flip depends on 6.1–6.6, 7.1 and 7.2; the 6.8 removal depends on 6.7.
+Minimal mergeable slice: 6.1 - the HTTP adapter is fully contract-tested and unused by the UI until the flip; 6.2 depends on 6.1; 6.3 depends on 5.2, and 6.4 and 6.5 each on 6.3; 6.6 depends on 5.2; 6.7 depends on nothing in this change; the 6.8 flip depends on 6.1–6.7, 7.1 and 7.2; the 6.9 removal depends on 6.8.
 
 ## 7. Sign-in pages and routing
 
@@ -297,49 +313,49 @@ Minimal mergeable slice: 6.1 - the HTTP adapter is fully contract-tested and unu
   - Verify (e2e), proving only these THEN parts:
     - "Register and land signed in": the visitor lands on `/`, and `GET /api/auth/session` answers 200 with `alice`. The header THEN is proved in 7.3;
     - "Sign in": she lands on `/`, and `GET /api/auth/session` answers 200 with her username. "Her maps are listed" is proved in 9.1, after the flip.
-- [ ] 7.2 Add `src/proxy.ts` (design D8). Depends on 6.4 (every spec signed in), 6.5 (the native HMR probe signs in) and 7.1.
+- [ ] 7.2 Add `src/proxy.ts` (design D8). Depends on 6.5 (every spec signed in), 6.6 (the native HMR probe signs in) and 7.1.
   - The matcher excludes `/_next/static`, `/_next/image`, `/icon.svg`, `/api/`, `/login` and `/register`.
   - When the session cookie is missing it redirects 307 to `/login?next=<path+query>`. It checks only that the cookie exists.
   - Add `src/proxy.ts` to the `AGENTS.md` Critical Paths table.
   - Verify (unit): account-auth "Public surfaces need no session" (proxy and matcher). Verify (e2e): "Signed-out visit returns after sign-in". Verify (gate): `pnpm test:guardrails` passes.
-- [ ] 7.3 Add the header session menu in `src/components/account/` and mount it on `/` and `/maps/[id]` (design D8). Depends on 5.3, 6.4, 6.5 and 7.1: its `GET /api/auth/session` on a signed-out page logs a 401 console error, which the e2e and native HMR console assertions reject. Task 8.1 mounts it on `/admin`.
+- [ ] 7.3 Add the header session menu in `src/components/account/` and mount it on `/` and `/maps/[id]` (design D8). Depends on 5.3, 6.5, 6.6 and 7.1: its `GET /api/auth/session` on a signed-out page logs a 401 console error, which the e2e and native HMR console assertions reject. Task 8.1 mounts it on `/admin`.
   - It shows the username, a `管理后台` link for the admin only, and `退出登录`, which posts `{}` to logout.
   - Verify (unit/component): account-admin "Admin link visibility".
   - Verify (e2e): account-auth "Sign out", and the header THEN of "Register and land signed in" (after registering, the header shows `alice`).
 
 Suggested fixture level: expanded - `src/proxy.ts` gates every page and becomes a Critical Path; the redirect target is an open-redirect surface.
-Minimal mergeable slice: 7.1 - the public sign-in and registration pages work alone (after 5.2 and 6.3); the proxy (7.2) needs 7.1, 6.4 and 6.5; the header (7.3) needs 7.1, 5.3, 6.4 and 6.5 and is independent of the proxy.
+Minimal mergeable slice: 7.1 - the public sign-in and registration pages work alone (after 5.2 and 6.3); the proxy (7.2) needs 7.1, 6.5 and 6.6; the header (7.3) needs 7.1, 5.3, 6.5 and 6.6 and is independent of the proxy.
 
 ## 8. Admin page
 
 - [ ] 8.1 Add `/admin`, listing users via `GET /api/admin/users` (username, creation time, 管理员 badge, oldest first), with "无权访问" on 403 (design D9). Depends on 5.6 and 7.3.
   - Mount the header session menu from 7.3 on `/admin`.
   - On a 401 the page calls `window.location.assign('/login?next=%2Fadmin')`.
-  - Add `/admin` to `constraints.yaml` `key_ui_paths` and to the `e2e/smoke.spec.ts` walk.
+  - Add `/admin` to `constraints.yaml` `key_ui_paths` and to the `e2e/smoke.spec.ts` walk. The walk opens `/admin` with `adminPage`, because the default `page` is not the admin and would receive a 403.
   - Verify (unit/component): account-admin "Regular user is refused" (page); a 401 on load calls `window.location.assign('/login?next=%2Fadmin')` and renders no user data. Verify (e2e): "Admin sees all accounts" (`e2e-admin` plus two registered users, in order).
-- [ ] 8.2 Add the per-row `重置密码` action: a confirmation ("重置后该用户的所有登录将失效"), a call to the reset API with the JSON body `{}`, and a one-time dialog with the temporary password that is discarded on close (design D9).
+- [ ] 8.2 Add the per-row `重置密码` action: a confirmation ("重置后该用户的所有登录将失效"), a call to the reset API with the JSON body `{}`, and a one-time dialog with the temporary password that is discarded on close (design D9). Depends on 8.1 and 6.4.
   - A 401 from the reset calls `window.location.assign('/login?next=%2Fadmin')`.
-  - Verify (unit/component): account-admin "Cancel the reset" and "Temporary password is shown once"; a 401 from the reset calls `window.location.assign('/login?next=%2Fadmin')`. Verify (e2e): "Reset signs the user out and issues a temporary password" (two contexts as the user, one as the admin).
+  - Verify (unit/component): account-admin "Cancel the reset" and "Temporary password is shown once"; a 401 from the reset calls `window.location.assign('/login?next=%2Fadmin')`. Verify (e2e): "Reset signs the user out and issues a temporary password" (two contexts as the user, one as the admin). The walk declares through the design D13 helper every expected non-2xx its pages receive: the 401s on both of the user's contexts after the reset, and the `POST /api/auth/login` 401 when the old password is tried through the form. Each declaration is observed, and no other console error appears.
 
 Suggested fixture level: compact - UI over an already-tested admin API; no persistence or entrypoint of its own.
-Minimal mergeable slice: 8.1 - the read-only list merges alone once 5.6 and 7.3 have merged; the reset action (8.2) is additive on 8.1.
+Minimal mergeable slice: 8.1 - the read-only list merges alone once 5.6 and 7.3 have merged; the reset action (8.2) is additive on 8.1 and also needs the 6.4 helper for its declared 401s.
 
 ## 9. M2 acceptance and documentation closure
 
-- [ ] 9.1 Add the M2 acceptance walk `e2e/m2-acceptance.spec.ts` with two browser contexts. Depends on 6.8.
+- [ ] 9.1 Add the M2 acceptance walk `e2e/m2-acceptance.spec.ts` with two browser contexts. Depends on 6.9 (and so on the 6.4 helper).
   - Verify (e2e):
     - cloud-map-storage "Open on a second device";
     - account-auth "Sign in", the "her maps are listed" THEN: after signing in on `/login`, the library lists the map she created in the other context;
     - account-auth "Re-login does not open a second editor": in one context, sign out in a second tab and rename a node in the editor tab; follow 重新登录, sign in on the new tab, which shows `/`; the editor tab's next edit saves both changes;
     - map-library "Only the user's own maps" and "Another user's map";
     - account-admin "Admin opens another user's map" (`e2e-admin` gets the not-found state for a user's map URL);
-    - screenshots in `.run/ui-evidence/` and zero console errors.
+    - screenshots in `.run/ui-evidence/`, and zero console errors apart from the responses declared through the design D13 helper: the `PUT /api/maps/{id}` 401 of the re-login walk and the `GET /api/maps/{id}` 404s of "Another user's map" and "Admin opens another user's map". Each declaration is observed.
 - [ ] 9.2 Close the documentation.
-  - Rewrite README `## Known Limitations` to the seven items of map-library "Published canvas limitations".
+  - Update README `## Known Limitations` so it contains the seven items of map-library "Published canvas limitations" and keeps every other existing entry that is still true, including the `开发热更新` entry that links to `docs/engineering/native-hmr.md#known-limitations`.
   - Add `docs/engineering/database.md` covering roles and URLs, `db:migrate` and `db:setup`, backup before migrating, the deployment procedure (create the `mindsprout_app` login with a strong password, migrate, start, and register the owner first) and the smoke-on-fresh-dev-database caveat (design D11, D12).
   - Update TECH §7 to the implemented layout, including the account context, `db/` and the new routes.
   - Update the `constraints.yaml` metrics downgrade text from "deferred to M2" to "deferred until a deployment target exists".
   - Verify (gate): map-library "M1 documentation closure", "M2 documentation closure" and "Missing limitations are rejected"; `pnpm docs:check` and `pnpm test:guardrails` pass.
 
 Suggested fixture level: compact - an acceptance test and documentation over finished behaviour.
-Minimal mergeable slice: 9.1 - the acceptance walk merges alone after 6.8; the documentation closure (9.2) is an independent PR, also after 6.8.
+Minimal mergeable slice: 9.1 - the acceptance walk merges alone after 6.9; the documentation closure (9.2) is an independent PR, also after 6.9.

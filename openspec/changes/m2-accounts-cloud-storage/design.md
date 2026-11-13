@@ -177,6 +177,7 @@ Every body is JSON. Every error body is `{ "error": "<code>" }`, except the 409 
   - Unit tests call the exported handlers with `Request` objects and mock the composition module (the `healthz` pattern).
   - Real database behaviour is proven in `tests/integration/`.
 - **Shared session reader.** `requireUser(request)` lives in the composition layer and is shared by the map and admin handlers. It returns the user or a 401 `Response`.
+- **Critical Path.** Because `requireUser` is the single session check for every map and admin route, `src/app/server/` is a Critical Path from task 5.1 on. That task adds it to the `src/app/api/` row of the `AGENTS.md` Critical Paths table.
 - **Shared JSON guard.** One helper, used by every non-GET handler, answers 415 before any side effect when the request is not `Content-Type: application/json` (D3).
 
 ### D7. Browser adapter and error surfacing
@@ -219,15 +220,15 @@ Every body is JSON. Every error body is `{ "error": "<code>" }`, except the 409 
 1. **Server side first.** Database, account and API (task groups 1–5) land while the browser still uses IndexedDB. Nothing in the UI calls them yet. They are reachable only by tests and smoke, and each is referenced by its route, so knip stays green.
 2. **Preparation** while the browser still uses IndexedDB:
    - the HTTP adapter and its error outcomes (tasks 6.1 and 6.2), unused by the UI until the flip;
-   - e2e infrastructure (tasks 6.3 and 6.4): the Postgres service, the e2e database lifecycle and a signed-in fixture. Seeding keeps its IndexedDB internals, and specs switch to the fixture without changing assertions;
-   - the native HMR probe (task 6.5) gets a database, signs in, and moves its source-seam anchors off lines the cut-over edits;
-   - component tests (task 6.6) for every raw-record e2e case, green alongside those e2e cases;
+   - e2e infrastructure (tasks 6.3–6.5): the Postgres service, the e2e database lifecycle, a signed-in fixture and the declared expected-response helper (D13). Seeding keeps its IndexedDB internals, and specs switch to the fixture without changing assertions;
+   - the native HMR probe (task 6.6) gets a database, signs in, and moves its source-seam anchors off lines the cut-over edits;
+   - component tests (task 6.7) for every raw-record e2e case, green alongside those e2e cases;
    - the sign-in pages and the proxy (tasks 7.1 and 7.2).
-3. **The flip** (task 6.7) swaps the provider to `HttpMapRepository`.
+3. **The flip** (task 6.8) swaps the provider to `HttpMapRepository`.
    - It deletes the IndexedDB adapter and its tests, because nothing uses the adapter any more (canonicality). knip treats test files as entries, so the adapter itself would not be reported. What would fail `pnpm dead-code` is `idb` and `fake-indexeddb` left unused, so the flip removes both dependencies and their lockfile entries in the same PR.
-   - It switches `seedRecords` to API `PUT` and `readRecord` to API `GET` (404 → `undefined`), with unchanged call signatures, so spec bodies and assertions stay unchanged.
-   - It deletes the raw-record e2e cases that task 6.6 replaced, and `e2e/storage-fallback.spec.ts`.
-4. **The contract step** (task 6.8) removes what the flip left referenced but dead: `StorageUnavailableError`, the banner, the `storageUnavailable` flags and `onUnavailable`. It also moves `InMemoryMapRepository` to `tests/support/` as the contract suite's in-memory double.
+   - It switches `seedRecords` to API `PUT` and `readRecord` to API `GET` (404 → `undefined`), with unchanged call signatures, so spec bodies and assertions stay unchanged. The only exception is the tests that now receive an expected API 404, which declare it through the D13 helper.
+   - It deletes the raw-record e2e cases that task 6.7 replaced, and `e2e/storage-fallback.spec.ts`.
+4. **The contract step** (task 6.9) removes what the flip left referenced but dead: `StorageUnavailableError`, the banner, the `storageUnavailable` flags and `onUnavailable`. It also moves `InMemoryMapRepository` to `tests/support/` as the contract suite's in-memory double.
 
 The only transitional state is between steps 3 and 4: a never-thrown error branch and a banner that never renders. Both are inside this change, and the step 4 issue depends on step 3.
 
@@ -255,14 +256,14 @@ A reset never targets the developer's `app_dev`.
   - Every other test registers a unique user (`u-<random>`) through the fixture.
   - Screenshot evidence still lands in `.run/ui-evidence/`.
   - CI layer7 keeps running `pnpm e2e`. Only its environment changes.
-- **Native HMR probe** (`pnpm native:browser`, CI `native-installed-runtime`). It runs `pnpm dev` on `:3000` against a database prepared by `pnpm db:setup`: a job-local one in CI, the developer's dev database locally. It registers a fresh random user over the API before visiting `/`.
+- **Native HMR probe** (`pnpm native:browser`, CI `native-installed-runtime`). It runs `pnpm dev` on `:3000` against a database prepared by `pnpm db:setup`: a job-local one in CI, the developer's dev database locally. It registers a fresh random user over the API before visiting `/`. Because it signs in before it opens any page that calls an authenticated API, it receives no expected non-2xx response and needs no D13 declaration.
 - **Smoke** (`pnpm smoke`) runs against the `:3000` server and whatever database it has.
   - It registers two random users, so it never needs to know who the admin is. The 403 assertion uses the second user, who is never the first registrant.
   - On a brand-new dev database, the first smoke user becomes the admin. `docs/engineering/database.md` therefore tells developers to register their own account before running smoke.
 
 ### D12. Copy and documentation
 
-- **README `## Known Limitations`** (spec map-library) lists:
+- **README `## Known Limitations`** (spec map-library) keeps every existing entry that is still true, such as `开发热更新`, and includes at least:
   - no AI;
   - last-write-wins across devices;
   - the 500 ms debounce and its loss window;
@@ -277,6 +278,25 @@ A reset never targets the developer's `app_dev`.
   - the deployment procedure: create `mindsprout_app` with a strong password, migrate, start, and register the owner immediately so they become the admin.
 - TECH §3 `users`, `sessions` and `maps` are updated to the D1 shape in the PR that lands migration 0001 (task 1.2), since docs change with code.
 - TECH §7 is updated to the implemented layout when the change closes.
+
+### D13. Expected HTTP errors in browser tests
+
+Status codes stay as D5 defines them. Several e2e walks therefore receive an expected non-2xx inside the page:
+
+- the not-found state's `GET /api/maps/{id}` 404 (map-editor `stale link shows not-found with a link back to the library`, map-library `Delete with confirmation`, and the other-user cases of task 9.1);
+- the `PUT /api/maps/{id}` 401 after signing out in another tab (task 9.1);
+- the 401s a user's pages receive after an admin reset (task 8.2).
+
+Chromium logs each as the console error `Failed to load resource: the server responded with a status of <code> (…)`, which the console-noise collectors reject.
+
+- **Declared responses.** The shared helper `e2e/support/expected-responses.ts` lets a test declare each expected non-2xx response as a URL pattern and a status.
+  - It records the page's responses through `page.on('response')`.
+  - Its collector drops a `Failed to load resource` message only when the message's URL and status match a declaration that was observed as a response with that URL and status.
+  - Every other console error or warning, every page error, and every failed load without a matching declaration still fails the test. A declaration that was never observed also fails it, so declarations cannot silently widen.
+- There is no global console filter. A spec without declarations still rejects every console error, so the e2e evidence stays "zero unexpected console errors".
+- The native HMR probe signs in before it opens any page that calls an authenticated API (D11), so it sees no expected errors.
+- The helper, its self-test and the testing decision record `decisions/implemented/testing/0024-declared-expected-http-errors-in-e2e.md` ship in task 6.4, before the flip (task 6.8) that first needs them.
+- Alternative rejected: a global filter for `Failed to load resource`. It would also hide unexpected failed requests, which are exactly what the console assertions exist to catch.
 
 ## Sketch seams under test
 
@@ -310,7 +330,7 @@ A reset never targets the developer's `app_dev`.
 - **[Last-write-wins silently overwrites a second device's edits]** → Owner-accepted and disclosed in the README.
 - **[Two parallel adapters exist during the cut-over]** → D10 bounds the parallel state and orders the issues so the removal depends on the flip.
 - **[e2e suites spend time on registration]** → One registration per test, and scrypt N=2^15 takes about 50 ms. If it measurably slows CI, reuse a storage state per worker; that is an implementation detail inside the fixture.
-- **[AGENTS.md is at 32,596 / 32,768 bytes]** → The task that adds the `db:*` rows and critical paths also trims existing prose to fit, verified by `pnpm test:guardrails` and the instruction-guard hook.
+- **[AGENTS.md is at 32,596 / 32,768 bytes]** → The task that adds the `db:*` rows and critical paths, and task 5.1 (`src/app/server/`), also trim existing prose to fit, verified by `pnpm test:guardrails` and the instruction-guard hook.
 
 ## Migration Plan
 
