@@ -32,7 +32,7 @@ Canonical terms and their prohibited aliases live in `openspec/glossary.md`. Rea
 - A Provider's output is validated against the TreeOp schema before it touches the tree; invalid output is rejected, never "repaired" silently.
 - API keys (platform or user-supplied) exist in plaintext only in server memory for the duration of one request; never in the client bundle, logs, or database.
 - Map reads and writes go through Postgres RLS as the signed-in user (`app.user_id` set inside each transaction); the application never accesses user data as a table owner or a `BYPASSRLS` role (decision 0023).
-- Every page and API route requires a signed-in session; each route handler verifies it itself, the proxy only redirects.
+- Every page and API route requires a signed-in session, except the sign-in and registration pages, `/api/auth/*` and `/api/healthz`; each route handler verifies the session itself, the proxy only redirects.
 - Each user's AI usage is accounted per day; a request over quota is refused with 429 before any provider call.
 - Exports are pure: the same MindMap snapshot yields byte-identical Markdown/OPML output.
 

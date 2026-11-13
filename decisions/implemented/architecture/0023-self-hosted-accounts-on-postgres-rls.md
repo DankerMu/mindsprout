@@ -24,7 +24,7 @@ M2 (账号与云存储) was planned on Supabase Auth + Supabase Postgres + Drizz
   - The application connects as a role that does not own the tables and has no `BYPASSRLS`.
   - Migrations run under a separate owner role.
 - **Persistence uses the existing `postgres` package and numbered SQL migrations** applied by a small runner. Drizzle is not adopted.
-- **Login is required for every page and API route.** `src/proxy.ts` only redirects optimistically to `/login?next=`; every route handler verifies the session itself.
+- **Login is required for every page and API route** except the sign-in and registration pages, `/api/auth/*` and `/api/healthz`. `src/proxy.ts` only redirects optimistically to `/login?next=`; every route handler verifies the session itself.
 - **An admin panel lists users and resets a password.**
   - A reset sets a temporary password and deletes all of that user's sessions.
   - The first user to register on an empty database becomes the only admin, and the database guarantees there is never more than one.
@@ -52,6 +52,7 @@ M2 (账号与云存储) was planned on Supabase Auth + Supabase Postgres + Drizz
   - Concurrent-edit protection: user reports of overwritten edits.
   - Timed save retry: user reports of edits lost on a weak network.
   - Drizzle: schema or query complexity growing past a handful of tables.
+- A forgotten admin password has no recovery path: there is one admin, no password change and no recovery tool. The owner accepted this as a known limitation, to be reassessed with password change at the first public deployment.
 - On a new public deployment, whoever registers first becomes admin. The deployment procedure tells the owner to register immediately after deploy; reassess this at the first public deployment.
 - Decision 0011 is partially superseded. Its IndexedDB-to-memory fallback goes away. Its once-per-session repository choice and its explicitly dismissed notices stay.
 - Decisions 0002 to 0005 are unaffected.
