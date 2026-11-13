@@ -21,7 +21,7 @@
 
 ## 5. Verification
 
-- [ ] 5.1 `pnpm test:stryker-patch`, `pnpm test:native-lockfile`, `pnpm lint`, `pnpm fmt:check`, `pnpm docs:check`, `pnpm decisions:check`, `pnpm dead-code`; `git diff pnpm-lock.yaml patches/` empty; exact-head CI.
+- [x] 5.1 `pnpm test:stryker-patch`, `pnpm test:native-lockfile`, `pnpm lint`, `pnpm fmt:check`, `pnpm docs:check`, `pnpm decisions:check`, `pnpm dead-code`; `git diff pnpm-lock.yaml patches/` empty; exact-head CI.
 
 ## Risk packs
 
