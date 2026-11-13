@@ -66,7 +66,7 @@ The publisher must compare both platforms' upstream commit, patched source commi
 
 Linux qualification evidence must record the actual runner OS release and glibc version alongside the artifact identity. The build workflow selects Ubuntu 24.04; the GNU target triple and preserved official package constraints do not establish compatibility with older glibc hosts. A broader compatibility claim requires inspection of the binary's ABI and minimum required symbol versions, plus runtime qualification on the claimed baseline.
 
-For a maintenance publication, copy the unchanged qualified manifests into `patches/native/published/`, update exact-version native overrides, and regenerate the lockfile with pnpm. Do not hand-write lockfile integrity or alter published manifest bytes. In a clean checkout on each supported platform:
+For a maintenance publication, copy the unchanged qualified manifests into `patches/native/published/`, update exact-version native overrides, and [regenerate the lockfile](dependency-patches.md#regenerate-the-lockfile). Do not hand-write lockfile integrity or alter published manifest bytes. In a clean checkout on each supported platform:
 
 ```bash
 pnpm install --frozen-lockfile

@@ -153,6 +153,21 @@ test('the runner imports the installed util entry carrying the patch hash', () =
   );
 });
 
+// A partial Stryker update can give core or instrumenter an unpatched util while the runner keeps the
+// patched one, so ERR_PNPM_UNUSED_PATCH stays silent.
+test('core and instrumenter resolve the same patched util entry as the runner', () => {
+  const patchedUtil = fs.realpathSync(path.join(utilDist, '../..'));
+  const core = fs.realpathSync(path.join(repository, 'node_modules/@stryker-mutator/core'));
+  const instrumenter = fs.realpathSync(path.join(core, '../instrumenter'));
+  for (const [consumer, root] of Object.entries({ core, instrumenter })) {
+    assert.equal(
+      fs.realpathSync(path.join(root, '../util')),
+      patchedUtil,
+      `@stryker-mutator/${consumer} resolves a @stryker-mutator/util other than the patched entry`,
+    );
+  }
+});
+
 const unstringifiable = [
   {
     title: 'an error that lost its prototype keeps name, message and stack',
@@ -209,6 +224,8 @@ test('errorToString keeps the output of every value String() can convert', () =>
   assert.equal(errorToString(withoutStack), 'RangeError: bare');
   assert.equal(errorToString('plain text'), 'plain text');
   assert.equal(errorToString({ any: 'object' }), '[object Object]');
+  // The name/message fallback applies only after String() has thrown.
+  assert.equal(errorToString({ name: 'E', message: 'm' }), '[object Object]');
 });
 
 // Every mutant run and the dry run go through VitestTestRunner.run, which formats errorsSet.

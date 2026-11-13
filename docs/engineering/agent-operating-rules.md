@@ -25,7 +25,7 @@ Hurl download-transport failures use the incident-scoped authorization, same-hea
 
 - Parallel agents use separate git worktrees (`git-worktree-workflows` skill; the `worktree-guard` hook denies writes outside a declared worktree root when `.worktree-guard.json` is present). Never share a working tree.
 - Feature branches `agent/<issue>-<slug>`; one task = one branch. Rebase onto `main` before opening or updating a PR — no merge commits from `main` into the feature branch.
-- Lockfile conflicts: re-run `pnpm install` from the merged `package.json` and commit the result; never hand-merge `pnpm-lock.yaml`.
+- Lockfile conflicts: re-run `pnpm install` from the merged `package.json` and commit the result ([regenerate the lockfile](dependency-patches.md#regenerate-the-lockfile)); never hand-merge `pnpm-lock.yaml`.
 
 ## Generated artifacts
 
