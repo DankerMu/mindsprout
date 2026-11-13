@@ -33,7 +33,7 @@ Each case fails loudly: the first three in pnpm 10.28, the last in the regressio
 - `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`: a frozen install found a patch key or patch bytes that differ from the lockfile. [Regenerate the lockfile](#regenerate-the-lockfile).
 - `ERR_PNPM_UNUSED_PATCH`: the patch key names a version that is no longer installed, typically after a Renovate update. If the new release contains the fix, remove the patch. Otherwise regenerate it for the new version ([patch steps](#add-or-regenerate-a-patch), then [Regenerate the lockfile](#regenerate-the-lockfile)).
 - `ERR_PNPM_PATCH_FAILED`: the patch context no longer matches the package's files. Regenerate the patch from the new version ([patch steps](#add-or-regenerate-a-patch), then [Regenerate the lockfile](#regenerate-the-lockfile)).
-- `pnpm test:stryker-patch` reports core or the instrumenter resolving a util other than the patched entry: a partial Stryker update installed a second util version, which pnpm does not flag. Update the Stryker packages together, or regenerate the patch for every util version in use.
+- `pnpm test:stryker-patch` reports core or the instrumenter resolving a util other than the patched entry: a partial Stryker update installed a second util version, which pnpm does not flag. Update the Stryker packages together, or regenerate the patch for every util version in use ([patch steps](#add-or-regenerate-a-patch), then [Regenerate the lockfile](#regenerate-the-lockfile)).
 
 ## Remove a patch
 
