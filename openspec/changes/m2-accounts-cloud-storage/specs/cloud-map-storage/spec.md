@@ -17,12 +17,12 @@ A map saved by a signed-in user SHALL be listed and opened, with identical conte
 
 ### Requirement: Storage is isolated per user by the database
 
-Map rows SHALL be readable and writable only by their owner. This SHALL be enforced by database row-level security, evaluated against the user identity set for the current transaction. The application SHALL access user data through a role that owns no table, is not a superuser and cannot bypass row-level security. A query that runs without a user identity SHALL see no map rows.
+Map rows SHALL be readable and writable only by their owner. Map ids SHALL be scoped to their owner: a map id held by one user SHALL neither block nor reveal the same id for another user. This SHALL be enforced by database row-level security, evaluated against the user identity set for the current transaction. The application SHALL access user data through a role that owns no table, is not a superuser and cannot bypass row-level security. A query that runs without a user identity SHALL see no map rows.
 
 #### Scenario: Another user's map is invisible
 
-- **WHEN** `bob` lists maps, or requests, overwrites or deletes the id of `alice`'s map
-- **THEN** his list omits it, the request answers 404 (delete answers 204), and alice's map is unchanged
+- **WHEN** `bob` lists maps, then requests, saves and deletes the id of `alice`'s map
+- **THEN** his list omits it, his request answers 404, his save creates bob's own map under that id, his delete answers 204, and alice's map is unchanged throughout
 
 #### Scenario: Application role cannot bypass isolation
 
@@ -91,16 +91,21 @@ Anything else SHALL be refused with 400 `invalid-map` and nothing written. A req
 The map API SHALL be:
 
 - `GET /api/maps` → 200 summaries.
-- `GET /api/maps/{id}` → 200 `{ schemaVersion, map }`, or 404 `not-found` when the map is absent or belongs to another user.
+- `GET /api/maps/{id}` → 200 `{ schemaVersion, map }`, or 404 `not-found` when the map is absent or belongs to another user, or 409 `{ "error": "unsupported-schema-version", "found": <n> }` when the stored map has a newer schema version.
 - `PUT /api/maps/{id}` with `{ schemaVersion, map }` → 204.
 - `DELETE /api/maps/{id}` → 204.
 
-Error bodies SHALL be `{ "error": "<code>" }`, and a request without a session SHALL get 401 on every route. Every route SHALL be registered in the published OpenAPI document and exercised by the API smoke test.
+Error bodies SHALL be `{ "error": "<code>" }`; only the 409 `unsupported-schema-version` body also carries `found`. `GET /api/maps` SHALL list a newer-version map by its title and updated time, and SHALL skip a stored row that lacks either. A request without a session SHALL get 401 on every route. Every route SHALL be registered in the published OpenAPI document and exercised by the API smoke test.
 
 #### Scenario: Round trip through the API
 
 - **WHEN** a signed-in client puts a map, gets it, lists maps and deletes it
 - **THEN** the responses are 204, 200 with the identical envelope, 200 with its summary first, and 204, and a following get answers 404
+
+#### Scenario: Newer-version map over the API
+
+- **WHEN** the user's store holds a map row with schema version 2 and the user gets it, then lists maps
+- **THEN** the get answers 409 `unsupported-schema-version` with `found` 2, and the list still shows that map's summary
 
 #### Scenario: Published contract matches
 

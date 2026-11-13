@@ -4,7 +4,7 @@
 
 See proposal.md (Why) and decision 0023 for the chosen direction. Facts that shape the approach:
 
-- **Repository port.** `MapRepository { list, get, put, delete }` and its errors live in `src/contexts/map/domain/`. `put` stores verbatim, `list` orders by `updatedAt` desc then id asc, and `UnsupportedSchemaVersionError` comes only from `get`. A reusable contract suite exists: `tests/support/map-repository-contract.ts`, `describeMapRepositoryContract`, 12 cases. The repository is chosen once per document session in `src/app/providers/MapRepositoryProvider.tsx` (decision 0011).
+- **Repository port.** `MapRepository { list, get, put, delete }` and its errors live in `src/contexts/map/domain/`. `put` stores verbatim, `list` orders by `updatedAt` desc then id asc, and `UnsupportedSchemaVersionError` comes only from `get`. A reusable contract suite exists: `tests/support/map-repository-contract.ts`, `describeMapRepositoryContract`, 13 cases. The repository is chosen once per document session in `src/app/providers/MapRepositoryProvider.tsx` (decision 0011).
 - **Autosave** (`application/editor-store/autosave.ts`):
   - It stamps `updatedAt` at write start.
   - It keeps a failed map pending until the next observe or flush, with no timer.
@@ -27,7 +27,9 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
   - `route.ts` is not coverage-exempt (90% per file).
   - knip fails on unused files and exports.
   - The PR diff limit is 400 lines.
-  - CI layer7 (e2e) has no database today.
+  - CI layer7 (e2e) and the required `native-installed-runtime` job have no database today. The native HMR probe (`scripts/native-hmr.mjs`) starts `pnpm dev` signed out, opens `/` and clicks 新建导图, and edits source-seam anchors in `MapEditor.tsx` and `MapRepositoryProvider.tsx`.
+  - Next 16 `next dev` holds a lock at `<distDir>/lock` (`version-16.md`), so a second dev server on the same `distDir` cannot start.
+  - Playwright runs `webServer` before `globalSetup`.
   - Fourteen e2e specs seed IndexedDB through `e2e/support/seed.ts`.
 
 ## Goals / Non-Goals
@@ -69,12 +71,13 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
 
 **Schema** (`db/migrations/0001_accounts_and_maps.sql`):
 
-| Table      | Columns                                                                                                                                                                                                                                                                                  | Notes                                                                                          |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `users`    | `id uuid pk default gen_random_uuid()`, `username text not null unique`, `password_hash text not null`, `is_admin boolean not null default false`, `created_at timestamptz not null default now()`                                                                                       | Partial unique index `users_single_admin on users ((true)) where is_admin` — at most one admin |
-| `sessions` | `token_hash text pk`, `user_id uuid not null references users on delete cascade`, `expires_at timestamptz not null`, `created_at timestamptz not null default now()`                                                                                                                     | Index on `user_id` (reset deletes by user)                                                     |
-| `maps`     | `id text pk`, `owner_id uuid not null references users on delete cascade`, `schema_version integer not null`, `map jsonb not null`, `title text generated always as (map->>'title') stored`, `updated_at text generated always as (map->>'updatedAt') stored`, `check (map->>'id' = id)` | `ENABLE` + `FORCE ROW LEVEL SECURITY`; index `(owner_id, updated_at desc, id collate "C")`     |
+| Table      | Columns                                                                                                                                                                                                                                                                                                                      | Notes                                                                                          |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `users`    | `id uuid pk default gen_random_uuid()`, `username text not null unique`, `password_hash text not null`, `is_admin boolean not null default false`, `created_at timestamptz not null default now()`                                                                                                                           | Partial unique index `users_single_admin on users ((true)) where is_admin` — at most one admin |
+| `sessions` | `token_hash text pk`, `user_id uuid not null references users on delete cascade`, `expires_at timestamptz not null`, `created_at timestamptz not null default now()`                                                                                                                                                         | Index on `user_id` (reset deletes by user)                                                     |
+| `maps`     | `id text not null`, `owner_id uuid not null references users on delete cascade`, `schema_version integer not null`, `map jsonb not null`, `title text generated always as (map->>'title') stored`, `updated_at text generated always as (map->>'updatedAt') stored`, `check (map->>'id' = id)`, `primary key (owner_id, id)` | `ENABLE` + `FORCE ROW LEVEL SECURITY`; index `(owner_id, updated_at desc, id collate "C")`     |
 
+- Map ids are scoped per owner: the primary key is `(owner_id, id)`. Two users may hold the same id, and neither can learn that the other does. The contract suite and the e2e specs reuse fixed ids (`'a'`, `'selection'`) for every fresh user.
 - The whole `MindMap` is kept as one `jsonb` value. `title` and `updatedAt` are generated columns, so there is one source of truth and `get` returns exactly what `put` stored.
 - `updatedAt` is always `toISOString()` output (fixed format), so sorting it as text sorts it by time. The `"C"` collation gives the contract's code-unit order for ties.
 - **RLS policy.** `maps_owner` applies to all commands: `using (owner_id = nullif(current_setting('app.user_id', true), '')::uuid)`, with the same `with check`.
@@ -137,28 +140,31 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
 
 - **Store.** `PostgresMapStore.forUser(userId): MapRepository` lives in `account/infrastructure/`. It implements the map port, whose types come through `account/acl/map.ts`.
   - Each call runs `sql.begin(tx => { set_config('app.user_id', userId, true); ... })`, so the GUC is transaction-local and cannot leak through a pooled connection.
-  - `put` is an upsert: `insert … on conflict (id) do update … where maps.owner_id = <user>`. If the id belongs to another user, RLS hides the row and the update matches nothing, and `put` throws `MapOwnedElsewhereError`. Routes map that error to 404.
-  - `delete` of an absent or foreign id succeeds and affects no row.
-  - `get` returns `{ schemaVersion, map }`. Callers above the HTTP layer see `MindMap` or `UnsupportedSchemaVersionError`, as the port requires.
+  - `put` is an upsert on the caller's own key: `insert … on conflict (owner_id, id) do update`. An id that another user also holds is a different row, so `put` creates or replaces the caller's own map and never touches theirs.
+  - `delete` of an absent id, or of an id only another user holds, succeeds and affects no row.
+  - `get` implements the port exactly: it returns `MindMap | undefined`, and throws `UnsupportedSchemaVersionError(found, 1)` for a row with `schema_version > 1`.
+  - `list` returns summaries from the generated `title` and `updated_at` columns, newer-version rows included. A row where either column is null is skipped, as M1's list skips unreadable records.
 - **Body limit.** 1 MiB, checked against `Content-Length` and the bytes actually read; anything larger gets 413. A generated 500-node map is about 60 KB.
 
 ### D5. HTTP API contract
 
-Every body is JSON, and every error body is `{ "error": "<code>" }`. Every map and admin route answers 401 `unauthenticated` without a valid session.
+Every body is JSON. Every error body is `{ "error": "<code>" }`, except the 409 `unsupported-schema-version` body, which also carries `found`. Every map and admin route answers 401 `unauthenticated` without a valid session. Every 415 body is `{ "error": "unsupported-media-type" }`.
 
-| Route                                           | Success                                                     | Errors                                                                                                                                 |
-| ----------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/auth/register` `{username,password}` | 201 `{username,isAdmin}` + session cookie                   | 400 `invalid-input`, 409 `username-taken`, 415                                                                                         |
-| `POST /api/auth/login` `{username,password}`    | 200 `{username,isAdmin}` + session cookie                   | 400 `invalid-input`, 401 `invalid-credentials`, 415                                                                                    |
-| `POST /api/auth/logout`                         | 204, cookie cleared (also without a session)                | 415                                                                                                                                    |
-| `GET /api/auth/session`                         | 200 `{username,isAdmin}`                                    | 401                                                                                                                                    |
-| `GET /api/maps`                                 | 200 `MapSummary[]` (contract order)                         | 401                                                                                                                                    |
-| `GET /api/maps/{id}`                            | 200 `{schemaVersion,map}`                                   | 401, 404 `not-found` (absent or another user's)                                                                                        |
-| `PUT /api/maps/{id}` `{schemaVersion,map}`      | 204                                                         | 400 `invalid-map` (parse failure, `schemaVersion !== 1`, `map.id !== {id}`), 401, 404 (id owned by another user), 413 `too-large`, 415 |
-| `DELETE /api/maps/{id}`                         | 204 (absent or foreign id: 204, nothing deleted)            | 401, 415                                                                                                                               |
-| `GET /api/admin/users`                          | 200 `[{id,username,isAdmin,createdAt}]` by `created_at` asc | 401, 403 `forbidden`                                                                                                                   |
-| `POST /api/admin/users/{id}/password-reset`     | 200 `{temporaryPassword}`                                   | 401, 403, 404 `not-found`, 415                                                                                                         |
+| Route                                            | Success                                                                 | Errors                                                                                                                     |
+| ------------------------------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/auth/register` `{username,password}`  | 201 `{username,isAdmin}` + session cookie                               | 400 `invalid-input`, 409 `username-taken`, 415                                                                             |
+| `POST /api/auth/login` `{username,password}`     | 200 `{username,isAdmin}` + session cookie                               | 400 `invalid-input`, 401 `invalid-credentials`, 415                                                                        |
+| `POST /api/auth/logout` `{}`                     | 204, cookie cleared (also without a session)                            | 415                                                                                                                        |
+| `GET /api/auth/session`                          | 200 `{username,isAdmin}`                                                | 401                                                                                                                        |
+| `GET /api/maps`                                  | 200 `MapSummary[]` (contract order)                                     | 401                                                                                                                        |
+| `GET /api/maps/{id}`                             | 200 `{schemaVersion,map}`                                               | 401, 404 `not-found` (absent, or held only by another user), 409 `{ "error": "unsupported-schema-version", "found": <n> }` |
+| `PUT /api/maps/{id}` `{schemaVersion,map}`       | 204 (creates or replaces the caller's own map)                          | 400 `invalid-map` (parse failure, `schemaVersion !== 1`, `map.id !== {id}`), 401, 413 `too-large`, 415                     |
+| `DELETE /api/maps/{id}` `{}`                     | 204 (absent id, or one held only by another user: 204, nothing deleted) | 401, 415                                                                                                                   |
+| `GET /api/admin/users`                           | 200 `[{id,username,isAdmin,createdAt}]` by `created_at` asc             | 401, 403 `forbidden`                                                                                                       |
+| `POST /api/admin/users/{id}/password-reset` `{}` | 200 `{temporaryPassword}`                                               | 401, 403, 404 `not-found` (unknown or non-uuid id), 415                                                                    |
 
+- `GET /api/maps/{id}` answers 409 when the store throws `UnsupportedSchemaVersionError`; the body's `found` is the stored version.
+- A bodiless non-GET call (logout, `DELETE`, password reset) sends `Content-Type: application/json` with the body `{}`, so the JSON-only rule needs no exception.
 - Unexpected failures return 500 `internal` and are logged through `src/shared/logger.ts`. The log never includes the request body, the password or the cookie.
 - Every route is registered in `schemas/openapi.yaml` and covered by `smoke/api.hurl`.
 
@@ -171,18 +177,19 @@ Every body is JSON, and every error body is `{ "error": "<code>" }`. Every map a
   - Unit tests call the exported handlers with `Request` objects and mock the composition module (the `healthz` pattern).
   - Real database behaviour is proven in `tests/integration/`.
 - **Shared session reader.** `requireUser(request)` lives in the composition layer and is shared by the map and admin handlers. It returns the user or a 401 `Response`.
+- **Shared JSON guard.** One helper, used by every non-GET handler, answers 415 before any side effect when the request is not `Content-Type: application/json` (D3).
 
 ### D7. Browser adapter and error surfacing
 
 - **`HttpMapRepository`** in `map/infrastructure/persistence/` implements the port over same-origin `fetch`.
   - `list` → `GET /api/maps`.
-  - `get` → `GET /api/maps/{id}`. A 404 returns `undefined`. `schemaVersion > 1` throws `UnsupportedSchemaVersionError(found, 1)`. A malformed envelope throws a plain `Error` naming the id.
+  - `get` → `GET /api/maps/{id}`. A 404 returns `undefined`. A 409 `unsupported-schema-version` body throws `UnsupportedSchemaVersionError(found, 1)` with the body's `found`. A malformed 200 envelope throws a plain `Error` naming the id.
   - `put` → `PUT` with `keepalive: true` when the serialised body is at most 60,000 bytes (browser keepalive quota is 64 KiB), otherwise a normal fetch. `put` begins its request synchronously, so the `EditorSession` flush ordering still holds.
-  - `delete` → `DELETE`.
+  - `delete` → `DELETE` with the JSON body `{}` (D5).
   - A 401 on any call throws the new `StorageUnauthorizedError` (`map/domain/errors.ts`). Any other non-2xx, or a network failure, throws a plain `Error`. Network errors are not "unavailable" (decision 0011).
 - **Autosave** gains a third outcome. `StorageUnauthorizedError` sets the notice `SESSION_EXPIRED = '登录已过期，请在新标签页重新登录后继续编辑'` and leaves the map pending, exactly as a failed write does today.
   - The session cookie is shared across tabs, so the next edit or flush after re-signing in saves it.
-  - `EditorView` shows a `重新登录` link (`/login?next=<current path>`, `target="_blank"`) while that notice is displayed.
+  - `EditorView` shows a `重新登录` link to `/login?next=%2F` with `target="_blank"` while that notice is displayed. The new tab lands on the library, never on the editor, so a second editor of the same map is never opened and cannot overwrite the first tab's pending edits.
 - **Load-time 401.** When the library list or the editor `get` rejects with `StorageUnauthorizedError`, the page calls `window.location.assign('/login?next=<current path>')`. Nothing has been edited yet, so nothing is lost.
 - **Provider.** `MapRepositoryProvider` constructs one `HttpMapRepository` per document session. It no longer has a fallback or `storageUnavailable`.
 
@@ -195,13 +202,14 @@ Every body is JSON, and every error body is `{ "error": "<code>" }`. Every map a
 - **`next` sanitising** is one shared pure helper. A value is used only if it starts with `/` and not with `//` or `/\`; anything else becomes `/`. This prevents an open redirect.
 - **`/login` and `/register`** are client forms posting JSON to D5. On success they navigate to the sanitised `next`.
   - Error texts: `用户名或密码错误` (401), `用户名已被占用` (409), `请输入用户名和密码` (400).
-- **Header session menu** (`src/components/account/`) on `/`, `/maps/[id]` and `/admin`. It fetches `GET /api/auth/session` once per page and shows the username, a `管理后台` link for the admin and `退出登录`, which posts to logout and then navigates to `/login`.
+- **Header session menu** (`src/components/account/`) on `/`, `/maps/[id]` and `/admin`. It fetches `GET /api/auth/session` once per page and shows the username, a `管理后台` link for the admin and `退出登录`, which posts `{}` to logout and then navigates to `/login`. The header task mounts it on `/` and `/maps/[id]`; the admin page task mounts it on `/admin`.
 
 ### D9. Admin page
 
-- `/admin` fetches `GET /api/admin/users`. On 403 it shows `无权访问` with a link to `/`.
+- `/admin` fetches `GET /api/admin/users`. On 403 it shows `无权访问` with a link to `/`. On 401 it calls `window.location.assign('/login?next=%2Fadmin')`, like every other page's load-time 401 (D7).
 - Each row shows username, created time and an `管理员` badge, plus a `重置密码` button.
 - The button asks for confirmation: `重置后该用户的所有登录将失效`. The result is shown once, in a dialog that lets the admin copy the temporary password and states that it will not be shown again.
+- The reset posts `{}` (D5). A 401 from the reset does the same `window.location.assign('/login?next=%2Fadmin')`.
 - Closing the dialog discards the password from component state.
 
 ### D10. Cut-over order (written exception to "no parallel implementations")
@@ -209,13 +217,17 @@ Every body is JSON, and every error body is `{ "error": "<code>" }`. Every map a
 `AGENTS.md` forbids parallel implementations without a written cutover exception. This is that exception. The 400-line PR limit makes an atomic swap impossible, so:
 
 1. **Server side first.** Database, account and API (task groups 1–5) land while the browser still uses IndexedDB. Nothing in the UI calls them yet. They are reachable only by tests and smoke, and each is referenced by its route, so knip stays green.
-2. **e2e infrastructure** (tasks 6.3 and 6.4) adds the Postgres service, the e2e database lifecycle and a signed-in fixture. Seeding keeps its IndexedDB internals, and specs switch to the fixture without changing assertions.
-3. **The flip** (task 6.5, after the sign-in pages and proxy in 7.1 and 7.2) swaps the provider to `HttpMapRepository`.
-   - In the same PR it deletes the IndexedDB adapter and its tests (knip would otherwise fail).
-   - It switches the seed helper to API `PUT`, so spec bodies stay unchanged.
-   - It moves the raw-record e2e cases (corrupt record, mismatched identity, future version) to their new seams (D11).
-   - It deletes `e2e/storage-fallback.spec.ts`.
-4. **The contract step** (task 6.6) removes what the flip left referenced but dead: `StorageUnavailableError`, the banner, the `storageUnavailable` flags and `onUnavailable`, `InMemoryMapRepository` (moved to `tests/support/` as the contract suite's in-memory double), and the `idb` and `fake-indexeddb` dependencies.
+2. **Preparation** while the browser still uses IndexedDB:
+   - the HTTP adapter and its error outcomes (tasks 6.1 and 6.2), unused by the UI until the flip;
+   - e2e infrastructure (tasks 6.3 and 6.4): the Postgres service, the e2e database lifecycle and a signed-in fixture. Seeding keeps its IndexedDB internals, and specs switch to the fixture without changing assertions;
+   - the native HMR probe (task 6.5) gets a database, signs in, and moves its source-seam anchors off lines the cut-over edits;
+   - component tests (task 6.6) for every raw-record e2e case, green alongside those e2e cases;
+   - the sign-in pages and the proxy (tasks 7.1 and 7.2).
+3. **The flip** (task 6.7) swaps the provider to `HttpMapRepository`.
+   - It deletes the IndexedDB adapter and its tests, because nothing uses the adapter any more (canonicality). knip treats test files as entries, so the adapter itself would not be reported. What would fail `pnpm dead-code` is `idb` and `fake-indexeddb` left unused, so the flip removes both dependencies and their lockfile entries in the same PR.
+   - It switches `seedRecords` to API `PUT` and `readRecord` to API `GET` (404 → `undefined`), with unchanged call signatures, so spec bodies and assertions stay unchanged.
+   - It deletes the raw-record e2e cases that task 6.6 replaced, and `e2e/storage-fallback.spec.ts`.
+4. **The contract step** (task 6.8) removes what the flip left referenced but dead: `StorageUnavailableError`, the banner, the `storageUnavailable` flags and `onUnavailable`. It also moves `InMemoryMapRepository` to `tests/support/` as the contract suite's in-memory double.
 
 The only transitional state is between steps 3 and 4: a never-thrown error branch and a banner that never renders. Both are inside this change, and the step 4 issue depends on step 3.
 
@@ -223,17 +235,27 @@ The only transitional state is between steps 3 and 4: a never-thrown error branc
 
 A reset never targets the developer's `app_dev`.
 
+- **Target derivation.** One shared helper module, `scripts/test-database.mjs`, holds both helpers.
+  - The reset helper takes a database name. It builds its owner and app-role URLs from the host and credentials of `MIGRATION_DATABASE_URL` and `DATABASE_URL`, with the database name forced to that name. It refuses, before connecting, any name other than `app_test` or `app_e2e`. A `DATABASE_URL` that still names `app_dev` therefore cannot redirect a reset.
+  - The scratch-database helper creates a uniquely named `app_scratch_<random>` database from the same owner credentials, runs a callback against it, and drops it afterwards. It drops only databases it created.
 - **Integration** (`pnpm test:integration`).
   - The target database is `app_test`.
-  - A Vitest `globalSetup` connects as the owner role to the maintenance database `postgres` and creates `app_test` if it is absent. It then drops and recreates the `public` schema, runs the migrations and applies the dev role bootstrap.
-  - Each test creates fresh users through `UserRepository`, so the map contract suite runs against `PostgresMapStore.forUser(<new user>)` and always starts empty.
-  - Role-flag, fail-closed and first-admin race tests live here.
-  - The defaults are the local URLs from `.env.example`. CI sets `DATABASE_URL` and `MIGRATION_DATABASE_URL` for `app_test`.
+  - A Vitest `globalSetup` calls the reset helper for `app_test`. As the owner role, the helper connects to the maintenance database `postgres` and creates `app_test` if it is absent. It then drops and recreates the `public` schema, runs the migrations and applies the dev role bootstrap.
+  - Test files run in parallel against `app_test`, so no test truncates or deletes from a shared table. Each test only creates fresh users. The map store tests insert them with raw SQL as the owner role, so they do not depend on `PostgresUserRepository`. The account repository tests create them through `UserRepository`. The map contract suite therefore runs against `PostgresMapStore.forUser(<new user>)` and always starts empty.
+  - The first-admin tests ("First registrant is admin", "Racing first registrations") need an empty `users` table. Each creates its own scratch database through the scratch helper, migrates it, applies the bootstrap and runs as the app role there.
+  - The runner tests (cloud-map-storage "Fresh database", "Re-run is a no-op", "Failing migration") also use scratch databases.
+  - Role-flag and fail-closed tests live here.
+  - CI sets `DATABASE_URL` and `MIGRATION_DATABASE_URL` for `app_test`.
 - **e2e** (`pnpm e2e`).
-  - Playwright starts its own `next dev --port 3100` with `DATABASE_URL` pointed at the `app_e2e` database. `reuseExistingServer` is false, so a developer's `:3000` dev database is never touched.
-  - Its `globalSetup` creates and resets `app_e2e` the same way, then registers `e2e-admin` (password from a test constant) first, so that account is the admin.
+  - The `e2e` script, and `verify-ui`, first run `node scripts/e2e-db.mjs`, then `playwright test`. Playwright starts its `webServer` before `globalSetup`, and the readiness probe `/api/healthz` answers 503 without a database. The database must therefore exist before Playwright starts.
+  - `scripts/e2e-db.mjs` calls the reset helper for `app_e2e` (create if absent, reset, migrate, bootstrap).
+  - Playwright then starts its own `next dev --port 3100`, with `DATABASE_URL` pointed at `app_e2e` (derived the same way) and `NEXT_DIST_DIR=.next-e2e`. `next.config.ts` reads `distDir` from `NEXT_DIST_DIR`, defaulting to `.next`, so the e2e server holds its own dev lock and can run beside a developer's `:3000` server. `.next-e2e/` is gitignored and ignored by knip, ESLint and Prettier.
+  - `reuseExistingServer` is false, so a developer's `:3000` dev database is never touched.
+  - Its `globalSetup` only registers `e2e-admin` (password from a test constant) over HTTP. It runs first on the freshly reset database, so that account is the admin.
   - Every other test registers a unique user (`u-<random>`) through the fixture.
   - Screenshot evidence still lands in `.run/ui-evidence/`.
+  - CI layer7 keeps running `pnpm e2e`. Only its environment changes.
+- **Native HMR probe** (`pnpm native:browser`, CI `native-installed-runtime`). It runs `pnpm dev` on `:3000` against a database prepared by `pnpm db:setup`: a job-local one in CI, the developer's dev database locally. It registers a fresh random user over the API before visiting `/`.
 - **Smoke** (`pnpm smoke`) runs against the `:3000` server and whatever database it has.
   - It registers two random users, so it never needs to know who the admin is. The 403 assertion uses the second user, who is never the first registrant.
   - On a brand-new dev database, the first smoke user becomes the admin. `docs/engineering/database.md` therefore tells developers to register their own account before running smoke.
@@ -253,6 +275,7 @@ A reset never targets the developer's `app_dev`.
   - `pnpm db:migrate` and `pnpm db:setup`;
   - backup before migrating;
   - the deployment procedure: create `mindsprout_app` with a strong password, migrate, start, and register the owner immediately so they become the admin.
+- TECH §3 `users`, `sessions` and `maps` are updated to the D1 shape in the PR that lands migration 0001 (task 1.2), since docs change with code.
 - TECH §7 is updated to the implemented layout when the change closes.
 
 ## Sketch seams under test
@@ -268,7 +291,7 @@ A reset never targets the developer's `app_dev`.
 - Postgres integration tests through the app role:
   - the role flags are false;
   - a query without `app.user_id` returns no rows;
-  - user B cannot read, overwrite or delete user A's map;
+  - user B cannot read or delete user A's map, and B's `put` of the same id creates B's own map without touching A's;
   - two concurrent first registrations produce exactly one admin;
   - a reset deletes the user's sessions.
 

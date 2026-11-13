@@ -15,7 +15,8 @@ PRD §8 M2 acceptance is "换设备能看到同一张图". Today maps live only 
 - **Cloud map storage (new).**
   - Maps are stored in Postgres under RLS: `owner_id = current_setting('app.user_id')`. The app role is neither table owner nor `BYPASSRLS`, and migrations run as a separate owner role.
   - New routes `/api/maps` and `/api/maps/{id}` implement the existing `MapRepository` contract over HTTP. The server validates every saved map against the forest invariants.
-  - Another user's map is indistinguishable from a missing one (404).
+  - Map ids are scoped per user. Another user's map is invisible: reading it answers 404 exactly like a missing map, and saving the same id creates the caller's own map without touching theirs.
+  - Reading a map stored by a newer version answers 409 `unsupported-schema-version`, so the editor reports the version instead of failing to open.
 - **Database tooling (new).** Numbered SQL migrations applied by `pnpm db:migrate` through the existing `postgres` package. There is no ORM.
 - **Sign-in required (BREAKING, user-visible).**
   - `src/proxy.ts` redirects signed-out visitors to `/login?next=<path>`. `/login`, `/register`, `/api/auth/*` and `/api/healthz` stay public.
@@ -28,8 +29,8 @@ PRD §8 M2 acceptance is "换设备能看到同一张图". Today maps live only 
   - The `MapRepository` port and its contract suite stay.
 - The stored `schemaVersion` stays 1; M1's announced bump to 2 is withdrawn. Concurrent editing of one map on two devices is last-write-wins and documented.
 - Verification surfaces:
-  - The CI e2e job gains a Postgres service.
-  - Playwright runs against its own reset database with a seeded admin.
+  - The CI e2e job and the required native HMR job gain a Postgres database; the native HMR probe signs in before opening the library.
+  - Playwright runs against its own reset database, prepared before its server starts, with a seeded admin and its own Next build directory.
   - `smoke/api.hurl` covers the new routes.
   - The M2 acceptance walk uses two browser contexts.
 
@@ -70,7 +71,8 @@ PRD §8 M2 acceptance is "换设备能看到同一张图". Today maps live only 
   - The IndexedDB adapter and its tests
   - The in-memory fallback wiring, the storage-unavailable banner and `StorageUnavailableError`
   - `e2e/storage-fallback.spec.ts`
-  - The IndexedDB seeding in `e2e/support/seed.ts`, replaced by API seeding
+  - The IndexedDB seeding and reading in `e2e/support/seed.ts`, replaced by API calls with unchanged signatures
+  - The raw-record e2e cases, replaced by component tests and one integration test
 - **Dependencies:**
   - No new runtime dependency (`postgres` and `node:crypto` already exist).
   - `idb` and `fake-indexeddb` are removed.
@@ -79,10 +81,10 @@ PRD §8 M2 acceptance is "换设备能看到同一张图". Today maps live only 
   - Each new route gets an entry in `schemas/openapi.yaml`, a snapshot update and coverage in `smoke/api.hurl`.
 - **Configuration:**
   - `.env.example`: `DATABASE_URL` now names the app role, `MIGRATION_DATABASE_URL` is new, and the Supabase variables are removed.
-  - `docker-compose.yml` gains a dev role bootstrap.
-  - `.github/workflows/ci.yml` changes in layer3 (migrate and app role) and layer7 (Postgres service).
-  - `playwright.config.ts` uses its own e2e database and server.
-  - `constraints.yaml` updates the key routes.
+  - `pnpm db:setup` (migrate, then the dev role bootstrap `db/dev/app-role.sql`) prepares a local database; `docker-compose.yml` is unchanged.
+  - `.github/workflows/ci.yml` changes in layer3 (migrate and app role), layer7 (Postgres service) and `native-installed-runtime` (database for the native HMR probe).
+  - `playwright.config.ts` uses its own e2e database, server and `distDir`; `next.config.ts` reads `distDir` from `NEXT_DIST_DIR`.
+  - `constraints.yaml` updates the key routes and adds the `verification` surface entry for DB migrations.
   - `AGENTS.md` adds the `db:*` commands, a migration verification row and the new critical paths.
   - Every edit to a gate or Critical Path above is flagged in its PR, with `pnpm test:guardrails` evidence.
-- **Documents:** decision 0023 and the PRD/TECH/CONTEXT/AGENTS/README revisions already landed on this branch. This change adds the database and deployment procedure to `docs/engineering/database.md`, and updates README `## Known Limitations` and TECH §7 as the code lands.
+- **Documents:** decision 0023 and the PRD/TECH/CONTEXT/AGENTS/README revisions already landed on this branch. This change adds the database and deployment procedure to `docs/engineering/database.md`, and updates README `## Known Limitations`, TECH §3 (the schema, with migration 0001) and TECH §7 as the code lands.

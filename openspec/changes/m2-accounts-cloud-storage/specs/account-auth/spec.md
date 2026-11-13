@@ -113,7 +113,7 @@ Every non-GET API route SHALL accept only `Content-Type: application/json` and S
 
 ### Requirement: Session expiry while editing keeps pending edits
 
-When a save is refused because the session has ended, the editor SHALL stay open and keep the unsaved edits pending. It SHALL show the notice "登录已过期，请在新标签页重新登录后继续编辑" with a `重新登录` link that opens `/login?next=<current path>` in a new tab. After the user signs in again, the next edit or flush SHALL save the pending map. When a page's initial load is refused because there is no session, the page SHALL redirect to `/login?next=<current path>` instead.
+When a save is refused because the session has ended, the editor SHALL stay open and keep the unsaved edits pending. It SHALL show the notice "登录已过期，请在新标签页重新登录后继续编辑" with a `重新登录` link that opens `/login?next=%2F` in a new tab, so signing in there lands on the library and never opens a second editor of the same map. After the user signs in again, the next edit or flush SHALL save the pending map. When a page's initial load is refused because there is no session, the page SHALL redirect to `/login?next=<current path>` instead.
 
 #### Scenario: Edit after the session ended
 
@@ -124,6 +124,11 @@ When a save is refused because the session has ended, the editor SHALL stay open
 
 - **WHEN** the user from the previous scenario signs in again in another tab, returns and makes another edit
 - **THEN** reloading the editor shows both the earlier rename and the new edit
+
+#### Scenario: Re-login does not open a second editor
+
+- **WHEN** the user from "Edit after the session ended" follows the 重新登录 link and signs in on the new tab
+- **THEN** the new tab shows `/`, not the editor, and the original tab's next edit saves both the earlier rename and that edit
 
 #### Scenario: Expired session on page load
 
