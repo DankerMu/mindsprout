@@ -11,8 +11,8 @@
   - mutant count M equal to the clean-checkout number from 1.5;
   - initial test count equal to the clean-checkout number from 1.5.
 - [x] 1.4 While the sandbox exists (or from a `--cleanTempDir false` run), assert `.stryker-tmp/sandbox-*` contains no `.run` or `.workplans` entry; then remove the temp dir.
-- [ ] 1.5 `pnpm fmt:check`, `pnpm lint`, and exact-head CI. From the PR's `Mutation testing (stryker, advisory)` job log (also `reports/mutation/console.log`, `.github/workflows/mutation.yml:308`), read `Instrumented 44 source file(s) with <M> mutant(s)` and the initial-test count. CI is a clean checkout where the new patterns match nothing, so it is the clean baseline that 1.3 must equal exactly.
-- [ ] 1.6 State the AC2 deviation in the PR `偏离记录`: N is ~2.2k, not "close to" the 420 `git ls-files` count, because gitignored local agent tooling under `.omp/` (880 files) and `.claude/` (~850 files), 24 MB in total, stays in Stryker's input set. It cannot change the test set: `vitest.config.ts` includes only `src/**/*.test.ts(x)`, and those trees hold no such files. The issue limits the list to confirmed artifact directories.
+- [x] 1.5 `pnpm fmt:check`, `pnpm lint`, and exact-head CI. From the PR's `Mutation testing (stryker, advisory)` job log (also `reports/mutation/console.log`, `.github/workflows/mutation.yml:308`), read `Instrumented 44 source file(s) with <M> mutant(s)` and the initial-test count. CI is a clean checkout where the new patterns match nothing, so it is the clean baseline that 1.3 must equal exactly.
+- [x] 1.6 State the AC2 deviation in the PR `偏离记录`: N is ~2.2k, not "close to" the 420 `git ls-files` count, because gitignored local agent tooling under `.omp/` (880 files) and `.claude/` (~850 files), 24 MB in total, stays in Stryker's input set. It cannot change the test set: `vitest.config.ts` includes only `src/**/*.test.ts(x)`, and those trees hold no such files. The issue limits the list to confirmed artifact directories.
 
 ## Risk packs
 
