@@ -1,1 +1,2 @@
 {"date":"2026-11-05","change":"m1-canvas","grill_gate":"passed:branches=18,open=2","rounds":3,"gate_net_catch":1,"p0":{"in":6,"resolved":6,"residual":0},"p1":{"resolved":36,"carried":1},"regressions":1,"approx_subagent_calls":15,"verdict":"residual"}
+{"date":"2026-11-13","change":"m2-accounts-cloud-storage","grill_gate":"passed:branches=23,open=0","rounds":3,"gate_net_catch":1,"p0":{"in":0,"resolved":0,"residual":0},"p1":{"resolved":26},"regressions":1,"approx_subagent_calls":16,"verdict":"clean","orchestration":"manual"}

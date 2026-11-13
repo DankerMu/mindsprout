@@ -27,3 +27,4 @@ The composition root chooses the repository once per document session, falling b
 - A later successful save does not dismiss the current notice. A replacement notice occupies the same slot until explicitly dismissed or replaced again.
 - The library can reuse the banner without importing composition-root code; rendering it on the homepage is a separate library change.
 - No active decision is superseded.
+- Partially superseded by decision 0023 (M2): the IndexedDB-to-memory fallback and its banner are removed; the once-per-session repository choice and explicitly dismissed notices remain.

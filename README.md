@@ -22,7 +22,7 @@
 | 画布        | React Flow + d3-hierarchy                                          |
 | 状态        | Zustand + undo/redo                                                |
 | AI          | 提供方抽象层：Claude、OpenAI 及兼容接口、本地开源模型（Ollama 等） |
-| 数据 / 认证 | Supabase（Postgres + Auth + RLS）+ Drizzle                         |
+| 数据 / 认证 | Postgres（RLS）+ 自建用户名密码账号（决策 0023）                   |
 | 部署        | Vercel                                                             |
 
 详见 [docs/PRD.md](docs/PRD.md) 与 [docs/TECH.md](docs/TECH.md)。

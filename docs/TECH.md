@@ -1,6 +1,6 @@
 # MindSprout 技术路线
 
-> 版本 0.1 · 2026-11-05 · 与 PRD 0.1 对应
+> 版本 0.2 · 2026-11-13 · 与 PRD 0.2 对应（0.2：自建账号 + Postgres RLS 取代 Supabase，决策 0023）
 
 ## 1. 总体架构
 
@@ -10,28 +10,29 @@
    ▼
 Next.js Route Handlers (同一个部署)
    ├─ /api/ai/*      → 提供方抽象层 → Claude / OpenAI 兼容 / 本地开源模型
-   ├─ /api/maps/*    → Postgres（导图 CRUD、版本）
-   └─ auth           → Supabase Auth
+   ├─ /api/maps/*    → Postgres（导图 CRUD，RLS）
+   ├─ /api/auth/*    → 自建账号与会话（用户名 + 密码）
+   └─ /api/admin/*   → 管理后台（用户列表、重置密码）
    │
    ▼
-Supabase (Postgres + Auth + RLS)
+Postgres 16（RLS：app.user_id）
 ```
 
-选 Next.js 全栈而不是前后端分离，原因是 v1 只有一个人开发，一个仓库一个部署最省心。AI 路由和数据路由都在 Route Handlers 里，未来流量大了再拆。
+选 Next.js 全栈而不是前后端分离，原因是 v1 只有一个人开发，一个仓库一个部署最省心。AI 路由和数据路由都在 Route Handlers 里，未来流量大了再拆。账号自建、不依赖 Supabase：本地、CI 与线上都是普通 Postgres（决策 0023）。
 
 ## 2. 技术选型
 
 | 层     | 选型                                                                                      | 理由                                                     |
 | ------ | ----------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| 框架   | Next.js 15 (App Router) + TypeScript                                                      | 全栈一体，Vercel 零配置部署，SSE 流式支持好              |
+| 框架   | Next.js 16 (App Router) + TypeScript                                                      | 全栈一体，Vercel 零配置部署，SSE 流式支持好              |
 | 画布   | React Flow (@xyflow/react) + d3-hierarchy                                                 | 节点是 React 组件，交互全自定义；d3 做树形布局           |
 | 状态   | Zustand；undo/redo 用 reducer 返回的逆操作栈（决策 0004 的 change `m1-canvas` design D3） | 一条 TreeOp 一步撤销，AI 会话可分组，不存整树快照        |
 | 样式   | Tailwind CSS + shadcn/ui                                                                  | 快速出 UI，组件可控                                      |
-| 数据库 | Supabase Postgres + Drizzle ORM                                                           | 托管、免费额度够、RLS 做行级隔离，Drizzle 类型安全       |
-| 认证   | Supabase Auth                                                                             | 邮箱 / GitHub / Google 一站式，和数据库同一个服务        |
+| 数据库 | Postgres 16 + `postgres`（postgres.js）+ 编号 SQL 迁移                                    | 任意 Postgres 可用，RLS 做行级隔离；表少，不引入 ORM     |
+| 认证   | 自建：用户名 + 密码（scrypt，`node:crypto`）+ 服务端会话（httpOnly cookie）               | 零新依赖，本地/CI 原生 Postgres 即可跑通（决策 0023）    |
 | AI     | Vercel AI SDK (`ai`) 做提供方抽象；Claude 走 `@anthropic-ai/sdk` 直连以用全特性           | 一套接口接 Claude、OpenAI、任意 OpenAI 兼容端点和 Ollama |
 | 导出   | html-to-image (PNG/SVG)，自写 Markdown/OPML 序列化                                        | 树到文本是纯函数，容易测                                 |
-| 部署   | Vercel + Supabase 云                                                                      | 零运维                                                   |
+| 部署   | Vercel + 托管 Postgres（M2 只做本地验收，不含部署）                                       | 零运维                                                   |
 | 测试   | Vitest (单元) + Playwright (端到端)                                                       | 树操作和序列化用单元测试覆盖                             |
 
 ## 3. 数据模型
@@ -53,8 +54,8 @@ interface MindNode {
 }
 
 // 森林：roots[0] 是主根（不可删除/移动），其余为浮动根（决策 0004）
-// 客户端模型没有 ownerId：所有者是 M2 由 account 上下文在服务端附加的列（owner_id，RLS），
-// M2 接入时 schemaVersion 升到 2。
+// 客户端模型没有 ownerId：所有者是 M2 由 account 上下文在服务端附加的列（owner_id，RLS）；
+// 载荷形状不变，schemaVersion 保持 1（决策 0023）。
 interface MindMap {
   id: string;
   title: string; // 元数据：由应用层在保存/重命名时写，reducer 不碰
@@ -64,14 +65,16 @@ interface MindMap {
 }
 ```
 
-数据库表（Drizzle）：
+数据库表（编号 SQL 迁移；M2 建前三张，其余随所属里程碑）：
 
-- `maps`：id, owner_id, title, roots (jsonb), schema_version, created_at, updated_at
-- `map_versions`：id, map_id, roots (jsonb), created_at，保留最近 20 版
-- `ai_usage`：user_id, date, provider, model, tokens_in, tokens_out, calls，做每日配额
-- `user_providers`：user_id, provider, base_url, encrypted_key, default_model，用户自定义提供方
+- `users`（M2）：id, username（唯一）, password_hash（scrypt）, is_admin（全库至多一个：首个注册用户）, created_at
+- `sessions`（M2）：令牌哈希, user_id, expires_at（30 天）, created_at
+- `maps`（M2）：id, owner_id, title, roots (jsonb), schema_version, created_at, updated_at
+- `map_versions`（M6）：id, map_id, roots (jsonb), created_at，保留最近 20 版
+- `ai_usage`（M4）：user_id, date, provider, model, tokens_in, tokens_out, calls，做每日配额
+- `user_providers`（M3.5）：user_id, provider, base_url, encrypted_key, default_model，用户自定义提供方
 
-RLS 策略：`owner_id = auth.uid()`，所有表统一。
+RLS 策略：按用户拥有的表统一为 `owner_id = current_setting('app.user_id')`（`ai_usage`/`user_providers` 以 `user_id` 为所有者列）；每个请求在事务内 `set_config('app.user_id', …, true)`，应用以非表 owner、无 `BYPASSRLS` 的角色连接，迁移用单独的 owner 角色。`users`/`sessions` 是认证自身的表，只由 account 上下文在服务端访问。
 
 ## 4. 树操作协议（AI 与画布的唯一接口）
 
@@ -223,13 +226,14 @@ docs/                           PRD、技术文档
 - 每用户每日配额写在 `ai_usage` 表，超过返回 429 并在前端提示
 - 请求体校验用 Zod，防止超长输入
 - 导图读写全部走 RLS，服务端也不绕过
+- 密码只存 scrypt 哈希；会话为服务端记录，cookie 为 httpOnly；登录限流推迟到首次公网部署前（决策 0023）
 
 ## 9. 里程碑与技术任务
 
 | 阶段 | 主要技术任务                                                                                |
 | ---- | ------------------------------------------------------------------------------------------- |
 | M1   | Next.js 脚手架、React Flow 画布、树 reducer、d3 布局、快捷键、IndexedDB 临时存储、undo/redo |
-| M2   | Supabase 接入、Drizzle schema、登录、maps CRUD、自动保存、本地数据迁移到云                  |
+| M2   | 自建账号与会话、SQL 迁移与 RLS、maps CRUD、云端自动保存、管理后台、移除 IndexedDB 本地存储  |
 | M3   | 提供方抽象层、Claude 与 OpenAI 兼容适配器、SSE、主题生成 Prompt、入场动画                   |
 | M3.5 | Ollama 本地模型适配、JSON 模式通道、用户自定义提供方设置页                                  |
 | M4   | 四种节点动作、上下文裁剪、每日配额                                                          |

@@ -45,7 +45,7 @@ AI 驱动的思维导图生成器 — 输入一句话，让想法自动生长成
 | ------------------ | -------------------------------------------------- | -------------------------------- | ------------------------------------ |
 | Language / runtime | TypeScript / Node                                  | 5.9 / 22.23.4 (`.tool-versions`) | strict flag set in `tsconfig.json`   |
 | Framework / canvas | Next.js (App Router) + React; React Flow + Zustand | 16 / 19                          | one repo, one deploy; `docs/TECH.md` |
-| Persistence        | Supabase Postgres (RLS), Drizzle from M2           | Postgres 16                      | row-level isolation per user         |
+| Persistence        | Postgres (RLS), SQL migrations, own auth (0023)    | Postgres 16                      | row-level isolation per user         |
 | Tests              | Vitest, Playwright (e2e), Stryker (weekly)         |                                  |                                      |
 | Lint               | ESLint 9 flat config, Prettier, dependency-cruiser |                                  |                                      |
 | Package manager    | pnpm                                               | 10.28.0 (`packageManager`)       |                                      |
@@ -63,7 +63,7 @@ src/app/            Next.js routes + composition root — nothing imports from h
 src/contexts/<ctx>/ bounded contexts: map | ai | account | export
   domain/           pure: entities, TreeOp schema + reducer, ports                   — imports only itself + src/shared + zod
   application/      use cases, orchestration via ports                               — never imports infrastructure/
-  infrastructure/   adapters: providers, persistence; next/drizzle/postgres live here
+  infrastructure/   adapters: providers, persistence; next/postgres live here
   acl/              anti-corruption layer: the only door to another context
 src/shared/         cross-cutting: env (zod, fail-loud), logger (pino), db ping
 tests/integration/  real Postgres   tests/contract/ OpenAPI snapshot   e2e/ Playwright   smoke/ hurl
@@ -116,7 +116,7 @@ All commands route through `package.json` scripts. Do not invent ad-hoc commands
 ### Environment
 
 - `.env.example` lists required variables. Copy to `.env` before running; `src/shared/env.ts` validates and throws on invalid values.
-- Secrets are loaded from Vercel / Supabase project settings in non-local environments. Local services: `docker compose up -d` (Postgres 16 on 5432, user/db `app`).
+- Secrets are loaded from deployment platform settings in non-local environments. Local services: `docker compose up -d` (Postgres 16 on 5432, user/db `app`).
 
 ## Verification Matrix
 
@@ -127,7 +127,7 @@ All commands route through `package.json` scripts. Do not invent ad-hoc commands
 | Web page / UI     | Playwright walk of key routes (`e2e/smoke.spec.ts`) | `pnpm e2e`        | Screenshot in `.run/ui-evidence/` + zero console errors |
 | License audit     | Native installed inventory + CLI contracts          | `pnpm anti-drift` | Contracts pass + version summary + platform recorded    |
 
-- Key routes in `constraints.yaml` `verification.key_api_routes` / `key_ui_paths`; `/` and `/maps/[id]` are covered by `e2e/smoke.spec.ts`; routes marked `pending` join `smoke/api.hurl` and `e2e/smoke.spec.ts` in the PR that lands them. A DB migration row is added with the first Drizzle migration (M2).
+- Key routes in `constraints.yaml` `verification.key_api_routes` / `key_ui_paths`; `/` and `/maps/[id]` are covered by `e2e/smoke.spec.ts`; routes marked `pending` join `smoke/api.hurl` and `e2e/smoke.spec.ts` in the PR that lands them. A DB migration row is added with the first SQL migration (M2).
 - Every command above resolves to a `package.json` script and is mirrored in `constraints.yaml` `verification`. A surface with no verification command is review-only, and the PR must say so.
 
 Every row requires fresh evidence from the current session — see `## Agent Operating Rules → Evidence requirements`.
@@ -146,7 +146,7 @@ Max 10 entries, dated, pruned at milestones. An undated note is unverifiable —
 1. 2026-11-05 — Change a MindMap only by dispatching a `TreeOp` through the map reducer, not by writing Zustand state directly (because undo grouping, streaming and provider portability all hang off the single op stream).
 2. 2026-11-05 — Validate every Provider output with the Zod `TreeOp` schema before applying it, not by trusting model JSON (because open models drift in shape; invalid output is rejected and retried once, never "repaired").
 3. 2026-11-05 — Keep API keys (platform or user-supplied) server-side only, never in the client bundle, logs, or the database in plaintext (because a leaked key is a billing incident; `src/shared/logger.ts` redacts the usual paths).
-4. 2026-11-05 — Access user data through Supabase RLS as the authenticated user, not with the service-role key (because RLS is the only isolation between users).
+4. 2026-11-13 — Access user data through Postgres RLS as the signed-in user, never as a table owner or BYPASSRLS role (because RLS is the only isolation between users; decision 0023).
 5. 2026-11-05 — Tests, CI and local verification use the mock provider or recorded fixtures, never a real paid key (because a runaway loop is a billing incident).
 6. 2026-11-06 — Read the relevant guide in `node_modules/next/dist/docs/` before writing Next.js code, not training-data recall (because Next.js 16 has breaking changes; full text: `docs/engineering/nextjs-agent-rules.md`).
 
