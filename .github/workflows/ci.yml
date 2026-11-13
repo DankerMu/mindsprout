@@ -107,6 +107,8 @@ jobs:
         run: pnpm test:licenses
       - name: Patched Stryker Vitest runner regression
         run: pnpm test:stryker-patch
+      - name: Native override lockfile integrity
+        run: pnpm test:native-lockfile
       - name: Installed dependency license audit
         run: pnpm licenses:check
       - name: Duplicate code
