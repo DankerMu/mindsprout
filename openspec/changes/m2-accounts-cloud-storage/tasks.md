@@ -26,7 +26,7 @@
 
 1. Groups 1–5 are server-only. Group 5 starts after 4.2 (5.1–5.3 and 5.6) and 4.3 (5.4 and 5.5).
 2. 6.1–6.2 add the HTTP adapter and its error outcomes before the flip; the UI does not use them until 6.8.
-3. 6.3 moves e2e onto its own database and a signed-in fixture (after 5.2). 6.4 adds the declared expected-response helper (design D13) after 6.3, and 6.5 switches every spec to the fixture after 6.3.
+3. 6.3 moves e2e onto its own database and a signed-in fixture (after 5.2). 6.4 adds the declared expected-response helper (design D13) after 6.3, and 6.5 switches every spec except the signed-out ones to the fixture after 6.3.
 4. 6.6 gives the native HMR probe a database and a signed-in user (after 5.2). It merges before 7.2 and before the flip.
 5. 6.7 adds the component tests that replace the raw-record e2e cases. It is independent and merges before the flip.
 6. 7.1 adds the sign-in pages (after 5.2 and 6.3). 7.2 adds the proxy after 6.5, 6.6 and 7.1. 7.3 adds the header after 5.3, 6.5, 6.6 and 7.1, because its session fetch on a signed-out page logs a 401 console error that the e2e and native HMR console assertions reject.
@@ -37,14 +37,14 @@
 ## 1. Database foundation
 
 - [ ] 1.1 Add the migration runner and the integration database lifecycle (design D1, D11).
-  - Add `scripts/db-migrate.mjs` and the `pnpm db:migrate` script:
+  - Add `scripts/db-migrate.mjs` and the `pnpm db:migrate` script, `node --env-file-if-exists=.env scripts/db-migrate.mjs` (design D1: no dotenv dependency, exported variables win, values never printed):
     - it applies `db/migrations/NNNN_*.sql` in name order under `MIGRATION_DATABASE_URL`, one transaction per file;
     - it records applied files in `schema_migrations`, skips files already recorded, and on failure rolls back and stops with a non-zero exit.
   - Add the shared helper module `scripts/test-database.mjs` (design D11):
     - the reset helper builds its owner and app-role URLs from the host and credentials of `MIGRATION_DATABASE_URL` and `DATABASE_URL`, with the database name forced to `app_test` or `app_e2e`, and refuses any other name before connecting;
     - as the owner role it connects to the `postgres` maintenance database, creates the target if it is absent, drops and recreates its `public` schema, then migrates;
     - the scratch-database helper creates a uniquely named `app_scratch_<random>` database from the same owner credentials, runs a callback against it and drops it afterwards, dropping only databases it created.
-  - Add a Vitest `globalSetup` to `vitest.integration.config.ts` that calls the reset helper for `app_test`.
+  - Add a Vitest `globalSetup` to `vitest.integration.config.ts` that calls the reset helper for `app_test`. It loads `.env` as design D1 "Environment loading" states and throws before connecting when either URL is unset.
   - Move the default URL in `tests/integration/database.test.ts` to `app_test` (never `app_dev`).
   - Add `MIGRATION_DATABASE_URL` to `.env.example` and to the CI layer3 env (owner `app` on `app_test`). Replace the `.env.example` comment saying integration tests use the same address with one saying that integration and e2e derive `app_test` and `app_e2e` from these URLs.
   - Add a `pnpm db:migrate` row to the `AGENTS.md` daily-commands table, trimming existing prose so the file stays within the instruction-guard limits.
@@ -52,14 +52,15 @@
     - runner tests over fixture migration directories, each in a scratch database, cover cloud-map-storage "Fresh database", "Re-run is a no-op" and "Failing migration" (no partial statement remains, not recorded, later files not applied, non-zero exit);
     - the reset helper refuses `app_dev` and any other name besides `app_test` and `app_e2e`, and touches no database when it refuses;
     - the scratch helper drops its database after the callback, including when the callback throws.
+  - Verify (local): with the URLs only in `.env` and none exported in the shell, `pnpm db:migrate` migrates the local database, and its output contains no variable value.
   - Verify (gate): `pnpm test:guardrails` passes, and the PR flags the `ci.yml` and `AGENTS.md` edits.
 - [ ] 1.2 Add migration `0001_accounts_and_maps.sql`, exactly per design D1.
   - Schema:
     - create the `mindsprout_app` role `NOLOGIN` if it is absent;
     - create `users`, `sessions` and `maps` with the `users_single_admin` partial unique index, the generated `title` and `updated_at` columns, and the `map->>'id' = id` check;
     - put `maps` under `ENABLE` + `FORCE` RLS with the fail-closed `maps_owner` policy;
-    - grant `mindsprout_app` only the D1 privileges.
-  - Add the dev/CI bootstrap `db/dev/app-role.sql` and `pnpm db:setup` (migrate, then bootstrap; refuses when `NODE_ENV=production`), and have the reset helper apply the bootstrap after migrating.
+    - grant `mindsprout_app` only the D1 privileges, including an explicit `grant usage on schema public to mindsprout_app` and no `create` on the schema.
+  - Add the dev/CI bootstrap `db/dev/app-role.sql` and `pnpm db:setup` (migrate, then bootstrap; refuses when `NODE_ENV=production`), run with `node --env-file-if-exists=.env` like `db:migrate` and never printing variable values. Have the reset helper apply the bootstrap after migrating.
   - Point `.env.example` `DATABASE_URL` at `mindsprout_app` and remove the three Supabase variables. Do the same for CI layer3 `DATABASE_URL`, and run `pnpm db:setup` before the smoke step.
   - `AGENTS.md`:
     - extend the daily-commands row with `pnpm db:setup`;
@@ -71,7 +72,9 @@
     - cloud-map-storage "Application role cannot bypass isolation" (`rolsuper` and `rolbypassrls` false; no table owned);
     - "Query without a user identity" (select returns no rows; insert refused);
     - the app role cannot update `users.is_admin` and cannot drop or alter any table;
+    - on `app_test` as the reset helper has just rebuilt it (schema `public` dropped and recreated), the app role can select from `maps` (zero rows without an identity) and cannot create a table in `public`;
     - `/api/healthz` still answers 200 through the app role (`pnpm smoke` in CI).
+  - Verify (local): after `cp .env.example .env` and `docker compose up -d`, `pnpm db:setup` succeeds with no variable exported in the shell and prints no variable value.
   - Verify (gate): `pnpm test:guardrails` and `pnpm docs:check` pass, and the PR flags the `constraints.yaml`, `ci.yml` and `AGENTS.md` edits.
 
 Suggested fixture level: expanded - persisted schema, the RLS security boundary and CI workflow edits (Critical Path: gate integrity); a wrong grant silently voids user isolation.
@@ -242,9 +245,9 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
     - map-persistence "Write failure is visible" (500 and network error show "保存失败", the next edit saves both).
 - [ ] 6.3 Prepare e2e for the database (design D11).
   - Add a Postgres service to CI layer7, plus `MIGRATION_DATABASE_URL` and `DATABASE_URL`. CI layer7 keeps running `pnpm e2e`.
-  - Add `scripts/e2e-db.mjs`. It calls the task 1.1 reset helper for `app_e2e`, which creates the database if absent, resets it, migrates and applies the bootstrap. The `e2e` script becomes `node scripts/e2e-db.mjs && playwright test`, and `verify-ui` gets the same prefix, so the database exists before Playwright starts its `webServer`.
+  - Add `scripts/e2e-db.mjs`. It calls the task 1.1 reset helper for `app_e2e`, which creates the database if absent, resets it, migrates and applies the bootstrap. The `e2e` script becomes `node --env-file-if-exists=.env scripts/e2e-db.mjs && playwright test`, and `verify-ui` gets the same prefix, so the database exists before Playwright starts its `webServer`.
   - `next.config.ts` reads `distDir` from `NEXT_DIST_DIR`, defaulting to `.next`. Add `.next-e2e/` to `.gitignore` and to the knip, ESLint and Prettier ignores.
-  - `playwright.config.ts` starts its own `next dev --port 3100` with `NEXT_DIST_DIR=.next-e2e`, `DATABASE_URL` derived for `app_e2e`, `reuseExistingServer: false` and a matching `baseURL`.
+  - `playwright.config.ts` starts its own `next dev --port 3100` with `NEXT_DIST_DIR=.next-e2e`, `DATABASE_URL` derived for `app_e2e`, `reuseExistingServer: false` and a matching `baseURL`. It loads `.env` as design D1 "Environment loading" states and throws before starting the server when `DATABASE_URL` or `MIGRATION_DATABASE_URL` is unset.
   - Its `globalSetup` only registers `e2e-admin` over HTTP, as the first account on the fresh database.
   - `e2e/support/session.ts` exports a `test` fixture whose `page` is signed in as a freshly registered user, and an `adminPage` signed in as `e2e-admin`.
   - Seeding keeps its IndexedDB internals.
@@ -253,6 +256,7 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
     - a new fixture test proves the fixture page carries a valid session (`GET /api/auth/session` returns 200 with its username);
     - with `pnpm dev:bg` serving `:3000`, `pnpm e2e` still starts its own server and passes;
     - `pnpm e2e` passes on a database server where `app_e2e` does not yet exist.
+  - Verify (local): with the URLs only in `.env` and none exported, `scripts/e2e-db.mjs` prepares `app_e2e`, the e2e server connects to `app_e2e` (not `app_dev`), and no variable value is printed; with `DATABASE_URL` unset everywhere, `playwright test` fails before starting a server.
   - Verify (gate): `pnpm test:guardrails` passes and the PR flags the workflow edit.
 - [ ] 6.4 Add the declared expected-response helper for e2e (design D13). Depends on 6.3.
   - Add `e2e/support/expected-responses.ts`. A test declares each expected non-2xx response as a URL pattern and a status; the helper records page responses through `page.on('response')` and exports the console-noise collector.
@@ -266,14 +270,16 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
     - declared but never requested: the collector reports the unused declaration;
     - a `console.error` from the page next to a declared, observed 401 is still reported.
   - Verify (gate): `pnpm decisions:check` and `pnpm dead-code` pass.
-- [ ] 6.5 Switch every e2e spec to the signed-in `test` fixture from `e2e/support/session.ts`. This is a mechanical import change with no assertion edits.
-  - Verify (e2e): the full suite passes with zero skips and zero console errors.
+- [ ] 6.5 Switch every e2e spec to the signed-in `test` fixture from `e2e/support/session.ts`, except the specs that test signed-out behaviour. This is a mechanical import change with no assertion edits.
+  - Excluded by name: `e2e/expected-responses.spec.ts` (6.4), and any other spec that tests signed-out behaviour, such as the 7.1 register and sign-in walks if they have landed. They keep the base Playwright `test`, signed out by design.
+  - Verify (e2e): the full suite passes with zero skips and zero console errors, and the excluded specs still run signed out.
 - [ ] 6.6 Give the native HMR probe a database and a signed-in user (design D11). Depends on 5.2; merges before 7.2 and 6.8.
   - CI `native-installed-runtime` runs `pnpm db:setup` against a reachable Postgres 16 on both matrix legs, with `MIGRATION_DATABASE_URL` and `DATABASE_URL` set. The Linux leg uses a service container. GitHub runs service containers only on Linux runners, so the `macos-26` leg needs another mechanism; the implementer chooses it, for example starting a Homebrew Postgres 16 in a step.
   - `scripts/native-hmr.mjs` registers and signs in a fresh random user over the API, in the probe's browser context, before `publicMap` runs. It signs in before it opens any page that calls an authenticated API, so it receives no expected non-2xx response, needs no design D13 declaration, and keeps its console check unchanged.
+  - In `scripts/native-hmr.mjs`, `visitEditor`'s `Map must be persisted` assertion stops checking that `未保存到浏览器` is absent, because 6.9 deletes that text. It asserts instead that the autosave failure notice `保存失败` is absent, a surface that exists before the flip and after 6.9.
   - The source-seam anchors in `sourceStimulus` (`scripts/native-hmr-support.mjs`) move off `<EditorView storageUnavailable={storageUnavailable} />` in `MapEditor.tsx` and the `RepositoryContext` return line in `MapRepositoryProvider.tsx`. The new anchors are lines that 6.8 and 6.9 do not touch; the implementer chooses them.
   - Update `docs/engineering/native-hmr.md` with the database prerequisite and the sign-in step.
-  - Verify: development-navigation "First editor navigation after source invalidation" and "Retained session restores cached resource producers" still hold with the signed-in probe. `pnpm native:browser:test` passes; `pnpm native:browser source-change` and `restored-lifecycle` pass locally against a `pnpm db:setup` database; the CI `native-installed-runtime` job passes on both legs. Verify (gate): `pnpm test:guardrails` passes, `pnpm docs:check` passes, and the PR flags the workflow edit (Critical Path `.github/workflows/`).
+  - Verify: development-navigation "First editor navigation after source invalidation" and "Retained session restores cached resource producers" still hold with the signed-in probe. `grep -n 未保存到浏览器 scripts/native-hmr.mjs` finds nothing. `pnpm native:browser:test` passes; `pnpm native:browser source-change` and `restored-lifecycle` pass locally against a `pnpm db:setup` database; the CI `native-installed-runtime` job passes on both legs. Verify (gate): `pnpm test:guardrails` passes, `pnpm docs:check` passes, and the PR flags the workflow edit (Critical Path `.github/workflows/`).
 - [ ] 6.7 Add the component tests that replace the raw-record e2e cases (design D10 step 2). Every test runs over a repository double that returns the given value, and stays green alongside the e2e cases it replaces until the flip deletes them.
   - The cases and their new seams:
     - `e2e/map-editor.spec.ts` "corrupt record shows the error state and leaves the record untouched" → map-library "Corrupt record";
@@ -298,7 +304,7 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
 - [ ] 6.9 Remove the browser-storage leftovers (design D10 step 4).
   - Delete `StorageUnavailableError`, the storage-unavailable banner, every `storageUnavailable` flag and the autosave `onUnavailable` path.
   - Move `InMemoryMapRepository` into `tests/support/` as the contract suite's in-memory double, keeping the contract suite running against it.
-  - Verify: `pnpm test:unit`, `pnpm dead-code` and `pnpm e2e` pass. `grep -rE "StorageUnavailable|storageUnavailable|未保存到浏览器|indexedDB" src e2e scripts` finds nothing.
+  - Verify: `pnpm test:unit`, `pnpm dead-code` and `pnpm e2e` pass. `grep -rE "StorageUnavailable|storageUnavailable|未保存到浏览器|indexedDB" src e2e scripts` finds nothing (the backstop for 6.6's `scripts/native-hmr.mjs` change).
 
 Suggested fixture level: expanded - cross-module cut-over of the persisted-state boundary with e2e infrastructure and CI workflow edits (layer7 and the required native HMR job); a slip loses user edits.
 Minimal mergeable slice: 6.1 - the HTTP adapter is fully contract-tested and unused by the UI until the flip; 6.2 depends on 6.1; 6.3 depends on 5.2, and 6.4 and 6.5 each on 6.3; 6.6 depends on 5.2; 6.7 depends on nothing in this change; the 6.8 flip depends on 6.1–6.7, 7.1 and 7.2; the 6.9 removal depends on 6.8.
@@ -313,11 +319,16 @@ Minimal mergeable slice: 6.1 - the HTTP adapter is fully contract-tested and unu
   - Verify (e2e), proving only these THEN parts:
     - "Register and land signed in": the visitor lands on `/`, and `GET /api/auth/session` answers 200 with `alice`. The header THEN is proved in 7.3;
     - "Sign in": she lands on `/`, and `GET /api/auth/session` answers 200 with her username. "Her maps are listed" is proved in 9.1, after the flip.
-- [ ] 7.2 Add `src/proxy.ts` (design D8). Depends on 6.5 (every spec signed in), 6.6 (the native HMR probe signs in) and 7.1.
+- [ ] 7.2 Add `src/proxy.ts` (design D8). Depends on 6.5 (every spec except the signed-out ones signed in), 6.6 (the native HMR probe signs in) and 7.1.
   - The matcher excludes `/_next/static`, `/_next/image`, `/icon.svg`, `/api/`, `/login` and `/register`.
   - When the session cookie is missing it redirects 307 to `/login?next=<path+query>`. It checks only that the cookie exists.
-  - Add `src/proxy.ts` to the `AGENTS.md` Critical Paths table.
-  - Verify (unit): account-auth "Public surfaces need no session" (proxy and matcher). Verify (e2e): "Signed-out visit returns after sign-in". Verify (gate): `pnpm test:guardrails` passes.
+  - Add `src/proxy.ts` to the `AGENTS.md` Critical Paths table, trimming existing prose so the file stays within the instruction-guard limits, as 1.1 does.
+  - Verify (unit): account-auth "Public surfaces need no session" (proxy and matcher).
+  - Verify (e2e): account-auth "Signed-out visit returns after sign-in". The walk owns map `abc`, so it never meets a 404 before or after the 6.8 flip:
+    - it registers its own user through `/register`, keeping the password, and seeds map `abc` for that user through `seedRecords` (`e2e/support/seed.ts`) while signed in;
+    - it clears the session cookie and opens `/maps/abc`, and expects the redirect to `/login?next=%2Fmaps%2Fabc`;
+    - it signs in and lands on the editor of `abc`, with no 404 response at any point and zero console errors, so it needs no design D13 declaration.
+  - Verify (gate): `pnpm test:guardrails` passes, and the PR flags the `src/proxy.ts` and `AGENTS.md` edits.
 - [ ] 7.3 Add the header session menu in `src/components/account/` and mount it on `/` and `/maps/[id]` (design D8). Depends on 5.3, 6.5, 6.6 and 7.1: its `GET /api/auth/session` on a signed-out page logs a 401 console error, which the e2e and native HMR console assertions reject. Task 8.1 mounts it on `/admin`.
   - It shows the username, a `管理后台` link for the admin only, and `退出登录`, which posts `{}` to logout.
   - Verify (unit/component): account-admin "Admin link visibility".

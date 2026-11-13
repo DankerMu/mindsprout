@@ -62,10 +62,11 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
 
 - An **owner role** owns every table and runs migrations through `MIGRATION_DATABASE_URL`. Locally and in CI this is `app`.
 - The **app role** `mindsprout_app` is `LOGIN NOSUPERUSER NOBYPASSRLS` and owns nothing. It is the only role behind `DATABASE_URL`, so the app, `/api/healthz` and the e2e server all use it.
-- Migration `0001` creates `mindsprout_app` as `NOLOGIN` if it is absent, then grants it table privileges.
+- Migration `0001` creates `mindsprout_app` as `NOLOGIN` if it is absent, then grants it `usage` on schema `public` and the table privileges below.
 - The dev/CI bootstrap `db/dev/app-role.sql` does `ALTER ROLE mindsprout_app LOGIN PASSWORD 'app'`. This is a fixed local credential, like `app/app` today.
   - It is applied by `pnpm db:setup`, which runs migrate and then the bootstrap. The script refuses when `NODE_ENV=production`.
   - CI applies it after migrating.
+- **Environment loading.** The Node scripts that need the database URLs (`scripts/db-migrate.mjs`, the `db:setup` script and `scripts/e2e-db.mjs`) run as `node --env-file-if-exists=.env …`. The flag is built into Node since 22.9, below the `engines` floor `>=22.11.0`, so there is no dotenv dependency. Variables already exported, as in CI, win over the file, and a missing `.env` is not an error. The scripts never print variable values. `playwright.config.ts` and the Vitest integration `globalSetup` load `.env` the same way through Node's built-in `process.loadEnvFile` when the file exists, taking only keys not already set, and throw before connecting or starting any server when `DATABASE_URL` or `MIGRATION_DATABASE_URL` is unset. The e2e `webServer` always receives the derived `app_e2e` URL explicitly, so its `next dev` never falls back to the `app_dev` URL in `.env`.
 - Production sets the role password by hand; see `docs/engineering/database.md`.
 - Alternative rejected: one connection that runs `SET LOCAL ROLE` per transaction. Forgetting the role switch silently runs as a superuser or owner. A separate role that has no power cannot be misused that way.
 
@@ -83,6 +84,7 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
 - **RLS policy.** `maps_owner` applies to all commands: `using (owner_id = nullif(current_setting('app.user_id', true), '')::uuid)`, with the same `with check`.
   - When the setting is missing the comparison yields null, so the query sees no rows.
 - **Grants to `mindsprout_app`.**
+  - Schema `public`: `usage` only, granted explicitly by migration `0001`. A `public` schema recreated by the reset helper (D11) has lost the template's default `usage` for `PUBLIC`, so the app role would otherwise be refused on every table. The app role gets no `create` on the schema.
   - `maps`: select, insert, update, delete. RLS governs.
   - `users`: select, insert, and update of `password_hash`.
   - `sessions`: select, insert, delete.
@@ -90,7 +92,7 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
 
 **Migrations.**
 
-- `scripts/db-migrate.mjs` (`pnpm db:migrate`) applies `db/migrations/NNNN_*.sql` in name order. Each file runs in its own transaction under the owner role.
+- `scripts/db-migrate.mjs` (`pnpm db:migrate`, run with `--env-file-if-exists=.env`) applies `db/migrations/NNNN_*.sql` in name order. Each file runs in its own transaction under the owner role.
 - Applied files are recorded in `schema_migrations(name text pk, applied_at timestamptz)`. A file already recorded is skipped; a file that fails rolls back and stops the run with a non-zero exit.
 - There is no down-migration. Rollback means restoring a backup (`docs/engineering/database.md`).
 
@@ -220,7 +222,7 @@ Every body is JSON. Every error body is `{ "error": "<code>" }`, except the 409 
 1. **Server side first.** Database, account and API (task groups 1–5) land while the browser still uses IndexedDB. Nothing in the UI calls them yet. They are reachable only by tests and smoke, and each is referenced by its route, so knip stays green.
 2. **Preparation** while the browser still uses IndexedDB:
    - the HTTP adapter and its error outcomes (tasks 6.1 and 6.2), unused by the UI until the flip;
-   - e2e infrastructure (tasks 6.3–6.5): the Postgres service, the e2e database lifecycle, a signed-in fixture and the declared expected-response helper (D13). Seeding keeps its IndexedDB internals, and specs switch to the fixture without changing assertions;
+   - e2e infrastructure (tasks 6.3–6.5): the Postgres service, the e2e database lifecycle, a signed-in fixture and the declared expected-response helper (D13). Seeding keeps its IndexedDB internals, and every spec except those that test signed-out behaviour switches to the fixture without changing assertions;
    - the native HMR probe (task 6.6) gets a database, signs in, and moves its source-seam anchors off lines the cut-over edits;
    - component tests (task 6.7) for every raw-record e2e case, green alongside those e2e cases;
    - the sign-in pages and the proxy (tasks 7.1 and 7.2).
@@ -248,12 +250,12 @@ A reset never targets the developer's `app_dev`.
   - Role-flag and fail-closed tests live here.
   - CI sets `DATABASE_URL` and `MIGRATION_DATABASE_URL` for `app_test`.
 - **e2e** (`pnpm e2e`).
-  - The `e2e` script, and `verify-ui`, first run `node scripts/e2e-db.mjs`, then `playwright test`. Playwright starts its `webServer` before `globalSetup`, and the readiness probe `/api/healthz` answers 503 without a database. The database must therefore exist before Playwright starts.
+  - The `e2e` script, and `verify-ui`, first run `node --env-file-if-exists=.env scripts/e2e-db.mjs`, then `playwright test`. Playwright starts its `webServer` before `globalSetup`, and the readiness probe `/api/healthz` answers 503 without a database. The database must therefore exist before Playwright starts.
   - `scripts/e2e-db.mjs` calls the reset helper for `app_e2e` (create if absent, reset, migrate, bootstrap).
   - Playwright then starts its own `next dev --port 3100`, with `DATABASE_URL` pointed at `app_e2e` (derived the same way) and `NEXT_DIST_DIR=.next-e2e`. `next.config.ts` reads `distDir` from `NEXT_DIST_DIR`, defaulting to `.next`, so the e2e server holds its own dev lock and can run beside a developer's `:3000` server. `.next-e2e/` is gitignored and ignored by knip, ESLint and Prettier.
   - `reuseExistingServer` is false, so a developer's `:3000` dev database is never touched.
   - Its `globalSetup` only registers `e2e-admin` (password from a test constant) over HTTP. It runs first on the freshly reset database, so that account is the admin.
-  - Every other test registers a unique user (`u-<random>`) through the fixture.
+  - Every other signed-in test registers a unique user (`u-<random>`), through the fixture unless the test drives registration itself. Specs that test signed-out behaviour use no fixture.
   - Screenshot evidence still lands in `.run/ui-evidence/`.
   - CI layer7 keeps running `pnpm e2e`. Only its environment changes.
 - **Native HMR probe** (`pnpm native:browser`, CI `native-installed-runtime`). It runs `pnpm dev` on `:3000` against a database prepared by `pnpm db:setup`: a job-local one in CI, the developer's dev database locally. It registers a fresh random user over the API before visiting `/`. Because it signs in before it opens any page that calls an authenticated API, it receives no expected non-2xx response and needs no D13 declaration.
@@ -295,6 +297,7 @@ Chromium logs each as the console error `Failed to load resource: the server res
   - Every other console error or warning, every page error, and every failed load without a matching declaration still fails the test. A declaration that was never observed also fails it, so declarations cannot silently widen.
 - There is no global console filter. A spec without declarations still rejects every console error, so the e2e evidence stays "zero unexpected console errors".
 - The native HMR probe signs in before it opens any page that calls an authenticated API (D11), so it sees no expected errors.
+- The signed-out-visit walk of task 7.2 opens a map its user owns (seeded before signing out), so after the flip it receives no 404 and needs no declaration; the proxy's 307 is not a failed load.
 - The helper, its self-test and the testing decision record `decisions/implemented/testing/0024-declared-expected-http-errors-in-e2e.md` ship in task 6.4, before the flip (task 6.8) that first needs them.
 - Alternative rejected: a global filter for `Failed to load resource`. It would also hide unexpected failed requests, which are exactly what the console assertions exist to catch.
 
@@ -330,11 +333,11 @@ Chromium logs each as the console error `Failed to load resource: the server res
 - **[Last-write-wins silently overwrites a second device's edits]** → Owner-accepted and disclosed in the README.
 - **[Two parallel adapters exist during the cut-over]** → D10 bounds the parallel state and orders the issues so the removal depends on the flip.
 - **[e2e suites spend time on registration]** → One registration per test, and scrypt N=2^15 takes about 50 ms. If it measurably slows CI, reuse a storage state per worker; that is an implementation detail inside the fixture.
-- **[AGENTS.md is at 32,596 / 32,768 bytes]** → The task that adds the `db:*` rows and critical paths, and task 5.1 (`src/app/server/`), also trim existing prose to fit, verified by `pnpm test:guardrails` and the instruction-guard hook.
+- **[AGENTS.md is at 32,596 / 32,768 bytes]** → The tasks that add the `db:*` rows and critical paths (1.1, 1.2), task 5.1 (`src/app/server/`) and task 7.2 (`src/proxy.ts`) also trim existing prose to fit, verified by `pnpm test:guardrails` and the instruction-guard hook.
 
 ## Migration Plan
 
-- **Development:** `docker compose up -d`, then `pnpm db:setup`. An existing dev volume needs no reset: migration 0001 creates the role and `db:setup` sets its login.
+- **Development:** `cp .env.example .env`, `docker compose up -d`, then `pnpm db:setup`. No variable needs exporting: the scripts read `.env` themselves (D1). An existing dev volume needs no reset: migration 0001 creates the role and `db:setup` sets its login.
 - **Existing browser-local maps are abandoned** (owner decision). There is no import path; the pre-release data is the owner's test maps only.
 - **Deployment** (owner, outside this change): follow `docs/engineering/database.md`.
 - **Rollback:** revert the PRs. The schema is additive. Dropping the three tables and the role restores the pre-M2 database. Browser IndexedDB data from M1 is left untouched in users' browsers, since nothing deletes it.
