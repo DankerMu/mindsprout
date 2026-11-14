@@ -112,7 +112,7 @@ Minimal mergeable slice: atomic - a single function and its unit tests; there is
     - deterministic reset-before-issuance interleavings reject stale sign-in and initial registration authentication; issuance-before-reset is invalidated, preserving ordinary positive paths;
     - all callers and doubles use the conditional issuance contract; the unconditional creation method is removed, not retained as an alias.
   - `pnpm boundaries` shows no framework or SQL in `domain/` or `application/`.
-  - **#147 risk-pack dispositions** (selected packs map to design D2.1):
+  - **#147 risk-pack dispositions** (selected packs map to durable evidence in design D2.1):
 
     | Risk pack                                      | Disposition and evidence                                                                                                                                                                 |
     | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -128,21 +128,25 @@ Minimal mergeable slice: atomic - a single function and its unit tests; there is
     | Release / packaging / dependency compatibility | Not selected: no dependency or packaging change; crypto/SQL implementations are non-goals.                                                                                               |
     | Documentation / migration notes                | Selected: D2 contracts and material documentation must match implemented interfaces; fixture review and docs gate cover the contract prose.                                              |
 
-- [x] 3.2 Implement `listUsers(actor, { users })` and `resetPassword(actor, userId, { users, hasher, tokens })` (design D2/D2.1).
+- [x] 3.2 Implement `listUsers(actor, { users })` and `resetPassword(actor, userId, { users, hasher, tokens })` (design D2/D2.2).
   - Both refuse a non-admin with `forbidden` before any repository, token or hashing operation; reset denial preserves credential/session state.
   - `resetPassword` draws one 16-character base64url temporary password, hashes exactly it and calls `replacePasswordAndEndSessions` once. A `false` result yields `not-found` with no preliminary lookup or state change.
   - Password replacement remains one atomic port operation and serializes with conditional session issuance; the use case does not introduce an application-level check-then-insert.
   - It returns only the temporary password, never stores it readable or logs it; unexpected token/hash/repository failures propagate unchanged.
   - Verify (unit): forbidden with no privileged port effects; not-found; ordered public users without hashes; other-user and self-reset revoke exactly target sessions, reject old credentials and accept returned temporary credentials while preserving peers; exact operation order and failures.
-  - #148 risk-pack dispositions (full evidence map: design D2.1): selected public API (exported use cases), auth/secrets (actor-before-port), schema/units (public users/base64url password), concurrency (preserve conditional-issuance port; real DB #150), resource limits (single bounded reset; no enumeration/search endpoint), compatibility (existing core tests), error/partial effects (unknown/failure cases), docs (TECH/changeset). Config, file IO and packaging are not selected: no setup, IO or dependency changes.
+  - #148 risk-pack dispositions (full evidence map: design D2.2): selected public API (exported use cases), auth/secrets (actor-before-port), schema/units (public users/base64url password), concurrency (preserve conditional-issuance port; real DB #150), resource limits (single bounded reset; no enumeration/search endpoint), compatibility (existing core tests), error/partial effects (unknown/failure cases), docs (TECH/changeset). Config, file IO and packaging are not selected: no setup, IO or dependency changes.
 
 Suggested fixture level: expanded - Critical Path src/contexts/account/: the only admin authorisation check and the uniform credential-failure semantics live here
 Minimal mergeable slice: 3.1 - the self-service account use cases are complete and green alone; the admin use cases are additive.
 
 ## 4. Account infrastructure
 
-- [ ] 4.1 Implement the scrypt `PasswordHasher` (N=2^15, r=8, p=1, 16-byte salt, 32-byte key, `scrypt$N$r$p$salt$key` format, `timingSafeEqual`) and the `node:crypto` `TokenSource` in `src/contexts/account/infrastructure` (design D2, D3).
-  - Verify (unit): account-auth "Password is never stored in plaintext" (salted, does not contain the password, `pw` verifies and `px` fails). Two hashes of the same password differ. A malformed stored hash verifies false and does not throw. Tokens are 32 random bytes in base64url.
+- [x] 4.1 Implement `ScryptPasswordHasher` and `CryptoTokenSource` in `src/contexts/account/infrastructure/crypto.ts` (design D2/D2.3, D3).
+  - Asynchronous scrypt uses N=2^15, r=8, p=1, fixed `maxmem = 64 * 1024 * 1024` (above Node's default-memory ceiling for this profile), a 16-byte random salt and a 32-byte key; stored format is `scrypt$N$r$p$salt$key` in canonical standard base64. Passwords use Node's UTF-8 encoding and verification compares equal-length decoded keys with `timingSafeEqual`.
+  - Verification accepts only the exact profile and six canonical fields. Malformed credentials and verification derivation failures resolve false without throwing; hashing failures propagate. No stored input can select a larger work factor.
+  - Session tokens encode 32 random bytes base64url; temporary passwords encode 12 random bytes base64url (16 characters), without truncation or deterministic fallback.
+  - Verify (unit): "Password is never stored in plaintext" (salted, no password, `pw` succeeds, `px` fails); two salts differ; exact independently generated reference hash; UTF-8 whitespace/NUL/Unicode distinctions; malformed profile/encoding/size matrix; verification/hash error behavior; token byte widths and distinct draws.
+  - #149 risk-pack dispositions (evidence D2.3): selected public API (adapter ports), auth/secrets (salt/timing/no leakage), schema/units (profile/canonical encoding/token widths), resource limits (fixed parameters/bounded parser), compatibility (core tests), error handling (verify/hash asymmetry), docs (TECH/changeset). Config/file IO/concurrency/release-packaging not selected: pure crypto adapters have no IO/configuration/state/dependency change; no concurrency claim beyond Node async behavior.
 - [ ] 4.2 Implement `PostgresUserRepository` and `PostgresSessionRepository` (design D1–D3).
   - `register` runs in one transaction with `pg_advisory_xact_lock` and `is_admin = not exists (…)`.
   - Sessions store `sha256(token)`, and lookup filters `expires_at` strictly after the supplied clock instant.

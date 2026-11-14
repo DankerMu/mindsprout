@@ -90,9 +90,11 @@ Sessions expire exactly 30 days after the injected clock instant. Resolution req
 
 `application/admin.ts` exports `listUsers(actor, { users })` and `resetPassword(actor, userId, { users, hasher, tokens })`. Both reject non-admin actors with `forbidden` before any port operation. Listing returns public users in repository-owned oldest-first order. Reset hashes one 16-character base64url temporary password from `TokenSource` and calls `replacePasswordAndEndSessions` once, without a preliminary lookup. Its `false` result yields `not-found` without credential or session changes. Success returns only the temporary password, never stores or logs it in readable form, and revokes only the target's sessions. Self-reset is allowed and signs the admin out; peer sessions and credentials remain valid.
 
+`infrastructure/crypto.ts` provides Node-only `ScryptPasswordHasher` and `CryptoTokenSource` adapters. Passwords use UTF-8 without normalisation; asynchronous scrypt uses N=32768, r=8, p=1, a fixed 64 MiB memory ceiling, a fresh 16-byte salt and a 32-byte key. Stored credentials are `scrypt$32768$8$1$<saltB64>$<keyB64>` with canonical padded standard base64. Verification rejects malformed or non-matching profiles before derivation, compares decoded keys with `timingSafeEqual`, and resolves `false` on derivation failure; hashing failures propagate. Session tokens encode 32 random bytes as base64url, and temporary passwords encode 12 random bytes as exactly 16 base64url characters.
+
 #### Known Limitations
 
-The core and its deterministic in-memory test ports do not provide production cryptography, SQL transactions, HTTP routes or cookies. Those guarantees require infrastructure adapters and their own integration evidence; see [decision 0023](../decisions/implemented/architecture/0023-self-hosted-accounts-on-postgres-rls.md).
+The crypto adapters are not wired to production account services. SQL transactions, HTTP routes and cookies require their own adapters and integration evidence; deterministic in-memory test ports do not establish those guarantees. Password migration/rehashing and whole-operation timing equalisation are not provided. Login throttling is deferred until the first public deployment; see [decision 0023](../decisions/implemented/architecture/0023-self-hosted-accounts-on-postgres-rls.md).
 
 ## 4. 树操作协议（AI 与画布的唯一接口）
 
