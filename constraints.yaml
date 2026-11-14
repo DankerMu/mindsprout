@@ -294,6 +294,10 @@ verification:
       command: "pnpm anti-drift"
       evidence: "CLI contracts pass + installed package-version summary + platform recorded"
       required_at: "L4"
+    db_migration:
+      command: "pnpm test:integration"
+      evidence: "real Postgres schema + RLS + grants + migration atomicity"
+      required_at: "L2+"
   enforced_by: "Stage 4 matrix-to-target check over constraints.yaml + AGENTS.md Verification Matrix + PR Runtime evidence section"
 
 # ── Exemptions ──────────────────────────────────────────────────

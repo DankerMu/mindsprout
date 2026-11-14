@@ -1,5 +1,5 @@
 import { createServer } from 'node:net';
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
@@ -25,6 +25,82 @@ function ownerConnection() {
 }
 
 describe('test database lifecycle', () => {
+  it.each(['app_test', 'app_e2e'])(
+    'production reset of %s refuses before constructing any client',
+    (name) => {
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--experimental-test-module-mocks',
+          '--input-type=module',
+          '-e',
+          `
+          import assert from 'node:assert/strict';
+          import { mock } from 'node:test';
+          let clients = 0;
+          mock.module(${JSON.stringify(import.meta.resolve('postgres'))}, {
+            defaultExport: () => { clients++; throw new Error('Unexpected database client'); },
+          });
+          // Load after installing the driver mock; static imports would bypass it.
+          const { resetTestDatabase } = await import(${JSON.stringify(moduleUrl)});
+          await assert.rejects(resetTestDatabase(${JSON.stringify(name)}), {
+            message: 'Database setup is unavailable in production.',
+          });
+          assert.equal(clients, 0);
+        `,
+        ],
+        {
+          env: { ...process.env, NODE_ENV: 'production', NODE_NO_WARNINGS: '1' },
+          encoding: 'utf8',
+          timeout: 10_000,
+        },
+      );
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+    },
+  );
+
+  it.each(['app_test', 'app_e2e'])(
+    'production reset of %s preserves its real schema and sentinel',
+    async (name) => {
+      const maintenance = ownerConnection();
+      const existing = await maintenance`select datname from pg_database where datname = ${name}`;
+      const url = new URL(process.env.MIGRATION_DATABASE_URL ?? '');
+      url.pathname = `/${name}`;
+      url.searchParams.delete('database');
+      const sql = postgres(url.toString(), { max: 1, onnotice: () => undefined });
+      try {
+        if (existing.length === 0) await maintenance`create database ${maintenance(name)}`;
+        await sql`create table production_reset_sentinel (id int)`;
+        await sql`insert into production_reset_sentinel values (7)`;
+        const schema = await sql`select oid from pg_namespace where nspname = 'public'`;
+        const objects =
+          await sql`select oid, relname from pg_class where relnamespace = 'public'::regnamespace order by oid`;
+        const result = await subprocess(
+          `
+          import assert from 'node:assert/strict';
+          import { resetTestDatabase } from ${JSON.stringify(moduleUrl)};
+          await assert.rejects(resetTestDatabase(${JSON.stringify(name)}), {
+            message: 'Database setup is unavailable in production.',
+          });
+        `,
+          { ...process.env, NODE_ENV: 'production' },
+        );
+        expect(result).toEqual({ code: 0, output: '' });
+        expect(await sql`select oid from pg_namespace where nspname = 'public'`).toEqual(schema);
+        expect(
+          await sql`select oid, relname from pg_class where relnamespace = 'public'::regnamespace order by oid`,
+        ).toEqual(objects);
+        expect(await sql`select * from production_reset_sentinel`).toEqual([{ id: 7 }]);
+      } finally {
+        await sql`drop table if exists production_reset_sentinel`;
+        await sql.end();
+        if (existing.length === 0) await maintenance`drop database ${maintenance(name)}`;
+        await maintenance.end();
+      }
+    },
+  );
+
   it.each(['success', 'throw'])(
     'scratch cleanup ignores callback descriptor mutation on %s',
     async (outcome) => {

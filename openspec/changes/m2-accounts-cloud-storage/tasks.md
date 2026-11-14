@@ -54,23 +54,7 @@
     - the scratch helper drops its database after the callback, including when the callback throws.
   - Verify (local): with the URLs only in `.env` and none exported in the shell, `pnpm db:migrate` migrates the local database, and its output contains no variable value.
   - Verify (gate): `pnpm test:guardrails` passes, and the PR flags the `ci.yml` and `AGENTS.md` edits.
-  - **#144 risk-pack dispositions** (each selected pack maps to the named evidence in design D11.1):
-
-    | Risk pack                                      | Disposition and evidence                                                                                                                                |
-    | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-    | Public API / CLI / script entry                | Selected: `pnpm db:migrate` is new; file-only local execution and exit-code scenarios cover it.                                                         |
-    | Config / project setup                         | Selected: new URL and setup behavior; environment, `.env.example`, CI, and package-script evidence covers it.                                           |
-    | File IO / path safety / overwrite              | Selected: migration discovery and destructive reset; explicit directory, ordering, allowlist, and target-rewrite scenarios cover it.                    |
-    | Schema / columns / units / field names         | Selected: `schema_migrations(name, applied_at)` is new; fresh/rerun/failure database assertions cover it.                                               |
-    | Auth / permissions / secrets                   | Selected: owner/app URLs carry credentials; pre-connect refusal and successful/failing output non-disclosure checks cover it.                           |
-    | Concurrency / shared state / ordering          | Selected: integration files run in parallel and scratch names must not collide; distinct-invocation and ordered-migration evidence covers it.           |
-    | Resource limits / large input / discovery      | Selected for discovery and cleanup, not large-input support: missing/empty directories, name ordering, and scratch drop-after-throw are the boundaries. |
-    | Legacy compatibility / examples                | Selected: existing real-DB integration and layer3 smoke must remain intact; `database.test.ts` and CI evidence covers it.                               |
-    | Error handling / rollback / partial outputs    | Selected: failing migration and callback-throw scenarios prove rollback, stop-on-first-failure, original-error propagation, and cleanup.                |
-    | Release / packaging / dependency compatibility | Selected: Node's built-in env loading is mandatory; package/CI checks and the no-dotenv dependency assertion cover it.                                  |
-    | Documentation / migration notes                | Selected: `.env.example`, command-table, size-limit, guardrails, and PR-flag evidence covers it.                                                        |
-
-- [ ] 1.2 Add migration `0001_accounts_and_maps.sql`, exactly per design D1.
+- [x] 1.2 Add migration `0001_accounts_and_maps.sql`, exactly per design D1.
   - Schema:
     - create the `mindsprout_app` role `NOLOGIN` if it is absent;
     - create `users`, `sessions` and `maps` with the `users_single_admin` partial unique index, the generated `title` and `updated_at` columns, and the `map->>'id' = id` check;
@@ -92,6 +76,21 @@
     - `/api/healthz` still answers 200 through the app role (`pnpm smoke` in CI).
   - Verify (local): after `cp .env.example .env` and `docker compose up -d`, `pnpm db:setup` succeeds with no variable exported in the shell and prints no variable value.
   - Verify (gate): `pnpm test:guardrails` and `pnpm docs:check` pass, and the PR flags the `constraints.yaml`, `ci.yml` and `AGENTS.md` edits.
+  - **#145 risk-pack dispositions** (each selected pack maps to design D11.2 evidence):
+
+    | Risk pack                                      | Disposition and evidence                                                                                                                                                                                 |
+    | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | Public API / CLI / script entry                | Selected: new `pnpm db:setup`; file-only success and production pre-connect refusal cover it.                                                                                                            |
+    | Config / project setup                         | Selected: app-role URLs, Supabase removal and CI setup order; local/CI runtime evidence covers it.                                                                                                       |
+    | File IO / path safety / overwrite              | Selected: schema/reset/bootstrap writes; migration atomicity, reset and production no-change probes cover it.                                                                                            |
+    | Schema / columns / units / field names         | Selected: exact D1 tables, key, generated columns and index; real database introspection covers it.                                                                                                      |
+    | Auth / permissions / secrets                   | Selected: RLS and least privilege are the boundary; role flags, fail-closed queries, denied grants and output non-disclosure cover it.                                                                   |
+    | Concurrency / shared state / ordering          | Selected: first-admin uniqueness and migrate-before-bootstrap order; second-admin refusal and reset/CI smoke cover it.                                                                                   |
+    | Resource limits / large input / discovery      | Not selected: one fixed migration and no input discovery; no large-input behavior is introduced.                                                                                                         |
+    | Legacy compatibility / examples                | Selected: existing migration/integration/health/hurl paths must remain green; full integration and CI smoke cover it.                                                                                    |
+    | Error handling / rollback / partial outputs    | Selected: production refusal changes nothing; a failed migration rolls back only its file, while committed migrations survive bootstrap failure; redacted subprocess/sentinel probes cover these states. |
+    | Release / packaging / dependency compatibility | Selected: built-in Node env loading, pinned hurl and Postgres 16 behavior; local/CI commands cover it without new dependencies.                                                                          |
+    | Documentation / migration notes                | Selected: AGENTS, constraints, TECH and stale comment updates; docs/guardrail checks and size measurements cover it.                                                                                     |
 
 Suggested fixture level: expanded - persisted schema, the RLS security boundary and CI workflow edits (Critical Path: gate integrity); a wrong grant silently voids user isolation.
 Minimal mergeable slice: 1.1 - the runner and test-database lifecycle are self-verifying against fixture migrations with no product schema; 1.2 adds the schema on top.

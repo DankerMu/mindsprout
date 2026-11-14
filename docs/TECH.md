@@ -67,14 +67,16 @@ interface MindMap {
 
 数据库表（编号 SQL 迁移；M2 建前三张，其余随所属里程碑）：
 
-- `users`（M2）：id, username（唯一）, password_hash（scrypt）, is_admin（全库至多一个：首个注册用户）, created_at
-- `sessions`（M2）：令牌哈希, user_id, expires_at（30 天）, created_at
-- `maps`（M2）：id, owner_id, title, roots (jsonb), schema_version, created_at, updated_at
+- `users`（M2）：`id uuid` 主键（默认 `gen_random_uuid()`），`username text` 唯一，`password_hash text`（scrypt），`is_admin boolean` 默认 false，`created_at timestamptz` 默认 now()；均非空。`users_single_admin` 部分唯一索引：`((true)) where is_admin`。
+- `sessions`（M2）：`token_hash text` 主键，`user_id uuid` 外键引用 users（级联删除，有索引），`expires_at timestamptz`，`created_at timestamptz` 默认 now()；均非空。
+- `maps`（M2）：`id text`、`owner_id uuid`（引用 users，级联删除）、`schema_version integer`、`map jsonb`（完整 MindMap）均非空；主键 `(owner_id, id)`。`title text`、`updated_at text` 分别由 `map->>'title'`、`map->>'updatedAt'` 存储生成；检查 `map->>'id' = id`；索引 `(owner_id, updated_at desc, id collate "C")`。
 - `map_versions`（M6）：id, map_id, roots (jsonb), created_at，保留最近 20 版
 - `ai_usage`（M4）：user_id, date, provider, model, tokens_in, tokens_out, calls，做每日配额
 - `user_providers`（M3.5）：user_id, provider, base_url, encrypted_key, default_model，用户自定义提供方
 
-RLS 策略：按用户拥有的表统一为 `owner_id = current_setting('app.user_id')`（`ai_usage`/`user_providers` 以 `user_id` 为所有者列）；每个请求在事务内 `set_config('app.user_id', …, true)`，应用以非表 owner、无 `BYPASSRLS` 的角色连接，迁移用单独的 owner 角色。`users`/`sessions` 是认证自身的表，只由 account 上下文在服务端访问。
+`maps` 启用并强制 RLS：`maps_owner` 的 USING 和 WITH CHECK 均为 `owner_id = nullif(current_setting('app.user_id', true), '')::uuid`；缺失或空身份看不到行、不能插入。每个请求在事务内 `set_config('app.user_id', …, true)`。应用以不拥有表、无 SUPERUSER/BYPASSRLS 的 `mindsprout_app` 连接，迁移用单独的 owner 角色。应用角色仅有 public 的 USAGE、maps 的 CRUD、users 的 SELECT/INSERT/UPDATE(password_hash)、sessions 的 SELECT/INSERT/DELETE；users/sessions 无 RLS，只由 account/infrastructure 访问。
+
+迁移 0001 拒绝已有 SUPERUSER 或 BYPASSRLS 的 `mindsprout_app`，不修改共享角色的权限。`db:setup` 与测试库重置在 production 模式下均于创建数据库客户端前拒绝执行。
 
 ## 4. 树操作协议（AI 与画布的唯一接口）
 
