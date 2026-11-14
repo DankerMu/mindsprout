@@ -93,6 +93,15 @@ Blast radius: an identity leak can expose/overwrite another user's maps; a wrong
 Selected risk packs: Public MapRepository/ACL; Schema/JSON/timestamps/collation; Auth/RLS; File IO/DB lifecycle; Transaction/error rollback; Compatibility; Resource limits; Documentation. Config setup, general concurrency race and packaging not selected: no new config/concurrent invariant/dependency; transaction-local pool identity explicitly tested.
 Evidence floor: unchanged shared contract plus real app-role RLS/scratch integration, mocked per-file coverage, executed wrong-owner/version/null/rollback counterexamples and restored full unit/integration/boundary/guardrail checks. D4.1 is additive; D2.1–D2.4 remain intact.
 
+## Issue #146 Fixture Triage
+
+Issue type: feature
+Fixture level: compact
+Upstream suggested level: compact (agree: one pure domain function, no persistence/entrypoint; design.md already exists for the shared change, no extra artifact)
+Blast radius: an invalid forest accepted by the shared parser corrupts persistence; over-rejection breaks valid M1 maps and floating-root semantics.
+Selected risk packs: Schema/shape/forest invariants; Public parser API; Error handling; Resource limits (500 nodes); Legacy compatibility. Auth/IO/config/concurrency/packaging/docs not selected: pure parser has no such surface and existing TECH needs no new concept.
+Evidence floor: strict input/output/rejection matrix and 500-node deep-equal, full unit ≥90% per-file, boundaries and actual parser smoke. D4 compact fixture is additive; all D2.x/D4.1 stay intact.
+
 ## Impact
 
 - **New code:**

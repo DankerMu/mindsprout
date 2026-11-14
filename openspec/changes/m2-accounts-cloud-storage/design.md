@@ -242,6 +242,8 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
 
   Failure throws `TreeOpError('invalid-op')` and wraps the Zod issues. This is the existing domain error, so there is no new code. The parser lives in map, the owner of the shape; account reaches it through `account/acl/map.ts`.
 
+- **Issue #146 compact fixture:** only `map/domain` parser and paired tests, no design artifact required by the compact level. Preserve all existing map shapes/TreeOps and D2.x/D4.1 fixtures. Input `unknown` yields parsed deep-equal map or `TreeOpError('invalid-op')` with Zod issues. Strictly reject zero roots, primary position, missing/nonfinite floating position, child position, duplicate ids at any depth, bad colour, wrong field types, explicit undefined optionals and unknown keys at every object depth. Accept all six colours and a generated 500-node forest deep-equal. Non-goals: HTTP envelope/size/version, persistence, parser reuse across other operations, string length/timestamp format beyond existing M1 string shape. Verification: full unit ≥90% per-file, boundaries, style/types/docs, actual parser smoke; focused correctness+test-evidence review.
+
 - **Store.** `PostgresMapStore.forUser(userId): MapRepository` lives in `account/infrastructure/`. It implements the map port, whose types come through `account/acl/map.ts`.
   - Each call runs `sql.begin(tx => { set_config('app.user_id', userId, true); ... })`, so the GUC is transaction-local and cannot leak through a pooled connection.
   - `put` is an upsert on the caller's own key: `insert … on conflict (owner_id, id) do update`. An id that another user also holds is a different row, so `put` creates or replaces the caller's own map and never touches theirs.
