@@ -201,7 +201,7 @@ Minimal mergeable slice: 4.1 - the hasher and token source are pure adapters wit
     - account-auth "Cross-site form post", logout half: a form-encoded logout answers 415 and deletes nothing;
     - register and login answer 415 for a form body and call no use case.
   - Verify (contract): `pnpm test:contract` passes. Verify (smoke): `pnpm smoke` passes. Verify (gate): `pnpm test:guardrails` passes.
-- [ ] 5.4 Add the map read routes `GET /api/maps` and `GET /api/maps/{id}` (design D4, D5).
+- [x] 5.4 Add the map read routes `GET /api/maps` and `GET /api/maps/{id}` (design D4, D5).
   - `GET /api/maps/{id}` answers 200 `{ schemaVersion: 1, map }`, 404 `not-found` when the store returns `undefined`, and 409 `{ "error": "unsupported-schema-version", "found": <n> }` when the store throws `UnsupportedSchemaVersionError`.
   - Register this task's routes in `schemas/openapi.yaml`, review and update the snapshot hunk by hunk, add its section of `smoke/api.hurl`, and mark `/api/maps` covered in `constraints.yaml` `key_api_routes`. Flag the Critical Path edit in the PR.
   - Smoke: a fresh user's list is `[]`, and getting an absent id answers 404.
