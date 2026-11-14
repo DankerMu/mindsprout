@@ -111,6 +111,15 @@ Blast radius: incorrect cookie parsing or fail-open session handling exposes eve
 Selected risk packs: Auth/session/token; Security/public HTTP; Error/logging; Configuration/pool lifecycle; API contract/schema; Gate integrity. Concurrency/performance limited to one lazy pool and malformed request handling; no business logic/AI/IO file/parser/map in this slice.
 Evidence floor: unit valid/blank/forged/expired/unknown session, 401+200 bodies, requireUser, cookie attributes/clearing, lazy singleton max5 missing-env failure, internal error logging without secrets; OpenAPI snapshot, actual no-cookie hurl against live real-DB server, full unit≥90% per-file, boundaries/guardrails/style/type/docs. Expanded review and real smoke mandatory. D3/D5/D6 additive, all prior fixtures intact.
 
+## Issue #153 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: two public credential endpoints, shared composition, secret handling, contracts/gates)
+Blast radius: malformed runtime JSON can cause 500/side effects; wrong AccountError mapping leaks account state or creates sessions incorrectly; cookie/log mistakes expose bearer/password credentials.
+Selected risk packs: Auth/credentials/tokens; Public HTTP/runtime input; Error/log secrecy; API contract; Session/cookie; Configuration/gate registration; Compatibility reset-race outcomes. No maps/JSON415/UI yet.
+Evidence floor: behavior red/green, actual runtime JSON matrix before side effects, exact register/login status/body/cookie, 400/401/409/500 mapping, logs no secrets, real cookie-jar register→session→login plus malformed-body smoke, full unit≥90% per-file/contract/boundaries/guardrails. Preserve D2/D3/D5/D6/D11 and previous fixtures.
+
 ## Impact
 
 - **New code:**

@@ -10,6 +10,12 @@ const mocks = vi.hoisted(() => ({
   hasher: vi.fn(),
   tokens: vi.fn(),
   resolve: vi.fn(),
+  register: vi.fn(),
+  findByUsername: vi.fn(),
+  hash: vi.fn(),
+  verify: vi.fn(),
+  sessionToken: vi.fn(),
+  create: vi.fn(),
 }));
 vi.mock('postgres', () => ({ default: mocks.postgres }));
 vi.mock('@/contexts/account/infrastructure/postgres', () => ({
@@ -46,17 +52,23 @@ beforeEach(() => {
   vi.setSystemTime(now);
   mocks.postgres.mockReturnValue(mocks.sql);
   mocks.users.mockImplementation(function () {
-    return {};
+    return { register: mocks.register, findByUsername: mocks.findByUsername };
   });
   mocks.sessions.mockImplementation(function () {
-    return { resolve: mocks.resolve };
+    return { resolve: mocks.resolve, createIfPasswordHashMatches: mocks.create };
   });
   mocks.hasher.mockImplementation(function () {
-    return {};
+    return { hash: mocks.hash, verify: mocks.verify };
   });
   mocks.tokens.mockImplementation(function () {
-    return {};
+    return { sessionToken: mocks.sessionToken };
   });
+  mocks.register.mockResolvedValue(user);
+  mocks.findByUsername.mockResolvedValue({ user, passwordHash: 'stored-hash' });
+  mocks.hash.mockResolvedValue('stored-hash');
+  mocks.verify.mockResolvedValue(true);
+  mocks.sessionToken.mockReturnValue(token);
+  mocks.create.mockResolvedValue(true);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -185,4 +197,121 @@ describe('session response cookies', () => {
       expect(mocks.postgres).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('credential composition', () => {
+  const credentials = { username: ' Alice ', password: ' exact password ' };
+
+  it('reads JSON once, preserving strings and leaving length policy to the core', async () => {
+    const { readCredentials } = await import('./account-services');
+    const input = { username: '', password: 'p'.repeat(257), extra: true };
+    const request = new Request('http://localhost/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+    const json = vi.spyOn(request, 'json');
+    await expect(readCredentials(request)).resolves.toEqual({
+      username: '',
+      password: 'p'.repeat(257),
+    });
+    expect(json).toHaveBeenCalledOnce();
+    expect(mocks.postgres).not.toHaveBeenCalled();
+  });
+
+  it.each(['{', 'null', '[]', 'true', '{}', '{"username":"a","password":null}'])(
+    'rejects invalid JSON credentials %s without opening the database',
+    async (body) => {
+      const { readCredentials } = await import('./account-services');
+      const request = new Request('http://localhost/api/auth/register', { method: 'POST', body });
+      await expect(readCredentials(request)).rejects.toMatchObject({
+        name: 'AccountError',
+        code: 'invalid-input',
+      });
+      expect(mocks.postgres).not.toHaveBeenCalled();
+      expect(mocks.hash).not.toHaveBeenCalled();
+      expect(mocks.register).not.toHaveBeenCalled();
+      expect(mocks.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('registers and signs in through the real use cases sharing the session ports', async () => {
+    const { registerAccount, signInAccount, resolveRequestUser } =
+      await import('./account-services');
+    expect(mocks.postgres).not.toHaveBeenCalled();
+    await expect(registerAccount(credentials)).resolves.toEqual({ user, token });
+    expect(mocks.hash).toHaveBeenCalledExactlyOnceWith(' exact password ');
+    expect(mocks.register).toHaveBeenCalledExactlyOnceWith(' Alice ', 'stored-hash');
+    await expect(signInAccount(credentials)).resolves.toEqual({ user, token });
+    expect(mocks.findByUsername).toHaveBeenCalledExactlyOnceWith(' Alice ');
+    expect(mocks.verify).toHaveBeenCalledExactlyOnceWith(' exact password ', 'stored-hash');
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.create).toHaveBeenNthCalledWith(
+      1,
+      token,
+      { userId: 'user-1', expiresAt: '2026-12-14T00:00:00.000Z' },
+      'stored-hash',
+    );
+    expect(mocks.create).toHaveBeenNthCalledWith(
+      2,
+      token,
+      { userId: 'user-1', expiresAt: '2026-12-14T00:00:00.000Z' },
+      'stored-hash',
+    );
+    mocks.resolve.mockResolvedValue(user);
+    await expect(resolveRequestUser(request(`mindsprout_session=${token}`))).resolves.toBe(user);
+    expect(mocks.postgres).toHaveBeenCalledExactlyOnceWith(
+      'postgres://app:local@localhost/accounts',
+      { max: 5 },
+    );
+    expect(mocks.users).toHaveBeenCalledOnce();
+    expect(mocks.sessions).toHaveBeenCalledOnce();
+    expect(mocks.hasher).toHaveBeenCalledOnce();
+    expect(mocks.tokens).toHaveBeenCalledOnce();
+  });
+
+  it.each(['registerAccount', 'signInAccount'] as const)(
+    '%s retains core invalid-input checks before account or session operations',
+    async (operation) => {
+      const services = await import('./account-services');
+      await expect(services[operation]({ username: '', password: 'pw' })).rejects.toMatchObject({
+        name: 'AccountError',
+        code: 'invalid-input',
+      });
+      expect(mocks.hash).not.toHaveBeenCalled();
+      expect(mocks.register).not.toHaveBeenCalled();
+      expect(mocks.findByUsername).not.toHaveBeenCalled();
+      expect(mocks.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('preserves interrupted registration as an internal failure without retrying', async () => {
+    const { registerAccount } = await import('./account-services');
+    mocks.create.mockResolvedValue(false);
+    await expect(registerAccount(credentials)).rejects.toMatchObject({
+      name: 'Error',
+      message: 'Registration session issuance refused',
+    });
+    expect(mocks.register).toHaveBeenCalledOnce();
+    expect(mocks.create).toHaveBeenCalledExactlyOnceWith(
+      token,
+      { userId: 'user-1', expiresAt: '2026-12-14T00:00:00.000Z' },
+      'stored-hash',
+    );
+  });
+
+  it('preserves stale sign-in refusal after a credential reset', async () => {
+    const { signInAccount } = await import('./account-services');
+    mocks.create.mockResolvedValue(false);
+    await expect(signInAccount(credentials)).rejects.toMatchObject({
+      name: 'AccountError',
+      code: 'invalid-credentials',
+    });
+    expect(mocks.verify).toHaveBeenCalledExactlyOnceWith(' exact password ', 'stored-hash');
+    expect(mocks.create).toHaveBeenCalledExactlyOnceWith(
+      token,
+      { userId: 'user-1', expiresAt: '2026-12-14T00:00:00.000Z' },
+      'stored-hash',
+    );
+    expect(mocks.register).not.toHaveBeenCalled();
+  });
 });

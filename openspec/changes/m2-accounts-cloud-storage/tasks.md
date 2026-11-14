@@ -181,7 +181,7 @@ Minimal mergeable slice: 4.1 - the hasher and token source are pure adapters wit
     - the composition module throws on first use when `DATABASE_URL` is missing;
     - no cookie appears in log calls.
   - Verify (contract): `pnpm test:contract` passes. Verify (smoke): `pnpm smoke` passes. Verify (gate): `pnpm test:guardrails` passes.
-- [ ] 5.2 Add `POST /api/auth/register` and `POST /api/auth/login` (design D5).
+- [x] 5.2 Add `POST /api/auth/register` and `POST /api/auth/login` (design D5).
   - Both return exactly the design D5 statuses and bodies, and set the session cookie on success.
   - Register this task's routes in `schemas/openapi.yaml`, review and update the snapshot hunk by hunk, add its section of `smoke/api.hurl`, and add its routes to `constraints.yaml` `key_api_routes`. Flag the Critical Path edit in the PR.
   - Smoke: the cookie-jar flow registers a fresh user, reads `GET /api/auth/session` with the cookie, then signs in again.

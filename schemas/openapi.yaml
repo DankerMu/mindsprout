@@ -45,8 +45,109 @@ paths:
                 $ref: "#/components/schemas/Error"
               example:
                 error: internal
+  /api/auth/register:
+    post:
+      summary: Register an account and create a session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credentials"
+      responses:
+        "201":
+          description: The account and session were created
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/SessionCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicSession"
+        "400":
+          description: Malformed JSON or invalid credentials input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: invalid-input
+        "409":
+          description: The exact username is already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: username-taken
+        "500":
+          description: An unexpected internal failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal
+  /api/auth/login:
+    post:
+      summary: Sign in and create a session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credentials"
+      responses:
+        "200":
+          description: The credentials identify a user and a session was created
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/SessionCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicSession"
+        "400":
+          description: Malformed JSON or invalid credentials input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: invalid-input
+        "401":
+          description: The credentials are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: invalid-credentials
+        "500":
+          description: An unexpected internal failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal
 components:
+  headers:
+    SessionCookie:
+      description: mindsprout_session cookie; HttpOnly, SameSite=Lax, Path=/, Max-Age=2592000, Secure in production
+      schema:
+        type: string
   schemas:
+    Credentials:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          description: Exact string, 1–64 UTF-16 code units; no trimming or normalization
+        password:
+          type: string
+          description: Exact string, 1–256 UTF-16 code units
     Health:
       type: object
       required: [status, checks]
