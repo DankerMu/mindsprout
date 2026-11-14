@@ -266,6 +266,8 @@ verification:
   key_api_routes:
     - path: "/api/healthz"
       status: "covered by smoke/health.hurl"
+    - path: "/api/auth/session"
+      status: "covered by smoke/api.hurl"
     - path: "/api/ai/generate"
       status: "pending — add to smoke/api.hurl when the route lands (M3)"
     - path: "/api/maps"

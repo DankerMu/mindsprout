@@ -102,6 +102,15 @@ Blast radius: an invalid forest accepted by the shared parser corrupts persisten
 Selected risk packs: Schema/shape/forest invariants; Public parser API; Error handling; Resource limits (500 nodes); Legacy compatibility. Auth/IO/config/concurrency/packaging/docs not selected: pure parser has no such surface and existing TECH needs no new concept.
 Evidence floor: strict input/output/rejection matrix and 500-node deep-equal, full unit ≥90% per-file, boundaries and actual parser smoke. D4 compact fixture is additive; all D2.x/D4.1 stay intact.
 
+## Issue #152 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: public HTTP/auth boundary, shared composition and constraints/AGENTS gate edits)
+Blast radius: incorrect cookie parsing or fail-open session handling exposes every later map/admin route; missing env fails startup/request incorrectly; pool duplication exhausts Postgres; logging leaks bearer tokens.
+Selected risk packs: Auth/session/token; Security/public HTTP; Error/logging; Configuration/pool lifecycle; API contract/schema; Gate integrity. Concurrency/performance limited to one lazy pool and malformed request handling; no business logic/AI/IO file/parser/map in this slice.
+Evidence floor: unit valid/blank/forged/expired/unknown session, 401+200 bodies, requireUser, cookie attributes/clearing, lazy singleton max5 missing-env failure, internal error logging without secrets; OpenAPI snapshot, actual no-cookie hurl against live real-DB server, full unit≥90% per-file, boundaries/guardrails/style/type/docs. Expanded review and real smoke mandatory. D3/D5/D6 additive, all prior fixtures intact.
+
 ## Impact
 
 - **New code:**
