@@ -76,21 +76,6 @@
     - `/api/healthz` still answers 200 through the app role (`pnpm smoke` in CI).
   - Verify (local): after `cp .env.example .env` and `docker compose up -d`, `pnpm db:setup` succeeds with no variable exported in the shell and prints no variable value.
   - Verify (gate): `pnpm test:guardrails` and `pnpm docs:check` pass, and the PR flags the `constraints.yaml`, `ci.yml` and `AGENTS.md` edits.
-  - **#145 risk-pack dispositions** (each selected pack maps to design D11.2 evidence):
-
-    | Risk pack                                      | Disposition and evidence                                                                                                                                                                                 |
-    | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-    | Public API / CLI / script entry                | Selected: new `pnpm db:setup`; file-only success and production pre-connect refusal cover it.                                                                                                            |
-    | Config / project setup                         | Selected: app-role URLs, Supabase removal and CI setup order; local/CI runtime evidence covers it.                                                                                                       |
-    | File IO / path safety / overwrite              | Selected: schema/reset/bootstrap writes; migration atomicity, reset and production no-change probes cover it.                                                                                            |
-    | Schema / columns / units / field names         | Selected: exact D1 tables, key, generated columns and index; real database introspection covers it.                                                                                                      |
-    | Auth / permissions / secrets                   | Selected: RLS and least privilege are the boundary; role flags, fail-closed queries, denied grants and output non-disclosure cover it.                                                                   |
-    | Concurrency / shared state / ordering          | Selected: first-admin uniqueness and migrate-before-bootstrap order; second-admin refusal and reset/CI smoke cover it.                                                                                   |
-    | Resource limits / large input / discovery      | Not selected: one fixed migration and no input discovery; no large-input behavior is introduced.                                                                                                         |
-    | Legacy compatibility / examples                | Selected: existing migration/integration/health/hurl paths must remain green; full integration and CI smoke cover it.                                                                                    |
-    | Error handling / rollback / partial outputs    | Selected: production refusal changes nothing; a failed migration rolls back only its file, while committed migrations survive bootstrap failure; redacted subprocess/sentinel probes cover these states. |
-    | Release / packaging / dependency compatibility | Selected: built-in Node env loading, pinned hurl and Postgres 16 behavior; local/CI commands cover it without new dependencies.                                                                          |
-    | Documentation / migration notes                | Selected: AGENTS, constraints, TECH and stale comment updates; docs/guardrail checks and size measurements cover it.                                                                                     |
 
 Suggested fixture level: expanded - persisted schema, the RLS security boundary and CI workflow edits (Critical Path: gate integrity); a wrong grant silently voids user isolation.
 Minimal mergeable slice: 1.1 - the runner and test-database lifecycle are self-verifying against fixture migrations with no product schema; 1.2 adds the schema on top.
@@ -112,21 +97,41 @@ Minimal mergeable slice: atomic - a single function and its unit tests; there is
 
 ## 3. Account domain and use cases
 
-- [ ] 3.1 In `src/contexts/account/domain`, define `User`, `Session`, the `AccountError` codes (`invalid-input`, `username-taken`, `invalid-credentials`, `forbidden`, `not-found`) and the ports `UserRepository`, `SessionRepository`, `PasswordHasher`, `TokenSource` and `Clock` (design D2, D3).
+- [x] 3.1 In `src/contexts/account/domain`, define `User`, `Session`, the `AccountError` codes (`invalid-input`, `username-taken`, `invalid-credentials`, `forbidden`, `not-found`) and the ports `UserRepository`, `SessionRepository`, `PasswordHasher`, `TokenSource` and `Clock` (design D2, D3).
   - In `account/application`, implement `register`, `signIn`, `signOut` and `resolveSession`:
     - the input bounds are username 1–64 and password 1–256 code units, compared exactly;
     - a session expires 30 days after creation by the `Clock`;
     - `signOut` is idempotent.
+    - session issuance uses `createIfPasswordHashMatches` with the authenticated/registered hash, atomically serialized with password replacement; stale sign-in is `invalid-credentials`, while interrupted registration uses the existing internal-failure path without a new domain error code.
   - Verify (unit, with in-memory port doubles under `tests/support/`):
     - account-auth "Out-of-bounds input";
     - a wrong password and an unknown user yield the identical `invalid-credentials` and create no session;
     - registering a taken username yields `username-taken`;
     - `resolveSession` rejects a session whose expiry has passed by the clock;
     - `signOut` without a session succeeds.
+    - deterministic reset-before-issuance interleavings reject stale sign-in and initial registration authentication; issuance-before-reset is invalidated, preserving ordinary positive paths;
+    - all callers and doubles use the conditional issuance contract; the unconditional creation method is removed, not retained as an alias.
   - `pnpm boundaries` shows no framework or SQL in `domain/` or `application/`.
+  - **#147 risk-pack dispositions** (selected packs map to design D2.1):
+
+    | Risk pack                                      | Disposition and evidence                                                                                                                                                                 |
+    | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | Public API / CLI / script entry                | Selected: exported use cases and shared ports are new; public-API lifecycle and unit evidence cover them, not HTTP/CLI behavior.                                                         |
+    | Config / project setup                         | Not selected: no environment, build or service setup change is part of this slice.                                                                                                       |
+    | File IO / path safety / overwrite              | Not selected: core code has no direct file/database IO; adapters are later slices.                                                                                                       |
+    | Schema / columns / units / field names         | Selected: shared entity/port shapes, UTC timestamps and UTF-16/time units; type checks and boundary scenarios cover them.                                                                |
+    | Auth / permissions / secrets                   | Selected: exact credential denials, session validity and secret-free results; positive/negative authentication and lifecycle scenarios cover them.                                       |
+    | Concurrency / shared state / ordering          | Selected: repository-owned registration and credential-bound issuance serialize with reset; deterministic interleavings cover core semantics, while real DB orderings are proven in 4.2. |
+    | Resource limits / large input / discovery      | Selected for bounded credential input: unit endpoints and astral-string scenarios prove limits; discovery and large datasets are non-goals.                                              |
+    | Legacy compatibility / examples                | Selected: complete contracts must support 3.2/4.1/4.2 and preserve current consumers; type/boundary checks and all-method port smoke cover them.                                         |
+    | Error handling / rollback / partial outputs    | Selected: invalid/denied inputs cause no unintended writes and unexpected port errors propagate; failure scenarios cover this without promising cross-port rollback.                     |
+    | Release / packaging / dependency compatibility | Not selected: no dependency or packaging change; crypto/SQL implementations are non-goals.                                                                                               |
+    | Documentation / migration notes                | Selected: D2 contracts and material documentation must match implemented interfaces; fixture review and docs gate cover the contract prose.                                              |
+
 - [ ] 3.2 Implement `listUsers(actor)` and `resetPassword(actor, userId)` (design D2).
   - Both refuse a non-admin with `forbidden`.
   - `resetPassword` refuses an unknown id with `not-found`, draws a 16-character temporary password from `TokenSource`, and calls the port's single atomic `replacePasswordAndEndSessions`.
+  - Password replacement remains one atomic port operation and serializes with conditional session issuance; the use case does not introduce an application-level check-then-insert.
   - It returns the temporary password and never logs it.
   - Verify (unit): forbidden for a non-admin; not-found; the returned password hashes to the stored value; the port receives exactly one atomic call; the admin may reset their own password.
 
@@ -139,13 +144,16 @@ Minimal mergeable slice: 3.1 - the self-service account use cases are complete a
   - Verify (unit): account-auth "Password is never stored in plaintext" (salted, does not contain the password, `pw` verifies and `px` fails). Two hashes of the same password differ. A malformed stored hash verifies false and does not throw. Tokens are 32 random bytes in base64url.
 - [ ] 4.2 Implement `PostgresUserRepository` and `PostgresSessionRepository` (design D1–D3).
   - `register` runs in one transaction with `pg_advisory_xact_lock` and `is_admin = not exists (…)`.
-  - Sessions store `sha256(token)`, and lookup filters on `expires_at > now()`.
+  - Sessions store `sha256(token)`, and lookup filters `expires_at` strictly after the supplied clock instant.
   - `replacePasswordAndEndSessions` runs in one transaction.
+  - `createIfPasswordHashMatches` checks the current hash and inserts under the same serialization boundary used by password replacement, such as a user-row lock. A plain uncoordinated check-then-insert or insert-select is insufficient.
   - The first-admin tests each create their own scratch database through the task 1.1 scratch helper, migrate it, apply the bootstrap and run as the app role there. Every other test only creates fresh users in `app_test` and never truncates a shared table (design D11).
   - Verify (integration):
     - account-auth "First registrant is admin" and "Racing first registrations" (two concurrent registrations on the scratch database's empty `users` table produce exactly one admin);
     - "Usernames are exact" and "Session expires after 30 days" (a row with a past `expires_at` resolves to no user);
     - a reset deletes every session of that user and leaves other users' sessions intact.
+    - with concurrent connections, issuance committed before reset is deleted by reset; reset committed before conditional issuance causes `false` with no new session;
+    - stale-hash and absent-user issuance return `false` without insertion; successful issuance stores only the token hash and the D1 session columns.
 - [ ] 4.3 Add `src/contexts/account/acl/map.ts`, re-exporting the map port types and errors account needs, and implement `PostgresMapStore.forUser(userId): MapRepository` (design D4).
   - Every call runs in its own transaction that sets `app.user_id` with `set_config(…, true)`.
   - `put` is an upsert on the caller's own key, `on conflict (owner_id, id)`. An id another user also holds is a separate row.

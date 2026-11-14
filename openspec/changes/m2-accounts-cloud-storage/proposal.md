@@ -57,14 +57,14 @@ PRD §8 M2 acceptance is "换设备能看到同一张图". Today maps live only 
   - The "Library works without storage" requirement is removed.
   - The README limitations requirement is revised for cloud storage and accounts.
 
-## Issue #145 Fixture Triage
+## Issue #147 Fixture Triage
 
 Issue type: feature
 Fixture level: expanded
 Upstream suggested level: expanded (agree)
-Blast radius: excessive grants or an owner-role app connection bypass tenant isolation; weak RLS exposes or corrupts every user's maps; bootstrap/environment mistakes break local and CI health checks; production setup could mutate a remote database.
-Selected risk packs: Public API/CLI/script entry; Config/project setup; File IO/path safety/overwrite; Schema/columns/units/field names; Auth/permissions/secrets; Concurrency/shared state/ordering; Legacy compatibility/examples; Error handling/rollback/partial outputs; Release/packaging/dependency compatibility; Documentation/migration notes. Resource limits/large input/discovery is not selected because this slice uses one fixed migration and no input discovery.
-Evidence floor: real-Postgres RLS/grant/single-admin integration scenarios, CI app-role smoke, a local file-only `pnpm db:setup` probe including production refusal, `pnpm test:guardrails`, and `pnpm docs:check`; explicit cases live in design D11.2.
+Blast radius: incorrect credential comparison or session expiry can authenticate the wrong user; incomplete ports can force incompatible implementations in the admin and persistence slices; leaked credentials can escape through returned users or errors.
+Selected risk packs: Public API/CLI/script entry; Schema/columns/units/field names; Auth/permissions/secrets; Concurrency/shared state/ordering; Resource limits/large input/discovery; Legacy compatibility/examples; Error handling/rollback/partial outputs; Documentation/migration notes. Config/project setup, File IO/path safety/overwrite and Release/packaging/dependency compatibility are not selected: this pure-core slice changes none of those boundaries.
+Evidence floor: scoped account red/green tests followed by unfiltered `pnpm test:unit` at ≥90% per-file coverage, `pnpm boundaries`, `pnpm test:guardrails`, type/lint checks and an executable public-use-case lifecycle smoke with deterministic test ports; design D2.1 names the inputs and outcomes.
 
 ## Impact
 
