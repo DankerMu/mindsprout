@@ -88,6 +88,8 @@ Registration and sign-in accept exact strings: username 1–64 and password 1–
 
 Sessions expire exactly 30 days after the injected clock instant. Resolution requires expiry strictly after the supplied instant, does not extend it and does not purge expired rows. Sign-out deletes only the supplied session and accepts missing or unknown tokens. Unexpected port failures propagate; a failed session write does not roll back an account already registered.
 
+`application/admin.ts` exports `listUsers(actor, { users })` and `resetPassword(actor, userId, { users, hasher, tokens })`. Both reject non-admin actors with `forbidden` before any port operation. Listing returns public users in repository-owned oldest-first order. Reset hashes one 16-character base64url temporary password from `TokenSource` and calls `replacePasswordAndEndSessions` once, without a preliminary lookup. Its `false` result yields `not-found` without credential or session changes. Success returns only the temporary password, never stores or logs it in readable form, and revokes only the target's sessions. Self-reset is allowed and signs the admin out; peer sessions and credentials remain valid.
+
 #### Known Limitations
 
 The core and its deterministic in-memory test ports do not provide production cryptography, SQL transactions, HTTP routes or cookies. Those guarantees require infrastructure adapters and their own integration evidence; see [decision 0023](../decisions/implemented/architecture/0023-self-hosted-accounts-on-postgres-rls.md).
