@@ -75,6 +75,15 @@ Blast radius: incorrect parameters/encoding can silently weaken password hashing
 Selected risk packs: Public API/CLI/script entry; Auth/permissions/secrets; Schema/columns/units/field names; Resource limits/large input/discovery; Legacy compatibility/examples; Error handling/rollback/partial outputs; Documentation/migration notes. Config/setup, File IO/path safety, Concurrency/shared state and Release/packaging are not selected: these pure adapters introduce no setup, IO, shared state or dependency surface.
 Evidence floor: genuine adapter red/green then unfiltered `pnpm test:unit` at ≥90% per-file coverage, `pnpm boundaries`, `pnpm test:guardrails`, style/type/docs/dead-code checks and actual-Node-crypto smoke. D2.3 requires an independent reference, malformed-input matrix, verify/hash failure behavior and exact token widths.
 
+## Issue #150 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: Critical Path credential persistence and mandatory real-DB proof)
+Blast radius: a weak lock permits old-password session issuance after reset; an imprecise uniqueness/error mapping can corrupt identities; raw-token storage or wrong clock conversion can expose/revoke the wrong session.
+Selected risk packs: Public port; Schema/timestamps/hash; Auth/secrets; Concurrency/transactions; File IO/DB lifecycle; Resource bounds; Compatibility; Error rollback; Documentation. Config/setup, large discovery/search and packaging are not selected: no migration, new config/search or dependency change.
+Evidence floor: sibling mocked unit coverage plus real-DB integration through the app role, controlled independent-connection orderings for conditional issuance/reset, and exact token/identity/expiry outcomes. Full unit ≥90% per-file, integration, boundaries, guardrails and independent real-DB lifecycle/race smoke required. D2.4 is additive; D2.1–D2.3 stay intact.
+
 ## Impact
 
 - **New code:**

@@ -92,9 +92,13 @@ Sessions expire exactly 30 days after the injected clock instant. Resolution req
 
 `infrastructure/crypto.ts` provides Node-only `ScryptPasswordHasher` and `CryptoTokenSource` adapters. Passwords use UTF-8 without normalisation; asynchronous scrypt uses N=32768, r=8, p=1, a fixed 64 MiB memory ceiling, a fresh 16-byte salt and a 32-byte key. Stored credentials are `scrypt$32768$8$1$<saltB64>$<keyB64>` with canonical padded standard base64. Verification rejects malformed or non-matching profiles before derivation, compares decoded keys with `timingSafeEqual`, and resolves `false` on derivation failure; hashing failures propagate. Session tokens encode 32 random bytes as base64url, and temporary passwords encode 12 random bytes as exactly 16 base64url characters.
 
+`infrastructure/postgres.ts` provides `PostgresUserRepository` and `PostgresSessionRepository` over an injected `postgres.Sql`; the caller owns the pool. Registration awaits transaction advisory lock `608259634` before a separate insert determines first-admin status. Only `23505` on `users_username_key` becomes `username-taken`. Public users contain ISO timestamps and no credentials; listing orders by creation time, then UUID.
+
+Password replacement and conditional issuance hold the same user-row `FOR UPDATE` lock until commit. Replacement changes the hash and deletes only that user's sessions atomically. The session adapter stores SHA-256 hex digests of UTF-8 tokens, binds the supplied clock instant for strict expiry, and leaves expired rows untouched. Database failures propagate without a success result.
+
 #### Known Limitations
 
-The crypto adapters are not wired to production account services. SQL transactions, HTTP routes and cookies require their own adapters and integration evidence; deterministic in-memory test ports do not establish those guarantees. Password migration/rehashing and whole-operation timing equalisation are not provided. Login throttling is deferred until the first public deployment; see [decision 0023](../decisions/implemented/architecture/0023-self-hosted-accounts-on-postgres-rls.md).
+The crypto and Postgres adapters are not wired to production account services. HTTP routes and cookies require their own adapters and integration evidence. Password migration/rehashing, expired-session purging and whole-operation timing equalisation are not provided. Login throttling is deferred until the first public deployment; see [decision 0023](../decisions/implemented/architecture/0023-self-hosted-accounts-on-postgres-rls.md).
 
 ## 4. 树操作协议（AI 与画布的唯一接口）
 
