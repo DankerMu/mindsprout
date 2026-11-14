@@ -57,6 +57,15 @@ PRD §8 M2 acceptance is "换设备能看到同一张图". Today maps live only 
   - The "Library works without storage" requirement is removed.
   - The README limitations requirement is revised for cloud storage and accounts.
 
+## Issue #144 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree)
+Blast radius: a target-derivation error can destroy `app_dev`; non-atomic migrations can leave partial schema; logging can disclose database credentials; CI or instruction-gate drift can make the database workflow unverifiable.
+Selected risk packs: Public API/CLI/script entry; Config/project setup; File IO/path safety/overwrite; Schema/columns/units/field names; Auth/permissions/secrets; Concurrency/shared state/ordering; Resource limits/large input/discovery; Legacy compatibility/examples; Error handling/rollback/partial outputs; Release/packaging/dependency compatibility; Documentation/migration notes.
+Evidence floor: real-Postgres integration scenarios, a local `pnpm db:migrate` run using file-only environment, and `pnpm test:guardrails`; explicit input/output cases live in design D11.1 and tasks group 1.
+
 ## Impact
 
 - **New code:**

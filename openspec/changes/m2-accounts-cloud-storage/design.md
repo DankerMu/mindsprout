@@ -263,6 +263,27 @@ A reset never targets the developer's `app_dev`.
   - It registers two random users, so it never needs to know who the admin is. The 403 assertion uses the second user, who is never the first registrant.
   - On a brand-new dev database, the first smoke user becomes the admin. `docs/engineering/database.md` therefore tells developers to register their own account before running smoke.
 
+### D11.1 Issue #144 expanded slice fixture
+
+- **Change surface:** `scripts/db-migrate.mjs`, `scripts/test-database.mjs`, the integration `globalSetup`, `vitest.integration.config.ts`, `tests/integration/`, `package.json`, `.env.example`, CI layer3, and the `AGENTS.md` command table.
+- **Must preserve:** the existing real-Postgres `select 1` integration coverage never self-skips; reset never touches `app_dev`; existing layer3 smoke remains wired; exported environment values retain precedence; no URL or credential value is printed.
+- **Must add/change:** ordered transactional migration discovery and recording, allowlisted reset, invocation-owned scratch cleanup, integration setup, and the documented script/environment/gate entries.
+- **Runner seam:** export `migrateDatabase({ migrationsDir, databaseUrl })`; the CLI passes `db/migrations` and `MIGRATION_DATABASE_URL`. A missing or empty migrations directory is a successful no-op after ensuring `schema_migrations`, which keeps the 1.1 local command runnable before migration 0001 exists.
+- **Scratch seam:** `withScratchDatabase(callback)` invokes `callback({ databaseName, databaseUrl, migrationDatabaseUrl })` with URLs derived for its unique scratch database, then drops only that invocation-created database.
+- **Governing invariant:** files apply in filename order, each file and its `schema_migrations` row commit atomically, and destructive operations are restricted to `app_test`, `app_e2e`, or the current invocation's scratch database; secrets never appear in output.
+- **Sibling surfaces:** integration `globalSetup` and parallel test consumers; task 1.2's schema and role bootstrap; task 6.3's e2e reset; local and CI environment loading; existing integration and smoke commands.
+- **Seams under test:** the exported runner and lifecycle helpers over real scratch databases, plus subprocess/config probes for CLI and environment behavior.
+- **Required evidence — fresh:** fixture files created out of lexical order apply in name order; each has one `schema_migrations` row with a non-null `applied_at`.
+- **Required evidence — rerun:** a second run exits zero, executes no fixture statement, and adds no row or timestamp change.
+- **Required evidence — failure:** a middle file creates a table then fails; that table and its record are absent, the later file is unapplied, earlier files remain committed, and the process exits non-zero.
+- **Required evidence — empty input:** missing and empty migration directories both exit zero and leave only the migration metadata table.
+- **Required evidence — reset:** `app_dev` and arbitrary names fail with the allowlist error before connection; source URLs naming another database are rewritten to the requested allowed target; reset removes a sentinel schema object and leaves `schema_migrations`.
+- **Required evidence — scratch:** the database exists inside the callback and is absent after success or after the original callback exception; distinct invocations receive distinct names.
+- **Required evidence — environment:** `globalSetup` accepts file-only values, preserves exported values, accepts a missing `.env` when both variables are exported, and rejects either missing URL before connection.
+- **Required evidence — disclosure/config/docs:** successful and failing output excludes supplied URL and credential values; `database.test.ts` defaults to `app_test`; `.env.example` and CI layer3 match the contract; no dotenv dependency is added; `AGENTS.md` stays at or below 32,768 bytes and 307 bytes per line, with before/after measurements and guardrails evidence.
+- **Non-goals:** migration 0001, product tables, the app-role bootstrap, `db:setup`, and e2e database orchestration belong to later slices.
+- **Review focus:** target binding and allowlist precedence; transaction/record atomicity; cleanup ownership; environment precedence and secret redaction; unchanged downstream integration/CI behavior.
+
 ### D12. Copy and documentation
 
 - **README `## Known Limitations`** (spec map-library) keeps every existing entry that is still true, such as `开发热更新`, and includes at least:
