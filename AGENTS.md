@@ -93,16 +93,14 @@ Boundaries enforced by `dependency-cruiser` (`.dependency-cruiser.cjs`, `pnpm bo
 
 ### Local setup (single command after clone)
 
-```bash
-pnpm setup && docker compose up -d && cp .env.example .env
-```
+`pnpm setup && docker compose up -d && cp .env.example .env`
 
 ### Daily commands
 
 | Task                                                              | Command                                                                            |
 | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Start dev server (foreground)                                     | `pnpm dev`                                                                         |
-| Apply SQL migrations as owner                                     | `pnpm db:migrate`                                                                  |
+| Migrate as owner / bootstrap dev login                            | `pnpm db:migrate` / `pnpm db:setup`                                                |
 | Run all checks / changed-scope checks                             | `pnpm check` / `pnpm check:fast`                                                   |
 | Unit (per-file coverage) / integration (real Postgres) / contract | `pnpm test:unit` / `pnpm test:integration` / `pnpm test:contract`                  |
 | Format / lint / typecheck / boundaries                            | `pnpm fmt` (`pnpm fmt:check`) / `pnpm lint` / `pnpm typecheck` / `pnpm boundaries` |
@@ -120,14 +118,15 @@ All commands route through `package.json` scripts. Do not invent ad-hoc commands
 
 ## Verification Matrix
 
-| Surface           | Verify with                                         | Command           | Evidence required                                       |
-| ----------------- | --------------------------------------------------- | ----------------- | ------------------------------------------------------- |
-| Liveness / health | Health endpoint probe (`/api/healthz`)              | `pnpm dev:status` | HTTP 200 + `$.status == "ok"`                           |
-| API endpoint      | Smoke test via hurl (`smoke/*.hurl`)                | `pnpm smoke`      | HTTP status + response body                             |
-| Web page / UI     | Playwright walk of key routes (`e2e/smoke.spec.ts`) | `pnpm e2e`        | Screenshot in `.run/ui-evidence/` + zero console errors |
-| License audit     | Native installed inventory + CLI contracts          | `pnpm anti-drift` | Contracts pass + version summary + platform recorded    |
+| Surface           | Verify with                                            | Command                 | Evidence required                                       |
+| ----------------- | ------------------------------------------------------ | ----------------------- | ------------------------------------------------------- |
+| Liveness / health | Health endpoint probe (`/api/healthz`)                 | `pnpm dev:status`       | HTTP 200 + `$.status == "ok"`                           |
+| API endpoint      | Smoke test via hurl (`smoke/*.hurl`)                   | `pnpm smoke`            | HTTP status + response body                             |
+| Web page / UI     | Playwright walk of key routes (`e2e/smoke.spec.ts`)    | `pnpm e2e`              | Screenshot in `.run/ui-evidence/` + zero console errors |
+| License audit     | Native installed inventory + CLI contracts             | `pnpm anti-drift`       | Contracts pass + version summary + platform recorded    |
+| DB migration      | Real Postgres schema, RLS, grants, migration atomicity | `pnpm test:integration` | Schema + RLS + grants + atomicity pass                  |
 
-- Key routes in `constraints.yaml` `verification.key_api_routes` / `key_ui_paths`; `/` and `/maps/[id]` are covered by `e2e/smoke.spec.ts`; routes marked `pending` join `smoke/api.hurl` and `e2e/smoke.spec.ts` in the PR that lands them. A DB migration row is added with the first SQL migration (M2).
+- Key routes: `constraints.yaml` `verification.key_api_routes` / `key_ui_paths`; `/` and `/maps/[id]` have e2e coverage. Add `pending` routes to `smoke/api.hurl` and `e2e/smoke.spec.ts` when they land.
 - Every command above resolves to a `package.json` script and is mirrored in `constraints.yaml` `verification`. A surface with no verification command is review-only, and the PR must say so.
 
 Every row requires fresh evidence from the current session — see `## Agent Operating Rules → Evidence requirements`.
@@ -216,12 +215,12 @@ Agents check this table before editing.
 Touching a listed path requires the `risk-adaptive-cross-review` pass at full depth (reviewer + verifier subagents, every diff line) plus the owner's functional acceptance.
 Everywhere else gray-box review (contracts + runtime evidence) is sufficient. The owner does not read diffs (decision 0001).
 
-| Path                                                                              | Risk class                   | Requirement                                                        |
-| --------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------ |
-| `src/contexts/account/` (credentials, RLS persistence, migrations when they land) | auth, data loss, key leakage | full cross-review + integration evidence against a real DB         |
-| `src/contexts/ai/infrastructure/providers/` and quota logic                       | billing, key handling        | full cross-review + mock-provider tests; never a real key in tests |
-| `src/app/api/` route handlers                                                     | public API contract          | full cross-review + `schemas/openapi.yaml` update + smoke entry    |
-| `.github/workflows/`, `.husky/`, `.git-hooks/`, `constraints.yaml`                | gate integrity               | full cross-review + `pnpm test:guardrails` evidence                |
+| Path                                                               | Risk class                   | Requirement                                                        |
+| ------------------------------------------------------------------ | ---------------------------- | ------------------------------------------------------------------ |
+| `src/contexts/account/`, `db/migrations/`                          | auth, data loss, key leakage | full cross-review + integration evidence against a real DB         |
+| `src/contexts/ai/infrastructure/providers/` and quota logic        | billing, key handling        | full cross-review + mock-provider tests; never a real key in tests |
+| `src/app/api/` route handlers                                      | public API contract          | full cross-review + `schemas/openapi.yaml` update + smoke entry    |
+| `.github/workflows/`, `.husky/`, `.git-hooks/`, `constraints.yaml` | gate integrity               | full cross-review + `pnpm test:guardrails` evidence                |
 
 ## Observability
 

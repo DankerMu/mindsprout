@@ -67,7 +67,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgres://app:app@localhost:5432/app_test
+      DATABASE_URL: postgres://mindsprout_app:app@localhost:5432/app_test
       MIGRATION_DATABASE_URL: postgres://app:app@localhost:5432/app_test
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -78,6 +78,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:integration
+      - run: pnpm db:setup
       - name: Install hurl
         run: |
           curl -fsSL --retry 3 -o /tmp/hurl.deb \

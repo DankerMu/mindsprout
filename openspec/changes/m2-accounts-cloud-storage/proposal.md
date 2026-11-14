@@ -57,14 +57,14 @@ PRD §8 M2 acceptance is "换设备能看到同一张图". Today maps live only 
   - The "Library works without storage" requirement is removed.
   - The README limitations requirement is revised for cloud storage and accounts.
 
-## Issue #144 Fixture Triage
+## Issue #145 Fixture Triage
 
 Issue type: feature
 Fixture level: expanded
 Upstream suggested level: expanded (agree)
-Blast radius: a target-derivation error can destroy `app_dev`; non-atomic migrations can leave partial schema; logging can disclose database credentials; CI or instruction-gate drift can make the database workflow unverifiable.
-Selected risk packs: Public API/CLI/script entry; Config/project setup; File IO/path safety/overwrite; Schema/columns/units/field names; Auth/permissions/secrets; Concurrency/shared state/ordering; Resource limits/large input/discovery; Legacy compatibility/examples; Error handling/rollback/partial outputs; Release/packaging/dependency compatibility; Documentation/migration notes.
-Evidence floor: real-Postgres integration scenarios, a local `pnpm db:migrate` run using file-only environment, and `pnpm test:guardrails`; explicit input/output cases live in design D11.1 and tasks group 1.
+Blast radius: excessive grants or an owner-role app connection bypass tenant isolation; weak RLS exposes or corrupts every user's maps; bootstrap/environment mistakes break local and CI health checks; production setup could mutate a remote database.
+Selected risk packs: Public API/CLI/script entry; Config/project setup; File IO/path safety/overwrite; Schema/columns/units/field names; Auth/permissions/secrets; Concurrency/shared state/ordering; Legacy compatibility/examples; Error handling/rollback/partial outputs; Release/packaging/dependency compatibility; Documentation/migration notes. Resource limits/large input/discovery is not selected because this slice uses one fixed migration and no input discovery.
+Evidence floor: real-Postgres RLS/grant/single-admin integration scenarios, CI app-role smoke, a local file-only `pnpm db:setup` probe including production refusal, `pnpm test:guardrails`, and `pnpm docs:check`; explicit cases live in design D11.2.
 
 ## Impact
 

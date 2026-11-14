@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -24,7 +24,7 @@ const mockBoundary = `
     };
     sql.begin = async (callback) => callback(sql);
     sql.end = async () => {};
-    sql.unsafe = async (text) => { queries.push(text); return []; };
+    sql.unsafe = (text) => ({ simple: async () => { queries.push(text); return []; } });
     return sql;
   }});
 `;
@@ -36,6 +36,8 @@ async function probe(
 ) {
   const cwd = await mkdtemp(join(tmpdir(), 'mindsprout-setup-'));
   try {
+    await mkdir(join(cwd, 'db/dev'), { recursive: true });
+    await copyFile(resolve('db/dev/app-role.sql'), join(cwd, 'db/dev/app-role.sql'));
     if (file !== undefined) await writeFile(join(cwd, '.env'), file);
     return spawnSync(
       process.execPath,

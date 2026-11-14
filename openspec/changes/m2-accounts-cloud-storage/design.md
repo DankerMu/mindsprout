@@ -93,7 +93,8 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
 **Migrations.**
 
 - `scripts/db-migrate.mjs` (`pnpm db:migrate`, run with `--env-file-if-exists=.env`) applies `db/migrations/NNNN_*.sql` in name order. Each file runs in its own transaction under the owner role.
-- Applied files are recorded in `schema_migrations(name text pk, applied_at timestamptz)`. A file already recorded is skipped; a file that fails rolls back and stops the run with a non-zero exit.
+- The exported seam is `migrateDatabase({ migrationsDir, databaseUrl })`. A missing or empty directory succeeds after ensuring `schema_migrations`; discovery accepts only numbered SQL files.
+- Applied files are recorded in `schema_migrations(name text pk, applied_at timestamptz)` in the same transaction as their statements. A recorded file is skipped; a failing file and its record roll back, earlier commits survive, and the command exits non-zero.
 - There is no down-migration. Rollback means restoring a backup (`docs/engineering/database.md`).
 
 ### D2. Account model and use cases
@@ -240,7 +241,8 @@ A reset never targets the developer's `app_dev`.
 
 - **Target derivation.** One shared helper module, `scripts/test-database.mjs`, holds both helpers.
   - The reset helper takes a database name. It builds its owner and app-role URLs from the host and credentials of `MIGRATION_DATABASE_URL` and `DATABASE_URL`, with the database name forced to that name. It refuses, before connecting, any name other than `app_test` or `app_e2e`. A `DATABASE_URL` that still names `app_dev` therefore cannot redirect a reset.
-  - The scratch-database helper creates a uniquely named `app_scratch_<random>` database from the same owner credentials, runs a callback against it, and drops it afterwards. It drops only databases it created.
+  - Target binding includes the driver's effective startup parameters: derived URLs discard decoded/repeated `database` query overrides and preserve other connection options.
+  - `withScratchDatabase(callback)` passes `{ databaseName, databaseUrl, migrationDatabaseUrl }` for a unique `app_scratch_<random>` database. Creation and cleanup use the same invocation-private name, independent of callback mutation. Cleanup also runs after callback failure and drops only the database that invocation created.
 - **Integration** (`pnpm test:integration`).
   - The target database is `app_test`.
   - A Vitest `globalSetup` calls the reset helper for `app_test`. As the owner role, the helper connects to the maintenance database `postgres` and creates `app_test` if it is absent. It then drops and recreates the `public` schema, runs the migrations and applies the dev role bootstrap.
@@ -263,26 +265,24 @@ A reset never targets the developer's `app_dev`.
   - It registers two random users, so it never needs to know who the admin is. The 403 assertion uses the second user, who is never the first registrant.
   - On a brand-new dev database, the first smoke user becomes the admin. `docs/engineering/database.md` therefore tells developers to register their own account before running smoke.
 
-### D11.1 Issue #144 expanded slice fixture
+### D11.2 Issue #145 expanded slice fixture
 
-- **Change surface:** `scripts/db-migrate.mjs`, `scripts/test-database.mjs`, the integration `globalSetup`, `vitest.integration.config.ts`, `tests/integration/`, `package.json`, `.env.example`, CI layer3, and the `AGENTS.md` command table.
-- **Must preserve:** the existing real-Postgres `select 1` integration coverage never self-skips; reset never touches `app_dev`; existing layer3 smoke remains wired; exported environment values retain precedence; no URL or credential value is printed.
-- **Must add/change:** ordered transactional migration discovery and recording, allowlisted reset, invocation-owned scratch cleanup, integration setup, and the documented script/environment/gate entries.
-- **Runner seam:** export `migrateDatabase({ migrationsDir, databaseUrl })`; the CLI passes `db/migrations` and `MIGRATION_DATABASE_URL`. A missing or empty migrations directory is a successful no-op after ensuring `schema_migrations`, which keeps the 1.1 local command runnable before migration 0001 exists.
-- **Scratch seam:** `withScratchDatabase(callback)` invokes `callback({ databaseName, databaseUrl, migrationDatabaseUrl })` with URLs derived for its unique scratch database, then drops only that invocation-created database.
-- **Governing invariant:** files apply in filename order, each file and its `schema_migrations` row commit atomically, and destructive operations are restricted to `app_test`, `app_e2e`, or the current invocation's scratch database; secrets never appear in output.
-- **Sibling surfaces:** integration `globalSetup` and parallel test consumers; task 1.2's schema and role bootstrap; task 6.3's e2e reset; local and CI environment loading; existing integration and smoke commands.
-- **Seams under test:** the exported runner and lifecycle helpers over real scratch databases, plus subprocess/config probes for CLI and environment behavior.
-- **Required evidence — fresh:** fixture files created out of lexical order apply in name order; each has one `schema_migrations` row with a non-null `applied_at`.
-- **Required evidence — rerun:** a second run exits zero, executes no fixture statement, and adds no row or timestamp change.
-- **Required evidence — failure:** a middle file creates a table then fails; that table and its record are absent, the later file is unapplied, earlier files remain committed, and the process exits non-zero.
-- **Required evidence — empty input:** missing and empty migration directories both exit zero and leave only the migration metadata table.
-- **Required evidence — reset:** `app_dev` and arbitrary names fail with the allowlist error before connection; source URLs naming another database are rewritten to the requested allowed target; reset removes a sentinel schema object and leaves `schema_migrations`.
-- **Required evidence — scratch:** the database exists inside the callback and is absent after success or after the original callback exception; distinct invocations receive distinct names.
-- **Required evidence — environment:** `globalSetup` accepts file-only values, preserves exported values, accepts a missing `.env` when both variables are exported, and rejects either missing URL before connection.
-- **Required evidence — disclosure/config/docs:** successful and failing output excludes supplied URL and credential values; `database.test.ts` defaults to `app_test`; `.env.example` and CI layer3 match the contract; no dotenv dependency is added; `AGENTS.md` stays at or below 32,768 bytes and 307 bytes per line, with before/after measurements and guardrails evidence.
-- **Non-goals:** migration 0001, product tables, the app-role bootstrap, `db:setup`, and e2e database orchestration belong to later slices.
-- **Review focus:** target binding and allowlist precedence; transaction/record atomicity; cleanup ownership; environment precedence and secret redaction; unchanged downstream integration/CI behavior.
+- **Change surface:** migration `0001_accounts_and_maps.sql`, `db/dev/app-role.sql`, a `db:setup` script and reset-helper bootstrap step, integration tests, `.env.example`, CI layer3, `src/shared/db.ts` comment, `AGENTS.md`, `constraints.yaml`, and TECH §3.
+- **Must preserve:** task 1.1's ordered/atomic migrations, effective target binding, scratch cleanup and redaction; existing real-DB tests never self-skip; `/api/healthz` and the Ubuntu 26.04 hurl installation remain working.
+- **Must add/change:** exact D1 tables, generated columns, indexes, fail-closed RLS and least-privilege grants; local-only role login bootstrap; app-role environment and CI smoke; verification/gate/documentation entries.
+- **Governing invariant:** all application data access uses non-owner `mindsprout_app` with `NOSUPERUSER NOBYPASSRLS`; without `app.user_id`, maps are invisible and unwritable; at most one admin exists; production setup refuses before any connection or change.
+- **Sibling surfaces:** migration runner and reset schema recreation, globalSetup, app-role health checks, future account/map repositories, first-admin concurrency backstop, local and CI setup, documentation and gate registries.
+- **Seams under test:** real `app_test` and scratch Postgres through owner/app roles, actual setup/reset commands, and layer3 health smoke; no source-text substitutes.
+- **Required evidence — schema/role:** D1 columns, `(owner_id,id)` key, generated columns, check and index exist; role flags are false and it owns no table. In a scratch database, insert two distinct valid users with different ids/usernames and `is_admin=true`; the second fails with SQLSTATE `23505` naming `users_single_admin`, not another uniqueness constraint.
+- **Required evidence — RLS:** seed a valid user and map as owner. Without identity, the app-role select hides that existing row and an otherwise-valid insert fails with a row-level-security violation. With the matching transaction-local identity, map select/insert/update/delete succeed.
+- **Required evidence — grants:** successful D1-permitted user select/insert/password-hash update and session select/insert/delete pair with refused `users.is_admin` update and table drop/alter. After reset recreates `public`, app-role map select succeeds while creating a table in `public` is refused.
+- **Required evidence — setup/reset:** migrate then bootstrap makes the fixed local app-role login usable; reset recreates `public`, migrates and bootstraps so app-role health returns 200. Shared cluster roles are never dropped by scratch cleanup.
+- **Required evidence — failure state:** a failing migration rolls back only that file and its record. A synthetic failing bootstrap in a disposable command fixture exits non-zero with redacted output while previously committed migrations remain recorded; whole-command rollback is not promised.
+- **Required evidence — production refusal:** `NODE_ENV=production pnpm db:setup` exits non-zero before constructing a client and leaves a sentinel unchanged. Successful and failing command output excludes supplied URL and credential values.
+- **Required evidence — local/CI/docs:** file-only `pnpm db:setup` succeeds; CI uses `mindsprout_app` and setup before smoke; Supabase variables are removed; AGENTS/constraints/TECH and the stale db comment match D1.
+- **Required evidence — instruction limits:** record before/after file bytes, maximum line bytes and line count for `AGENTS.md`; require at most 32,768 bytes, 307 bytes per line and 320 lines. These measurements are separate from `pnpm test:guardrails` and `pnpm docs:check`.
+- **Non-goals:** repositories/query code, production password/deployment procedure, and down-migrations.
+- **Review focus:** actual role/RLS/grant behavior after `FORCE RLS` and schema recreation; single-admin uniqueness; production pre-connect refusal; secret redaction; unchanged migration and smoke paths.
 
 ### D12. Copy and documentation
 
@@ -354,7 +354,7 @@ Chromium logs each as the console error `Failed to load resource: the server res
 - **[Last-write-wins silently overwrites a second device's edits]** → Owner-accepted and disclosed in the README.
 - **[Two parallel adapters exist during the cut-over]** → D10 bounds the parallel state and orders the issues so the removal depends on the flip.
 - **[e2e suites spend time on registration]** → One registration per test, and scrypt N=2^15 takes about 50 ms. If it measurably slows CI, reuse a storage state per worker; that is an implementation detail inside the fixture.
-- **[AGENTS.md is at 32,596 / 32,768 bytes]** → The tasks that add the `db:*` rows and critical paths (1.1, 1.2), task 5.1 (`src/app/server/`) and task 7.2 (`src/proxy.ts`) also trim existing prose to fit, verified by `pnpm test:guardrails` and the instruction-guard hook.
+- **[AGENTS.md additions exceed instruction limits]** → Tasks adding commands or critical paths trim prose without dropping rules. Record file bytes, maximum line bytes and line count before/after; limits are 32,768 bytes, 307 bytes per line and 320 lines. `pnpm test:guardrails` does not measure these limits.
 
 ## Migration Plan
 

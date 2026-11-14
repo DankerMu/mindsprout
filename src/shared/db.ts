@@ -2,8 +2,8 @@ import postgres from 'postgres';
 
 export type DbPing = 'ok' | 'fail' | 'not-configured';
 
-// Health-check level dependency probe. Application data access goes through each bounded
-// context's infrastructure/ layer and Supabase RLS, never through this helper.
+// Health-check dependency probe. Application data access belongs in
+// account/infrastructure under Postgres RLS, never in this helper.
 export async function pingDatabase(
   databaseUrl: string | undefined,
   timeoutMs = 2000,
