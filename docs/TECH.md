@@ -84,6 +84,8 @@ interface MindMap {
 
 Registration and sign-in accept exact strings: username 1–64 and password 1–256 UTF-16 code units, without trimming, case folding or Unicode normalisation. Invalid bounds yield `invalid-input`; unknown users and wrong passwords yield the same `invalid-credentials`. Registration persistence owns duplicate detection (`username-taken`), identity and first-admin assignment.
 
+`SessionRepository.createIfPasswordHashMatches` atomically checks the registered or verified password hash and inserts the session, serialized with password replacement and session deletion. A changed hash or absent user returns `false` without insertion; credentials remain separate from `Session`. Reset either invalidates an issued session or prevents stale issuance. Refused sign-in issuance yields `invalid-credentials`; refused initial registration issuance throws an internal, non-`AccountError` failure without an authenticated result. The account retains its replacement credential, with no cross-port rollback.
+
 Sessions expire exactly 30 days after the injected clock instant. Resolution requires expiry strictly after the supplied instant, does not extend it and does not purge expired rows. Sign-out deletes only the supplied session and accepts missing or unknown tokens. Unexpected port failures propagate; a failed session write does not roll back an account already registered.
 
 #### Known Limitations

@@ -34,6 +34,21 @@ The administrator SHALL be able to reset any account's password after confirming
 - **WHEN** `alice` is signed in on two devices and the administrator resets her password and confirms
 - **THEN** the administrator is shown a temporary password once, both of alice's devices are treated as signed out, her old password is refused, and the temporary password signs her in
 
+#### Scenario: Reset completes before pending sign-in issues a session
+
+- **WHEN** sign-in has captured the old password hash, a reset completes, and the old-password verification then succeeds
+- **THEN** session issuance is refused, sign-in reports invalid credentials, and no new session authenticates that account
+
+#### Scenario: Reset follows completed session issuance
+
+- **WHEN** session issuance completes before a concurrent password reset
+- **THEN** the reset ends that session and its token no longer authenticates the account
+
+#### Scenario: Reset interrupts registration sign-in
+
+- **WHEN** registration has created an account and a reset changes its credential before the initial session is issued
+- **THEN** registration returns no authenticated success or cookie, and the account remains with the replacement credential
+
 #### Scenario: Cancel the reset
 
 - **WHEN** the administrator chooses 重置密码 for `alice` and cancels the confirmation

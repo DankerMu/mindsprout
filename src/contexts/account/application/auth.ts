@@ -28,13 +28,24 @@ export async function register(
   validateCredentials(input);
   const hash = await ports.hasher.hash(input.password);
   const user = await ports.users.register(input.username, hash);
-  return createSession(user, ports);
+  const result = await createSession(user, hash, ports);
+  if (result === undefined) throw new Error('Registration session issuance refused');
+  return result;
 }
 
-async function createSession(user: User, { sessions, tokens, clock }: AuthPorts) {
+async function createSession(
+  user: User,
+  expectedPasswordHash: string,
+  { sessions, tokens, clock }: AuthPorts,
+) {
   const token = tokens.sessionToken();
   const expiresAt = new Date(clock.now().getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  await sessions.create(token, { userId: user.id, expiresAt });
+  const created = await sessions.createIfPasswordHashMatches(
+    token,
+    { userId: user.id, expiresAt },
+    expectedPasswordHash,
+  );
+  if (!created) return undefined;
   return { user, token };
 }
 
@@ -53,7 +64,9 @@ export async function signIn(
   if (record === undefined || !(await ports.hasher.verify(input.password, record.passwordHash))) {
     throw new AccountError('invalid-credentials');
   }
-  return createSession(record.user, ports);
+  const result = await createSession(record.user, record.passwordHash, ports);
+  if (result === undefined) throw new AccountError('invalid-credentials');
+  return result;
 }
 
 export async function resolveSession(

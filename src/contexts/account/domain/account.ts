@@ -34,7 +34,13 @@ export interface UserRepository {
 }
 
 export interface SessionRepository {
-  create(token: string, session: Session): Promise<void>;
+  // Atomic credential check and insertion, serialized with password replacement/session deletion.
+  // A changed hash or absent user returns false without inserting a session.
+  createIfPasswordHashMatches(
+    token: string,
+    session: Session,
+    expectedPasswordHash: string,
+  ): Promise<boolean>;
   // Strict expiresAt > now, joined to an existing user; no sliding or expired-row deletion.
   resolve(token: string, now: Date): Promise<User | undefined>;
   delete(token: string): Promise<void>;

@@ -17,7 +17,7 @@ export class FakeClock implements Clock {
   }
 }
 
-export class InMemoryUsers implements UserRepository {
+class InMemoryUsers implements UserRepository {
   readonly records = new Map<string, { user: User; passwordHash: string }>();
 
   constructor(
@@ -67,15 +67,23 @@ export class InMemoryUsers implements UserRepository {
   }
 }
 
-export class InMemorySessions implements SessionRepository {
+class InMemorySessions implements SessionRepository {
   constructor(
     readonly records: Map<string, Session>,
     private readonly users: InMemoryUsers,
   ) {}
 
-  create(token: string, session: Session): Promise<void> {
+  createIfPasswordHashMatches(
+    token: string,
+    session: Session,
+    expectedPasswordHash: string,
+  ): Promise<boolean> {
+    const record = this.users.records.get(session.userId);
+    if (record?.passwordHash !== expectedPasswordHash) {
+      return Promise.resolve(false);
+    }
     this.records.set(token, { ...session });
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
 
   resolve(token: string, now: Date): Promise<User | undefined> {
@@ -94,7 +102,7 @@ export class InMemorySessions implements SessionRepository {
 }
 
 // Opaque, instance-local handles model verification, not cryptographic hashing.
-export class InMemoryPasswordHasher implements PasswordHasher {
+class InMemoryPasswordHasher implements PasswordHasher {
   readonly #passwords = new Map<string, string>();
 
   hash(password: string): Promise<string> {
@@ -108,7 +116,7 @@ export class InMemoryPasswordHasher implements PasswordHasher {
   }
 }
 
-export class DeterministicTokens implements TokenSource {
+class DeterministicTokens implements TokenSource {
   #sessionCount = 0;
   #passwordCount = 0;
 

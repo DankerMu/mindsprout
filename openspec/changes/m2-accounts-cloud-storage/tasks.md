@@ -102,32 +102,36 @@ Minimal mergeable slice: atomic - a single function and its unit tests; there is
     - the input bounds are username 1–64 and password 1–256 code units, compared exactly;
     - a session expires 30 days after creation by the `Clock`;
     - `signOut` is idempotent.
+    - session issuance uses `createIfPasswordHashMatches` with the authenticated/registered hash, atomically serialized with password replacement; stale sign-in is `invalid-credentials`, while interrupted registration uses the existing internal-failure path without a new domain error code.
   - Verify (unit, with in-memory port doubles under `tests/support/`):
     - account-auth "Out-of-bounds input";
     - a wrong password and an unknown user yield the identical `invalid-credentials` and create no session;
     - registering a taken username yields `username-taken`;
     - `resolveSession` rejects a session whose expiry has passed by the clock;
     - `signOut` without a session succeeds.
+    - deterministic reset-before-issuance interleavings reject stale sign-in and initial registration authentication; issuance-before-reset is invalidated, preserving ordinary positive paths;
+    - all callers and doubles use the conditional issuance contract; the unconditional creation method is removed, not retained as an alias.
   - `pnpm boundaries` shows no framework or SQL in `domain/` or `application/`.
   - **#147 risk-pack dispositions** (selected packs map to design D2.1):
 
-    | Risk pack                                      | Disposition and evidence                                                                                                                                               |
-    | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-    | Public API / CLI / script entry                | Selected: exported use cases and shared ports are new; public-API lifecycle and unit evidence cover them, not HTTP/CLI behavior.                                       |
-    | Config / project setup                         | Not selected: no environment, build or service setup change is part of this slice.                                                                                     |
-    | File IO / path safety / overwrite              | Not selected: core code has no direct file/database IO; adapters are later slices.                                                                                     |
-    | Schema / columns / units / field names         | Selected: shared entity/port shapes, UTC timestamps and UTF-16/time units; type checks and boundary scenarios cover them.                                              |
-    | Auth / permissions / secrets                   | Selected: exact credential denials, session validity and secret-free results; positive/negative authentication and lifecycle scenarios cover them.                     |
-    | Concurrency / shared state / ordering          | Selected: repository-owned atomic registration and session ordering; stateful-port scenarios cover application ownership, while real DB race proof is deferred to 4.2. |
-    | Resource limits / large input / discovery      | Selected for bounded credential input: unit endpoints and astral-string scenarios prove limits; discovery and large datasets are non-goals.                            |
-    | Legacy compatibility / examples                | Selected: complete contracts must support 3.2/4.1/4.2 and preserve current consumers; type/boundary checks and all-method port smoke cover them.                       |
-    | Error handling / rollback / partial outputs    | Selected: invalid/denied inputs cause no unintended writes and unexpected port errors propagate; failure scenarios cover this without promising cross-port rollback.   |
-    | Release / packaging / dependency compatibility | Not selected: no dependency or packaging change; crypto/SQL implementations are non-goals.                                                                             |
-    | Documentation / migration notes                | Selected: D2 contracts and material documentation must match implemented interfaces; fixture review and docs gate cover the contract prose.                            |
+    | Risk pack                                      | Disposition and evidence                                                                                                                                                                 |
+    | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | Public API / CLI / script entry                | Selected: exported use cases and shared ports are new; public-API lifecycle and unit evidence cover them, not HTTP/CLI behavior.                                                         |
+    | Config / project setup                         | Not selected: no environment, build or service setup change is part of this slice.                                                                                                       |
+    | File IO / path safety / overwrite              | Not selected: core code has no direct file/database IO; adapters are later slices.                                                                                                       |
+    | Schema / columns / units / field names         | Selected: shared entity/port shapes, UTC timestamps and UTF-16/time units; type checks and boundary scenarios cover them.                                                                |
+    | Auth / permissions / secrets                   | Selected: exact credential denials, session validity and secret-free results; positive/negative authentication and lifecycle scenarios cover them.                                       |
+    | Concurrency / shared state / ordering          | Selected: repository-owned registration and credential-bound issuance serialize with reset; deterministic interleavings cover core semantics, while real DB orderings are proven in 4.2. |
+    | Resource limits / large input / discovery      | Selected for bounded credential input: unit endpoints and astral-string scenarios prove limits; discovery and large datasets are non-goals.                                              |
+    | Legacy compatibility / examples                | Selected: complete contracts must support 3.2/4.1/4.2 and preserve current consumers; type/boundary checks and all-method port smoke cover them.                                         |
+    | Error handling / rollback / partial outputs    | Selected: invalid/denied inputs cause no unintended writes and unexpected port errors propagate; failure scenarios cover this without promising cross-port rollback.                     |
+    | Release / packaging / dependency compatibility | Not selected: no dependency or packaging change; crypto/SQL implementations are non-goals.                                                                                               |
+    | Documentation / migration notes                | Selected: D2 contracts and material documentation must match implemented interfaces; fixture review and docs gate cover the contract prose.                                              |
 
 - [ ] 3.2 Implement `listUsers(actor)` and `resetPassword(actor, userId)` (design D2).
   - Both refuse a non-admin with `forbidden`.
   - `resetPassword` refuses an unknown id with `not-found`, draws a 16-character temporary password from `TokenSource`, and calls the port's single atomic `replacePasswordAndEndSessions`.
+  - Password replacement remains one atomic port operation and serializes with conditional session issuance; the use case does not introduce an application-level check-then-insert.
   - It returns the temporary password and never logs it.
   - Verify (unit): forbidden for a non-admin; not-found; the returned password hashes to the stored value; the port receives exactly one atomic call; the admin may reset their own password.
 
@@ -142,11 +146,14 @@ Minimal mergeable slice: 3.1 - the self-service account use cases are complete a
   - `register` runs in one transaction with `pg_advisory_xact_lock` and `is_admin = not exists (…)`.
   - Sessions store `sha256(token)`, and lookup filters `expires_at` strictly after the supplied clock instant.
   - `replacePasswordAndEndSessions` runs in one transaction.
+  - `createIfPasswordHashMatches` checks the current hash and inserts under the same serialization boundary used by password replacement, such as a user-row lock. A plain uncoordinated check-then-insert or insert-select is insufficient.
   - The first-admin tests each create their own scratch database through the task 1.1 scratch helper, migrate it, apply the bootstrap and run as the app role there. Every other test only creates fresh users in `app_test` and never truncates a shared table (design D11).
   - Verify (integration):
     - account-auth "First registrant is admin" and "Racing first registrations" (two concurrent registrations on the scratch database's empty `users` table produce exactly one admin);
     - "Usernames are exact" and "Session expires after 30 days" (a row with a past `expires_at` resolves to no user);
     - a reset deletes every session of that user and leaves other users' sessions intact.
+    - with concurrent connections, issuance committed before reset is deleted by reset; reset committed before conditional issuance causes `false` with no new session;
+    - stale-hash and absent-user issuance return `false` without insertion; successful issuance stores only the token hash and the D1 session columns.
 - [ ] 4.3 Add `src/contexts/account/acl/map.ts`, re-exporting the map port types and errors account needs, and implement `PostgresMapStore.forUser(userId): MapRepository` (design D4).
   - Every call runs in its own transaction that sets `app.user_id` with `set_config(…, true)`.
   - `put` is an upsert on the caller's own key, `on conflict (owner_id, id)`. An id another user also holds is a separate row.
