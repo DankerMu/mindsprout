@@ -147,18 +147,14 @@ Minimal mergeable slice: 3.1 - the self-service account use cases are complete a
   - Session tokens encode 32 random bytes base64url; temporary passwords encode 12 random bytes base64url (16 characters), without truncation or deterministic fallback.
   - Verify (unit): "Password is never stored in plaintext" (salted, no password, `pw` succeeds, `px` fails); two salts differ; exact independently generated reference hash; UTF-8 whitespace/NUL/Unicode distinctions; malformed profile/encoding/size matrix; verification/hash error behavior; token byte widths and distinct draws.
   - #149 risk-pack dispositions (evidence D2.3): selected public API (adapter ports), auth/secrets (salt/timing/no leakage), schema/units (profile/canonical encoding/token widths), resource limits (fixed parameters/bounded parser), compatibility (core tests), error handling (verify/hash asymmetry), docs (TECH/changeset). Config/file IO/concurrency/release-packaging not selected: pure crypto adapters have no IO/configuration/state/dependency change; no concurrency claim beyond Node async behavior.
-- [ ] 4.2 Implement `PostgresUserRepository` and `PostgresSessionRepository` (design D1–D3).
-  - `register` runs in one transaction with `pg_advisory_xact_lock` and `is_admin = not exists (…)`.
-  - Sessions store `sha256(token)`, and lookup filters `expires_at` strictly after the supplied clock instant.
-  - `replacePasswordAndEndSessions` runs in one transaction.
-  - `createIfPasswordHashMatches` checks the current hash and inserts under the same serialization boundary used by password replacement, such as a user-row lock. A plain uncoordinated check-then-insert or insert-select is insufficient.
-  - The first-admin tests each create their own scratch database through the task 1.1 scratch helper, migrate it, apply the bootstrap and run as the app role there. Every other test only creates fresh users in `app_test` and never truncates a shared table (design D11).
-  - Verify (integration):
-    - account-auth "First registrant is admin" and "Racing first registrations" (two concurrent registrations on the scratch database's empty `users` table produce exactly one admin);
-    - "Usernames are exact" and "Session expires after 30 days" (a row with a past `expires_at` resolves to no user);
-    - a reset deletes every session of that user and leaves other users' sessions intact.
-    - with concurrent connections, issuance committed before reset is deleted by reset; reset committed before conditional issuance causes `false` with no new session;
-    - stale-hash and absent-user issuance return `false` without insertion; successful issuance stores only the token hash and the D1 session columns.
+- [x] 4.2 Implement `PostgresUserRepository` and `PostgresSessionRepository` in `account/infrastructure/postgres.ts`, taking an injected `postgres.Sql`; plus sibling mocked unit tests and real-DB integration (design D1–D3/D2.4).
+  - `register` runs in one transaction with `pg_advisory_xact_lock(608259634)` and `is_admin = not exists (…)`. Only `23505` on `users_username_key` maps to `username-taken`; other failures propagate. Public timestamps use `toISOString()`, list oldest-first.
+  - Sessions store `sha256(token)`; lookup filters `expires_at` strictly after the supplied clock instant, returns no orphan/expired row and never slides/purges. Delete is idempotent.
+  - `replacePasswordAndEndSessions` and `createIfPasswordHashMatches` lock the same user row `FOR UPDATE` before checking/updating, and complete changes before commit. Changed/missing hash returns false without insertion; absent replacement false/no effects. No unlocked check-then-insert or retry loop.
+  - First-admin tests each use a migrated/bootstrapped scratch database through task 1.1, as the app role. Every other test creates fresh users in `app_test`; never truncates shared tables (design D11).
+  - Verify (integration): first/second and racing registration; exact usernames; ordered public list/find; duplicate preserves credential; raw-token SHA-256 storage; strict expiry/orphan/unknown/delete; reset target-only; stale/missing false; and controlled real-connection orderings of reset versus conditional issuance. Other constraints/errors propagate and transaction failures roll back.
+  - Verify (unit): transaction/query structure, exact duplicate discrimination, row mapping and all false/empty/error branches. `pnpm test:unit` ≥90% per-file and `pnpm test:integration` are both mandatory; no test self-skip.
+  - #150 risk packs (D2.4): public port; schema/timestamps/hash; auth/secrets; concurrency/transactions; file IO/DB lifecycle; resource bounds (fixed SQL/no arbitrary loops); compatibility existing core; error rollback; docs. Config setup, large discovery/search and packaging not selected: no config/schema migration/search/dependency change; test scratch lifecycle unchanged.
 - [ ] 4.3 Add `src/contexts/account/acl/map.ts`, re-exporting the map port types and errors account needs, and implement `PostgresMapStore.forUser(userId): MapRepository` (design D4).
   - Every call runs in its own transaction that sets `app.user_id` with `set_config(…, true)`.
   - `put` is an upsert on the caller's own key, `on conflict (owner_id, id)`. An id another user also holds is a separate row.
