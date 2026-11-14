@@ -4,10 +4,14 @@ import { pathToFileURL } from 'node:url';
 import postgres from 'postgres';
 import { migrateDatabase } from './db-migrate.mjs';
 
-export async function setupDatabase({ databaseUrl }) {
+export function assertDevelopmentDatabaseSetup() {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('Database setup is unavailable in production.');
   }
+}
+
+export async function setupDatabase({ databaseUrl }) {
+  assertDevelopmentDatabaseSetup();
   await migrateDatabase({ migrationsDir: resolve('db/migrations'), databaseUrl });
   const bootstrap = await readFile(resolve('db/dev/app-role.sql'), 'utf8');
   // Bootstrap failure does not undo migrations already committed by the runner.

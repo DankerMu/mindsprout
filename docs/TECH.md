@@ -76,6 +76,8 @@ interface MindMap {
 
 `maps` 启用并强制 RLS：`maps_owner` 的 USING 和 WITH CHECK 均为 `owner_id = nullif(current_setting('app.user_id', true), '')::uuid`；缺失或空身份看不到行、不能插入。每个请求在事务内 `set_config('app.user_id', …, true)`。应用以不拥有表、无 SUPERUSER/BYPASSRLS 的 `mindsprout_app` 连接，迁移用单独的 owner 角色。应用角色仅有 public 的 USAGE、maps 的 CRUD、users 的 SELECT/INSERT/UPDATE(password_hash)、sessions 的 SELECT/INSERT/DELETE；users/sessions 无 RLS，只由 account/infrastructure 访问。
 
+迁移 0001 拒绝已有 SUPERUSER 或 BYPASSRLS 的 `mindsprout_app`，不修改共享角色的权限。`db:setup` 与测试库重置在 production 模式下均于创建数据库客户端前拒绝执行。
+
 ## 4. 树操作协议（AI 与画布的唯一接口）
 
 三种 AI 模式都通过同一组操作改树，前端 reducer 只认这几种：

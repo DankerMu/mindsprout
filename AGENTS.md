@@ -93,7 +93,7 @@ Boundaries enforced by `dependency-cruiser` (`.dependency-cruiser.cjs`, `pnpm bo
 
 ### Local setup (single command after clone)
 
-`pnpm setup && docker compose up -d && cp .env.example .env`
+`pnpm run setup && cp .env.example .env && docker compose up -d --wait && pnpm db:setup`
 
 ### Daily commands
 

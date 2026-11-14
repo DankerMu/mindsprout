@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -26,6 +27,59 @@ async function user(sql = owner) {
 }
 
 describe('accounts and maps database boundary', () => {
+  it.each(['superuser', 'bypassrls'])(
+    'migration refuses an existing %s role without changing shared privileges',
+    async (attribute) => {
+      const migration = await readFile(resolve('db/migrations/0001_accounts_and_maps.sql'), 'utf8');
+      const before =
+        await owner`select oid, rolcanlogin, rolsuper, rolbypassrls from pg_roles where rolname = 'mindsprout_app'`;
+      await withScratchDatabase(async ({ migrationDatabaseUrl }) => {
+        const sql = postgres(migrationDatabaseUrl, { max: 1 });
+        const rollback = new Error('Rollback isolated role probe');
+        try {
+          await expect(
+            sql.begin(async (tx) => {
+              // Roles are cluster-global: unsafe attributes must never be committed.
+              await tx.unsafe(`alter role mindsprout_app ${attribute}`);
+              const unsafe =
+                await tx`select rolcanlogin, rolsuper, rolbypassrls from pg_roles where rolname = 'mindsprout_app'`;
+              expect(unsafe).toEqual([
+                {
+                  rolcanlogin: true,
+                  rolsuper: attribute === 'superuser',
+                  rolbypassrls: attribute === 'bypassrls',
+                },
+              ]);
+              await expect(
+                tx.savepoint(async (probe) => {
+                  await probe.unsafe(migration).simple();
+                }),
+              ).rejects.toMatchObject({
+                code: '42501',
+                message: 'mindsprout_app must not have SUPERUSER or BYPASSRLS.',
+              });
+              expect(
+                await tx`select rolcanlogin, rolsuper, rolbypassrls from pg_roles where rolname = 'mindsprout_app'`,
+              ).toEqual(unsafe);
+              expect(await tx`select to_regclass('public.users') as users`).toEqual([
+                { users: null },
+              ]);
+              expect(
+                await owner`select oid, rolcanlogin, rolsuper, rolbypassrls from pg_roles where rolname = 'mindsprout_app'`,
+              ).toEqual(before);
+              throw rollback;
+            }),
+          ).rejects.toBe(rollback);
+        } finally {
+          await sql.end();
+          expect(
+            await owner`select oid, rolcanlogin, rolsuper, rolbypassrls from pg_roles where rolname = 'mindsprout_app'`,
+          ).toEqual(before);
+        }
+      });
+    },
+  );
+
   it('Application role cannot bypass isolation and can use but not create in rebuilt public', async () => {
     expect(await app`select current_user as name`).toEqual([{ name: 'mindsprout_app' }]);
     expect(

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import postgres from 'postgres';
-import { setupDatabase } from './db-setup.mjs';
+import { assertDevelopmentDatabaseSetup, setupDatabase } from './db-setup.mjs';
 
 function targetUrl(key, name) {
   if (!process.env[key]) throw new Error(`${key} is required`);
@@ -34,6 +34,7 @@ export async function resetTestDatabase(name) {
   if (name !== 'app_test' && name !== 'app_e2e') {
     throw new Error('Test database must be app_test or app_e2e');
   }
+  assertDevelopmentDatabaseSetup();
   const destination = target(name);
   const maintenance = ownerConnection(targetUrl('MIGRATION_DATABASE_URL', 'postgres'));
   try {

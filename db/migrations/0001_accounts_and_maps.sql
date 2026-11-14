@@ -2,6 +2,13 @@ do $$
 begin
   if not exists (select 1 from pg_roles where rolname = 'mindsprout_app') then
     create role mindsprout_app nologin;
+  elsif exists (
+    select 1 from pg_roles
+    where rolname = 'mindsprout_app' and (rolsuper or rolbypassrls)
+  ) then
+    raise exception using
+      errcode = '42501',
+      message = 'mindsprout_app must not have SUPERUSER or BYPASSRLS.';
   end if;
 end
 $$;
