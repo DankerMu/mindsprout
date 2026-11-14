@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   test: {
+    globalSetup: ['tests/integration/global-setup.mjs'],
     include: ['tests/integration/**/*.test.ts'],
     environment: 'node',
     testTimeout: 15_000,

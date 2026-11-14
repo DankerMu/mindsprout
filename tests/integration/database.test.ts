@@ -3,7 +3,7 @@ import postgres from 'postgres';
 
 // Real-database integration seam. DATABASE_URL defaults to the docker-compose instance;
 // an unreachable database FAILS this suite — it never self-skips into green.
-const databaseUrl = process.env.DATABASE_URL ?? 'postgres://app:app@localhost:5432/app_dev';
+const databaseUrl = process.env.DATABASE_URL ?? 'postgres://app:app@localhost:5432/app_test';
 
 describe('postgres integration seam', () => {
   it('answers select 1 on the configured database', async () => {

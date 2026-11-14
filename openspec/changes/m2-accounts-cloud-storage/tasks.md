@@ -36,7 +36,7 @@
 
 ## 1. Database foundation
 
-- [ ] 1.1 Add the migration runner and the integration database lifecycle (design D1, D11).
+- [x] 1.1 Add the migration runner and the integration database lifecycle (design D1, D11).
   - Add `scripts/db-migrate.mjs` and the `pnpm db:migrate` script, `node --env-file-if-exists=.env scripts/db-migrate.mjs` (design D1: no dotenv dependency, exported variables win, values never printed):
     - it applies `db/migrations/NNNN_*.sql` in name order under `MIGRATION_DATABASE_URL`, one transaction per file;
     - it records applied files in `schema_migrations`, skips files already recorded, and on failure rolls back and stops with a non-zero exit.
@@ -54,6 +54,22 @@
     - the scratch helper drops its database after the callback, including when the callback throws.
   - Verify (local): with the URLs only in `.env` and none exported in the shell, `pnpm db:migrate` migrates the local database, and its output contains no variable value.
   - Verify (gate): `pnpm test:guardrails` passes, and the PR flags the `ci.yml` and `AGENTS.md` edits.
+  - **#144 risk-pack dispositions** (each selected pack maps to the named evidence in design D11.1):
+
+    | Risk pack                                      | Disposition and evidence                                                                                                                                |
+    | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | Public API / CLI / script entry                | Selected: `pnpm db:migrate` is new; file-only local execution and exit-code scenarios cover it.                                                         |
+    | Config / project setup                         | Selected: new URL and setup behavior; environment, `.env.example`, CI, and package-script evidence covers it.                                           |
+    | File IO / path safety / overwrite              | Selected: migration discovery and destructive reset; explicit directory, ordering, allowlist, and target-rewrite scenarios cover it.                    |
+    | Schema / columns / units / field names         | Selected: `schema_migrations(name, applied_at)` is new; fresh/rerun/failure database assertions cover it.                                               |
+    | Auth / permissions / secrets                   | Selected: owner/app URLs carry credentials; pre-connect refusal and successful/failing output non-disclosure checks cover it.                           |
+    | Concurrency / shared state / ordering          | Selected: integration files run in parallel and scratch names must not collide; distinct-invocation and ordered-migration evidence covers it.           |
+    | Resource limits / large input / discovery      | Selected for discovery and cleanup, not large-input support: missing/empty directories, name ordering, and scratch drop-after-throw are the boundaries. |
+    | Legacy compatibility / examples                | Selected: existing real-DB integration and layer3 smoke must remain intact; `database.test.ts` and CI evidence covers it.                               |
+    | Error handling / rollback / partial outputs    | Selected: failing migration and callback-throw scenarios prove rollback, stop-on-first-failure, original-error propagation, and cleanup.                |
+    | Release / packaging / dependency compatibility | Selected: Node's built-in env loading is mandatory; package/CI checks and the no-dotenv dependency assertion cover it.                                  |
+    | Documentation / migration notes                | Selected: `.env.example`, command-table, size-limit, guardrails, and PR-flag evidence covers it.                                                        |
+
 - [ ] 1.2 Add migration `0001_accounts_and_maps.sql`, exactly per design D1.
   - Schema:
     - create the `mindsprout_app` role `NOLOGIN` if it is absent;
