@@ -64,7 +64,16 @@ Fixture level: expanded
 Upstream suggested level: expanded (agree)
 Blast radius: an actor check after a port operation can expose account data or alter credentials without authorization; non-atomic reset handling can leave target sessions alive or expose plaintext temporary credentials.
 Selected risk packs: Public API/CLI/script entry; Auth/permissions/secrets; Schema/columns/units/field names; Concurrency/shared state/ordering; Resource limits/large input/discovery; Legacy compatibility/examples; Error handling/rollback/partial outputs; Documentation/migration notes. Config/setup, File IO/path safety and Release/packaging are not selected: this pure-application slice changes no setup, IO or dependency surface.
-Evidence floor: account-focused semantic red/green then unfiltered `pnpm test:unit` at ≥90% per-file coverage, `pnpm boundaries`, `pnpm test:guardrails`, style/type/docs checks and actual-export admin lifecycle smoke; D2.1 specifies authorization order, target revocation, public-list shape and failure effects. Durable reset/issuance race contracts stay in 3.1; real DB ordering remains in 4.2.
+Evidence floor: account-focused semantic red/green then unfiltered `pnpm test:unit` at ≥90% per-file coverage, `pnpm boundaries`, `pnpm test:guardrails`, style/type/docs checks and actual-export admin lifecycle smoke; D2.2 specifies authorization order, target revocation, public-list shape and failure effects. Durable reset/issuance race contracts stay in 3.1; real DB ordering remains in 4.2.
+
+## Issue #149 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree for credentials; real-DB evidence belongs to 4.2)
+Blast radius: incorrect parameters/encoding can silently weaken password hashing or reject valid credentials; permissive parsing can amplify CPU/memory use or compare wrong bytes; weak/truncated randomness can expose account sessions and temporary passwords.
+Selected risk packs: Public API/CLI/script entry; Auth/permissions/secrets; Schema/columns/units/field names; Resource limits/large input/discovery; Legacy compatibility/examples; Error handling/rollback/partial outputs; Documentation/migration notes. Config/setup, File IO/path safety, Concurrency/shared state and Release/packaging are not selected: these pure adapters introduce no setup, IO, shared state or dependency surface.
+Evidence floor: genuine adapter red/green then unfiltered `pnpm test:unit` at ≥90% per-file coverage, `pnpm boundaries`, `pnpm test:guardrails`, style/type/docs/dead-code checks and actual-Node-crypto smoke. D2.3 requires an independent reference, malformed-input matrix, verify/hash failure behavior and exact token widths.
 
 ## Impact
 
