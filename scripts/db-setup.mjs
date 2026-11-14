@@ -16,10 +16,18 @@ export async function setupDatabase({ databaseUrl }) {
   const bootstrap = await readFile(resolve('db/dev/app-role.sql'), 'utf8');
   // Bootstrap failure does not undo migrations already committed by the runner.
   const sql = postgres(databaseUrl, { max: 1, onnotice: () => undefined });
+  const maintenanceUrl = new URL(databaseUrl);
+  maintenanceUrl.pathname = '/postgres';
+  maintenanceUrl.searchParams.delete('database');
+  const maintenance = postgres(maintenanceUrl.toString(), { max: 1, onnotice: () => undefined });
   try {
-    await sql.unsafe(bootstrap).simple();
+    await maintenance.begin(async (transaction) => {
+      // Roles are cluster-wide; a lock in each target database cannot protect pg_authid.
+      await transaction`select pg_advisory_xact_lock(608259635)`;
+      await sql.unsafe(bootstrap).simple();
+    });
   } finally {
-    await sql.end();
+    await Promise.all([sql.end(), maintenance.end()]);
   }
 }
 
