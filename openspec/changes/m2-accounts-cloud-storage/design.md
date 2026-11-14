@@ -62,10 +62,11 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
 
 - An **owner role** owns every table and runs migrations through `MIGRATION_DATABASE_URL`. Locally and in CI this is `app`.
 - The **app role** `mindsprout_app` is `LOGIN NOSUPERUSER NOBYPASSRLS` and owns nothing. It is the only role behind `DATABASE_URL`, so the app, `/api/healthz` and the e2e server all use it.
-- Migration `0001` creates `mindsprout_app` as `NOLOGIN` if it is absent, then grants it `usage` on schema `public` and the table privileges below.
+- Migration `0001` creates `mindsprout_app` as `NOLOGIN` if absent and rejects an existing role with `SUPERUSER` or `BYPASSRLS` rather than demoting it; it grants schema `public` usage and only the table privileges below.
 - The dev/CI bootstrap `db/dev/app-role.sql` does `ALTER ROLE mindsprout_app LOGIN PASSWORD 'app'`. This is a fixed local credential, like `app/app` today.
-  - It is applied by `pnpm db:setup`, which runs migrate and then the bootstrap. The script refuses when `NODE_ENV=production`.
+  - `pnpm db:setup` migrates then applies the bootstrap and refuses production before client construction. Bootstrap failure leaves already committed migrations intact.
   - CI applies it after migrating.
+  - Fresh-clone setup waits for Compose's database health check before `db:setup`; the complete command lives in `AGENTS.md`.
 - **Environment loading.** The Node scripts that need the database URLs (`scripts/db-migrate.mjs`, the `db:setup` script and `scripts/e2e-db.mjs`) run as `node --env-file-if-exists=.env …`. The flag is built into Node since 22.9, below the `engines` floor `>=22.11.0`, so there is no dotenv dependency. Variables already exported, as in CI, win over the file, and a missing `.env` is not an error. The scripts never print variable values. `playwright.config.ts` and the Vitest integration `globalSetup` load `.env` the same way through Node's built-in `process.loadEnvFile` when the file exists, taking only keys not already set, and throw before connecting or starting any server when `DATABASE_URL` or `MIGRATION_DATABASE_URL` is unset. The e2e `webServer` always receives the derived `app_e2e` URL explicitly, so its `next dev` never falls back to the `app_dev` URL in `.env`.
 - Production sets the role password by hand; see `docs/engineering/database.md`.
 - Alternative rejected: one connection that runs `SET LOCAL ROLE` per transaction. Forgetting the role switch silently runs as a superuser or owner. A separate role that has no power cannot be misused that way.
@@ -101,19 +102,51 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
 
 - **Ports** in `account/domain/`: `UserRepository`, `SessionRepository`, `PasswordHasher`, `TokenSource`, `Clock`.
   - Entities: `User { id, username, isAdmin, createdAt }` and `Session { userId, expiresAt }`.
+  - `User.createdAt` and `Session.expiresAt` are UTC ISO timestamp strings, matching the existing domain timestamp convention. Credentials are not fields of `User`.
+  - `UserRepository.register(username: string, passwordHash: string): Promise<User>` atomically creates the account, owns id/creation time/first-admin assignment, and throws `AccountError('username-taken')` on an exact duplicate.
+  - `UserRepository.findByUsername(username: string): Promise<{ user: User; passwordHash: string } | undefined>` returns credentials only to the authentication use case; `list(): Promise<User[]>` returns users oldest-created first.
+  - `UserRepository.replacePasswordAndEndSessions(userId: string, newHash: string): Promise<boolean>` atomically replaces the hash and ends only that user's sessions; `false` means no such user and no change, allowing the admin use case to report `not-found`.
+  - `SessionRepository.create(token: string, session: Session): Promise<void>`, `resolve(token: string, now: Date): Promise<User | undefined>`, and `delete(token: string): Promise<void>` own session persistence, user joining and idempotent deletion. Resolution returns a user only when `expiresAt > now`; an unknown token or missing user returns `undefined`, and expired rows are retained.
+  - `PasswordHasher.hash(password: string): Promise<string>` and `verify(password: string, stored: string): Promise<boolean>` own hashing/verification; malformed stored hashes verify false.
+  - `TokenSource.sessionToken(): string` draws 32 random bytes encoded base64url; `temporaryPassword(): string` draws 16 base64url characters. Deterministic test sources implement both methods.
+  - `Clock.now(): Date` supplies the current instant. The application derives non-sliding expiry from one clock reading plus exactly 30 days.
+  - Raw-token hashing (`sha256` hex) belongs to the production session adapter, never domain/application. In-memory test ports model the observable contract, not cryptographic or SQL guarantees.
 - **Use cases** in `account/application/`: `register`, `signIn`, `signOut`, `resolveSession`, `listUsers`, `resetPassword`.
   - Each use case takes its ports as arguments and contains no framework or SQL.
+  - `register({ username, password }, { users, sessions, hasher, tokens, clock })` and `signIn` with the same arguments return `Promise<{ user: User; token: string }>`.
+  - `resolveSession(token: string | undefined, { sessions, clock })` returns `Promise<User | undefined>`; `signOut(token: string | undefined, { sessions })` returns `Promise<void>`. Missing tokens resolve to absence and sign-out is a no-op.
+  - Credential denials are `invalid-credentials`; invalid bounds remain `invalid-input`. Unexpected port failures propagate, never become successful authentication or a credential-denial fallback. Account creation and session creation are separate port operations; no cross-port rollback is promised.
 - **Input bounds** (owner: no policy, technical bounds only). The same bounds apply to registration, sign-in and admin input.
   - `username` is 1–64 UTF-16 code units, compared and stored exactly: no trimming, case folding or normalisation.
   - `password` is 1–256 code units. The upper bound keeps scrypt cost bounded.
   - Out-of-bounds input is rejected with `invalid-input`.
 - **Password hashing.** `node:crypto` `scrypt` with N=2^15, r=8, p=1, a 16-byte random salt and a 32-byte key. The result is stored as `scrypt$<N>$<r>$<p>$<saltB64>$<keyB64>`, and verification uses `timingSafeEqual`.
   - Registration already reveals whether a username exists, so sign-in does not equalise timing for unknown users.
-  - Every sign-in failure returns the same `invalid-credentials`.
-- **First admin.** `register` runs in one transaction. It takes `pg_advisory_xact_lock(<constant>)` and inserts with `is_admin = not exists (select 1 from users)`. The partial unique index backs this up if the lock is ever bypassed.
-- **Temporary passwords.** `resetPassword(adminId, userId)` checks that the caller is admin. In one transaction it writes a new hash for a 16-character base64url temporary password from `TokenSource` and deletes every session of that user.
+  - Unknown-user and wrong-password sign-in denials return the same `invalid-credentials`.
+- **First admin.** `UserRepository.register` runs in one transaction. It takes `pg_advisory_xact_lock(<constant>)` and inserts with `is_admin = not exists (select 1 from users)`. The partial unique index backs this up if the lock is ever bypassed.
+- **Admin actors and temporary passwords.** `listUsers(actor: User)` and `resetPassword(actor: User, userId: string)` reject non-admin actors. Reset draws a 16-character base64url temporary password from `TokenSource`, hashes it and uses the single atomic repository replacement operation to end that user's sessions.
   - It returns the temporary password once; it is never stored or logged.
   - An admin may reset their own password, which signs them out.
+
+### D2.1 Account core slice fixture
+
+- **Change surface:** account domain types/errors/ports, `register`, `signIn`, `signOut`, `resolveSession`, sibling unit tests, and functional in-memory doubles under `tests/support/`.
+- **Must preserve:** D1/D11 persistence safety and existing map behavior; public `User` never includes a password/hash; input strings are not trimmed, case-folded or normalised.
+- **Must add/change:** the complete D2 port contracts, including list/replacement and both token draws needed by the next slices, without implementing admin use cases or real adapters.
+- **Governing invariant:** only successful registration or an exact-credential check creates an authentication session; validity is strictly bounded by the injected clock, and denial or invalid input never creates an account/session as an unintended side effect.
+- **Sibling surfaces:** register/sign-in shared input validation and session creation; repository-owned duplicate/admin decisions; session resolution/deletion; future admin use cases, crypto adapters, Postgres adapters and route composition.
+- **Seams under test:** exported use cases over fresh, stateful port doubles and a controllable clock; a throwaway public-API lifecycle smoke runs the actual application functions.
+- **Required evidence — bounds:** usernames of 0/1/64/65 UTF-16 units and passwords of 0/1/256/257 units distinguish allowed endpoints from refusal. Invalid registration creates no account/session; invalid sign-in creates no session. Include astral characters so code-point counting cannot pass.
+- **Required evidence — exact input:** `alice`, `Alice`, and whitespace-distinct names remain separate; leading/trailing spaces and canonically equivalent Unicode spellings are not normalised. The exact password reaches the hashing/verification contract without trimming.
+- **Required evidence — registration:** a successful call returns the repository-assigned user and issued token; the stored session has that user id and expiry exactly clock time +30 days. A duplicate returns `username-taken`, preserves the existing account and creates no new session; the application never chooses `isAdmin`.
+- **Required evidence — sign-in:** correct credentials issue a fresh token/session; unknown user and wrong password produce the same safe `invalid-credentials` result and no new session. Returned users and errors contain no raw password or credential hash.
+- **Required evidence — resolution:** unknown/missing token returns nothing; one millisecond before expiry resolves the user, equality and afterward do not. Repeated resolution does not slide expiry or purge expired sessions.
+- **Required evidence — sign-out:** missing, unknown and repeated tokens succeed; signing out one valid token makes it unresolvable while other sessions remain valid.
+- **Required evidence — complete doubles:** every D2 method has a functional implementation. A lifecycle smoke verifies ordered users, replacement of a target hash and removal of only its sessions, unknown-target false/no change, and both deterministic token draws; this is not claimed as Postgres atomicity proof.
+- **Required evidence — failures/ownership:** deterministic port failures do not produce a success result or silently translate to credential errors; malformed input is rejected before side effects. Boundary/type checks show no framework, SQL or crypto dependency in domain/application.
+- **Required evidence — gates:** the scoped account command `pnpm test:unit src/contexts/account --coverage.include='src/contexts/account/**/*.ts'` supports red/green development; final acceptance runs unfiltered `pnpm test:unit` at ≥90% per-file coverage, preserving all existing consumer tests. `pnpm boundaries` and `pnpm test:guardrails` also pass. Runtime smoke and exact commands are recorded separately from unit totals.
+- **Non-goals:** admin use cases, crypto implementations, SQL/session-hash storage, cookies/routes/UI, session purging, registration rollback across ports, timing equalisation, retries or throttling.
+- **Review focus:** complete reusable port contracts; exact UTF-16 boundaries; no secret-bearing public result; clock/expiry equality; no application-level duplicate/admin race; no mock-echo or source-text evidence.
 
 ### D3. Sessions and cookies
 
@@ -122,7 +155,7 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
   - The database stores `sha256(token)` hex as `token_hash`, so a database read does not yield usable cookies.
   - `expires_at` is creation time plus 30 days. Sessions are not sliding.
 - **`resolveSession`.**
-  - It looks up `token_hash` with `expires_at > now()` and joins the user.
+  - It looks up `token_hash`, filters `expires_at` strictly after the supplied `Clock` instant, and joins the user. Equality is expired; the adapter binds the supplied instant instead of choosing an independent clock.
   - Expired rows are left in place; purging them is in `## Not yet specified`.
 - **Sign-out** deletes the row and clears the cookie (`Max-Age=0`). It is idempotent.
 - **CSRF.** `SameSite=Lax` keeps the cookie off cross-site subrequests. In addition, every non-GET API route requires `Content-Type: application/json`, which a cross-site form cannot send without a preflight; other content types get 415.
@@ -241,6 +274,7 @@ A reset never targets the developer's `app_dev`.
 
 - **Target derivation.** One shared helper module, `scripts/test-database.mjs`, holds both helpers.
   - The reset helper takes a database name. It builds its owner and app-role URLs from the host and credentials of `MIGRATION_DATABASE_URL` and `DATABASE_URL`, with the database name forced to that name. It refuses, before connecting, any name other than `app_test` or `app_e2e`. A `DATABASE_URL` that still names `app_dev` therefore cannot redirect a reset.
+  - Reset shares `db:setup`'s production preflight before client construction or destructive SQL.
   - Target binding includes the driver's effective startup parameters: derived URLs discard decoded/repeated `database` query overrides and preserve other connection options.
   - `withScratchDatabase(callback)` passes `{ databaseName, databaseUrl, migrationDatabaseUrl }` for a unique `app_scratch_<random>` database. Creation and cleanup use the same invocation-private name, independent of callback mutation. Cleanup also runs after callback failure and drops only the database that invocation created.
 - **Integration** (`pnpm test:integration`).
@@ -264,25 +298,6 @@ A reset never targets the developer's `app_dev`.
 - **Smoke** (`pnpm smoke`) runs against the `:3000` server and whatever database it has.
   - It registers two random users, so it never needs to know who the admin is. The 403 assertion uses the second user, who is never the first registrant.
   - On a brand-new dev database, the first smoke user becomes the admin. `docs/engineering/database.md` therefore tells developers to register their own account before running smoke.
-
-### D11.2 Issue #145 expanded slice fixture
-
-- **Change surface:** migration `0001_accounts_and_maps.sql`, `db/dev/app-role.sql`, a `db:setup` script and reset-helper bootstrap step, integration tests, `.env.example`, CI layer3, `src/shared/db.ts` comment, `AGENTS.md`, `constraints.yaml`, and TECH §3.
-- **Must preserve:** task 1.1's ordered/atomic migrations, effective target binding, scratch cleanup and redaction; existing real-DB tests never self-skip; `/api/healthz` and the Ubuntu 26.04 hurl installation remain working.
-- **Must add/change:** exact D1 tables, generated columns, indexes, fail-closed RLS and least-privilege grants; local-only role login bootstrap; app-role environment and CI smoke; verification/gate/documentation entries.
-- **Governing invariant:** all application data access uses non-owner `mindsprout_app` with `NOSUPERUSER NOBYPASSRLS`; without `app.user_id`, maps are invisible and unwritable; at most one admin exists; production setup refuses before any connection or change.
-- **Sibling surfaces:** migration runner and reset schema recreation, globalSetup, app-role health checks, future account/map repositories, first-admin concurrency backstop, local and CI setup, documentation and gate registries.
-- **Seams under test:** real `app_test` and scratch Postgres through owner/app roles, actual setup/reset commands, and layer3 health smoke; no source-text substitutes.
-- **Required evidence — schema/role:** D1 columns, `(owner_id,id)` key, generated columns, check and index exist; role flags are false and it owns no table. In a scratch database, insert two distinct valid users with different ids/usernames and `is_admin=true`; the second fails with SQLSTATE `23505` naming `users_single_admin`, not another uniqueness constraint.
-- **Required evidence — RLS:** seed a valid user and map as owner. Without identity, the app-role select hides that existing row and an otherwise-valid insert fails with a row-level-security violation. With the matching transaction-local identity, map select/insert/update/delete succeed.
-- **Required evidence — grants:** successful D1-permitted user select/insert/password-hash update and session select/insert/delete pair with refused `users.is_admin` update and table drop/alter. After reset recreates `public`, app-role map select succeeds while creating a table in `public` is refused.
-- **Required evidence — setup/reset:** migrate then bootstrap makes the fixed local app-role login usable; reset recreates `public`, migrates and bootstraps so app-role health returns 200. Shared cluster roles are never dropped by scratch cleanup.
-- **Required evidence — failure state:** a failing migration rolls back only that file and its record. A synthetic failing bootstrap in a disposable command fixture exits non-zero with redacted output while previously committed migrations remain recorded; whole-command rollback is not promised.
-- **Required evidence — production refusal:** `NODE_ENV=production pnpm db:setup` exits non-zero before constructing a client and leaves a sentinel unchanged. Successful and failing command output excludes supplied URL and credential values.
-- **Required evidence — local/CI/docs:** file-only `pnpm db:setup` succeeds; CI uses `mindsprout_app` and setup before smoke; Supabase variables are removed; AGENTS/constraints/TECH and the stale db comment match D1.
-- **Required evidence — instruction limits:** record before/after file bytes, maximum line bytes and line count for `AGENTS.md`; require at most 32,768 bytes, 307 bytes per line and 320 lines. These measurements are separate from `pnpm test:guardrails` and `pnpm docs:check`.
-- **Non-goals:** repositories/query code, production password/deployment procedure, and down-migrations.
-- **Review focus:** actual role/RLS/grant behavior after `FORCE RLS` and schema recreation; single-admin uniqueness; production pre-connect refusal; secret redaction; unchanged migration and smoke paths.
 
 ### D12. Copy and documentation
 

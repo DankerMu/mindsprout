@@ -76,21 +76,6 @@
     - `/api/healthz` still answers 200 through the app role (`pnpm smoke` in CI).
   - Verify (local): after `cp .env.example .env` and `docker compose up -d`, `pnpm db:setup` succeeds with no variable exported in the shell and prints no variable value.
   - Verify (gate): `pnpm test:guardrails` and `pnpm docs:check` pass, and the PR flags the `constraints.yaml`, `ci.yml` and `AGENTS.md` edits.
-  - **#145 risk-pack dispositions** (each selected pack maps to design D11.2 evidence):
-
-    | Risk pack                                      | Disposition and evidence                                                                                                                                                                                 |
-    | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-    | Public API / CLI / script entry                | Selected: new `pnpm db:setup`; file-only success and production pre-connect refusal cover it.                                                                                                            |
-    | Config / project setup                         | Selected: app-role URLs, Supabase removal and CI setup order; local/CI runtime evidence covers it.                                                                                                       |
-    | File IO / path safety / overwrite              | Selected: schema/reset/bootstrap writes; migration atomicity, reset and production no-change probes cover it.                                                                                            |
-    | Schema / columns / units / field names         | Selected: exact D1 tables, key, generated columns and index; real database introspection covers it.                                                                                                      |
-    | Auth / permissions / secrets                   | Selected: RLS and least privilege are the boundary; role flags, fail-closed queries, denied grants and output non-disclosure cover it.                                                                   |
-    | Concurrency / shared state / ordering          | Selected: first-admin uniqueness and migrate-before-bootstrap order; second-admin refusal and reset/CI smoke cover it.                                                                                   |
-    | Resource limits / large input / discovery      | Not selected: one fixed migration and no input discovery; no large-input behavior is introduced.                                                                                                         |
-    | Legacy compatibility / examples                | Selected: existing migration/integration/health/hurl paths must remain green; full integration and CI smoke cover it.                                                                                    |
-    | Error handling / rollback / partial outputs    | Selected: production refusal changes nothing; a failed migration rolls back only its file, while committed migrations survive bootstrap failure; redacted subprocess/sentinel probes cover these states. |
-    | Release / packaging / dependency compatibility | Selected: built-in Node env loading, pinned hurl and Postgres 16 behavior; local/CI commands cover it without new dependencies.                                                                          |
-    | Documentation / migration notes                | Selected: AGENTS, constraints, TECH and stale comment updates; docs/guardrail checks and size measurements cover it.                                                                                     |
 
 Suggested fixture level: expanded - persisted schema, the RLS security boundary and CI workflow edits (Critical Path: gate integrity); a wrong grant silently voids user isolation.
 Minimal mergeable slice: 1.1 - the runner and test-database lifecycle are self-verifying against fixture migrations with no product schema; 1.2 adds the schema on top.
@@ -112,7 +97,7 @@ Minimal mergeable slice: atomic - a single function and its unit tests; there is
 
 ## 3. Account domain and use cases
 
-- [ ] 3.1 In `src/contexts/account/domain`, define `User`, `Session`, the `AccountError` codes (`invalid-input`, `username-taken`, `invalid-credentials`, `forbidden`, `not-found`) and the ports `UserRepository`, `SessionRepository`, `PasswordHasher`, `TokenSource` and `Clock` (design D2, D3).
+- [x] 3.1 In `src/contexts/account/domain`, define `User`, `Session`, the `AccountError` codes (`invalid-input`, `username-taken`, `invalid-credentials`, `forbidden`, `not-found`) and the ports `UserRepository`, `SessionRepository`, `PasswordHasher`, `TokenSource` and `Clock` (design D2, D3).
   - In `account/application`, implement `register`, `signIn`, `signOut` and `resolveSession`:
     - the input bounds are username 1–64 and password 1–256 code units, compared exactly;
     - a session expires 30 days after creation by the `Clock`;
@@ -124,6 +109,22 @@ Minimal mergeable slice: atomic - a single function and its unit tests; there is
     - `resolveSession` rejects a session whose expiry has passed by the clock;
     - `signOut` without a session succeeds.
   - `pnpm boundaries` shows no framework or SQL in `domain/` or `application/`.
+  - **#147 risk-pack dispositions** (selected packs map to design D2.1):
+
+    | Risk pack                                      | Disposition and evidence                                                                                                                                               |
+    | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | Public API / CLI / script entry                | Selected: exported use cases and shared ports are new; public-API lifecycle and unit evidence cover them, not HTTP/CLI behavior.                                       |
+    | Config / project setup                         | Not selected: no environment, build or service setup change is part of this slice.                                                                                     |
+    | File IO / path safety / overwrite              | Not selected: core code has no direct file/database IO; adapters are later slices.                                                                                     |
+    | Schema / columns / units / field names         | Selected: shared entity/port shapes, UTC timestamps and UTF-16/time units; type checks and boundary scenarios cover them.                                              |
+    | Auth / permissions / secrets                   | Selected: exact credential denials, session validity and secret-free results; positive/negative authentication and lifecycle scenarios cover them.                     |
+    | Concurrency / shared state / ordering          | Selected: repository-owned atomic registration and session ordering; stateful-port scenarios cover application ownership, while real DB race proof is deferred to 4.2. |
+    | Resource limits / large input / discovery      | Selected for bounded credential input: unit endpoints and astral-string scenarios prove limits; discovery and large datasets are non-goals.                            |
+    | Legacy compatibility / examples                | Selected: complete contracts must support 3.2/4.1/4.2 and preserve current consumers; type/boundary checks and all-method port smoke cover them.                       |
+    | Error handling / rollback / partial outputs    | Selected: invalid/denied inputs cause no unintended writes and unexpected port errors propagate; failure scenarios cover this without promising cross-port rollback.   |
+    | Release / packaging / dependency compatibility | Not selected: no dependency or packaging change; crypto/SQL implementations are non-goals.                                                                             |
+    | Documentation / migration notes                | Selected: D2 contracts and material documentation must match implemented interfaces; fixture review and docs gate cover the contract prose.                            |
+
 - [ ] 3.2 Implement `listUsers(actor)` and `resetPassword(actor, userId)` (design D2).
   - Both refuse a non-admin with `forbidden`.
   - `resetPassword` refuses an unknown id with `not-found`, draws a 16-character temporary password from `TokenSource`, and calls the port's single atomic `replacePasswordAndEndSessions`.
@@ -139,7 +140,7 @@ Minimal mergeable slice: 3.1 - the self-service account use cases are complete a
   - Verify (unit): account-auth "Password is never stored in plaintext" (salted, does not contain the password, `pw` verifies and `px` fails). Two hashes of the same password differ. A malformed stored hash verifies false and does not throw. Tokens are 32 random bytes in base64url.
 - [ ] 4.2 Implement `PostgresUserRepository` and `PostgresSessionRepository` (design D1–D3).
   - `register` runs in one transaction with `pg_advisory_xact_lock` and `is_admin = not exists (…)`.
-  - Sessions store `sha256(token)`, and lookup filters on `expires_at > now()`.
+  - Sessions store `sha256(token)`, and lookup filters `expires_at` strictly after the supplied clock instant.
   - `replacePasswordAndEndSessions` runs in one transaction.
   - The first-admin tests each create their own scratch database through the task 1.1 scratch helper, migrate it, apply the bootstrap and run as the app role there. Every other test only creates fresh users in `app_test` and never truncates a shared table (design D11).
   - Verify (integration):
