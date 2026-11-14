@@ -57,14 +57,14 @@ PRD §8 M2 acceptance is "换设备能看到同一张图". Today maps live only 
   - The "Library works without storage" requirement is removed.
   - The README limitations requirement is revised for cloud storage and accounts.
 
-## Issue #147 Fixture Triage
+## Issue #148 Fixture Triage
 
 Issue type: feature
 Fixture level: expanded
 Upstream suggested level: expanded (agree)
-Blast radius: incorrect credential comparison or session expiry can authenticate the wrong user; incomplete ports can force incompatible implementations in the admin and persistence slices; leaked credentials can escape through returned users or errors.
-Selected risk packs: Public API/CLI/script entry; Schema/columns/units/field names; Auth/permissions/secrets; Concurrency/shared state/ordering; Resource limits/large input/discovery; Legacy compatibility/examples; Error handling/rollback/partial outputs; Documentation/migration notes. Config/project setup, File IO/path safety/overwrite and Release/packaging/dependency compatibility are not selected: this pure-core slice changes none of those boundaries.
-Evidence floor: scoped account red/green tests followed by unfiltered `pnpm test:unit` at ≥90% per-file coverage, `pnpm boundaries`, `pnpm test:guardrails`, type/lint checks and an executable public-use-case lifecycle smoke with deterministic test ports; design D2.1 names the inputs and outcomes.
+Blast radius: an actor check after a port operation can expose account data or alter credentials without authorization; non-atomic reset handling can leave target sessions alive or expose plaintext temporary credentials.
+Selected risk packs: Public API/CLI/script entry; Auth/permissions/secrets; Schema/columns/units/field names; Concurrency/shared state/ordering; Resource limits/large input/discovery; Legacy compatibility/examples; Error handling/rollback/partial outputs; Documentation/migration notes. Config/setup, File IO/path safety and Release/packaging are not selected: this pure-application slice changes no setup, IO or dependency surface.
+Evidence floor: account-focused semantic red/green then unfiltered `pnpm test:unit` at ≥90% per-file coverage, `pnpm boundaries`, `pnpm test:guardrails`, style/type/docs checks and actual-export admin lifecycle smoke; D2.1 specifies authorization order, target revocation, public-list shape and failure effects. Durable reset/issuance race contracts stay in 3.1; real DB ordering remains in 4.2.
 
 ## Impact
 

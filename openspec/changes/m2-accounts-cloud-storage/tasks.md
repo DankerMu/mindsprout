@@ -128,12 +128,13 @@ Minimal mergeable slice: atomic - a single function and its unit tests; there is
     | Release / packaging / dependency compatibility | Not selected: no dependency or packaging change; crypto/SQL implementations are non-goals.                                                                                               |
     | Documentation / migration notes                | Selected: D2 contracts and material documentation must match implemented interfaces; fixture review and docs gate cover the contract prose.                                              |
 
-- [ ] 3.2 Implement `listUsers(actor)` and `resetPassword(actor, userId)` (design D2).
-  - Both refuse a non-admin with `forbidden`.
-  - `resetPassword` refuses an unknown id with `not-found`, draws a 16-character temporary password from `TokenSource`, and calls the port's single atomic `replacePasswordAndEndSessions`.
+- [x] 3.2 Implement `listUsers(actor, { users })` and `resetPassword(actor, userId, { users, hasher, tokens })` (design D2/D2.1).
+  - Both refuse a non-admin with `forbidden` before any repository, token or hashing operation; reset denial preserves credential/session state.
+  - `resetPassword` draws one 16-character base64url temporary password, hashes exactly it and calls `replacePasswordAndEndSessions` once. A `false` result yields `not-found` with no preliminary lookup or state change.
   - Password replacement remains one atomic port operation and serializes with conditional session issuance; the use case does not introduce an application-level check-then-insert.
-  - It returns the temporary password and never logs it.
-  - Verify (unit): forbidden for a non-admin; not-found; the returned password hashes to the stored value; the port receives exactly one atomic call; the admin may reset their own password.
+  - It returns only the temporary password, never stores it readable or logs it; unexpected token/hash/repository failures propagate unchanged.
+  - Verify (unit): forbidden with no privileged port effects; not-found; ordered public users without hashes; other-user and self-reset revoke exactly target sessions, reject old credentials and accept returned temporary credentials while preserving peers; exact operation order and failures.
+  - #148 risk-pack dispositions (full evidence map: design D2.1): selected public API (exported use cases), auth/secrets (actor-before-port), schema/units (public users/base64url password), concurrency (preserve conditional-issuance port; real DB #150), resource limits (single bounded reset; no enumeration/search endpoint), compatibility (existing core tests), error/partial effects (unknown/failure cases), docs (TECH/changeset). Config, file IO and packaging are not selected: no setup, IO or dependency changes.
 
 Suggested fixture level: expanded - Critical Path src/contexts/account/: the only admin authorisation check and the uniform credential-failure semantics live here
 Minimal mergeable slice: 3.1 - the self-service account use cases are complete and green alone; the admin use cases are additive.
