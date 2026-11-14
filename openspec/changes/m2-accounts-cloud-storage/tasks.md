@@ -168,7 +168,7 @@ Minimal mergeable slice: 4.1 - the hasher and token source are pure adapters wit
 
 ## 5. API routes
 
-- [ ] 5.1 Add the server-only composition `src/app/server/account-services.ts` and `GET /api/auth/session` (design D3, D5, D6).
+- [x] 5.1 Add the server-only composition `src/app/server/account-services.ts` and `GET /api/auth/session` (design D3, D5, D6).
   - The module holds one lazy `postgres` client per process (`max: 5`) from `loadEnv().DATABASE_URL`, wires the use cases, and fails loud when `DATABASE_URL` is missing.
   - It provides `requireUser(request)` and the cookie helpers (design D3).
   - Add `src/app/server/` to the `src/app/api/` row of the `AGENTS.md` Critical Paths table, because `requireUser` is the single session check for every map and admin route (design D6). Trim existing prose so the file stays within the instruction-guard limits, as 1.1 does.

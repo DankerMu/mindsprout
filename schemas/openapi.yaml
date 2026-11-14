@@ -19,6 +19,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
+  /api/auth/session:
+    get:
+      summary: Read the current session
+      responses:
+        "200":
+          description: The session identifies a user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicSession"
+        "401":
+          description: The session is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: unauthenticated
+        "500":
+          description: An unexpected internal failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal
 components:
   schemas:
     Health:
@@ -35,3 +61,19 @@ components:
             db:
               type: string
               enum: [ok, fail, not-configured]
+    PublicSession:
+      type: object
+      additionalProperties: false
+      required: [username, isAdmin]
+      properties:
+        username:
+          type: string
+        isAdmin:
+          type: boolean
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string

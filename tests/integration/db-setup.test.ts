@@ -1,10 +1,12 @@
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import postgres from 'postgres';
 import { describe, expect, it } from 'vitest';
+import { setupDatabase } from '../../scripts/db-setup.mjs';
 import { withScratchDatabase } from '../../scripts/test-database.mjs';
 
 const cli = resolve('scripts/db-setup.mjs');
@@ -126,6 +128,75 @@ describe('development database setup command', () => {
           expect(probe.stderr).toContain('production');
         } finally {
           await sql.end();
+        }
+      });
+    });
+  });
+
+  it('concurrent scratch bootstraps preserve login, role safety and database grants', async () => {
+    await withScratchDatabase(async (first) => {
+      await withScratchDatabase(async (second) => {
+        const destinations = [first, second];
+        for (const destination of destinations) {
+          await setupDatabase({ databaseUrl: destination.migrationDatabaseUrl });
+        }
+        const holder = postgres(first.migrationDatabaseUrl, { max: 1 });
+        const monitor = postgres(second.migrationDatabaseUrl, { max: 1 });
+        const applicationName = `bootstrap-${randomUUID()}`;
+        const pending: Promise<void>[] = [];
+        try {
+          await holder.begin(async (transaction) => {
+            // Hold the shared catalog tuple without changing it, then queue both bootstraps.
+            await transaction`select oid from pg_authid where rolname = 'mindsprout_app' for update`;
+            for (const destination of destinations) {
+              const url = new URL(destination.migrationDatabaseUrl);
+              url.searchParams.set('application_name', applicationName);
+              pending.push(setupDatabase({ databaseUrl: url.toString() }));
+            }
+            const deadline = Date.now() + 5000;
+            let waiting = 0;
+            while (Date.now() < deadline) {
+              const rows = await monitor`
+                select pid from pg_stat_activity
+                where application_name = ${applicationName} and wait_event_type = 'Lock'
+              `;
+              waiting = rows.length;
+              if (waiting === 2) break;
+            }
+            expect(waiting).toBe(2);
+          });
+          expect(await Promise.allSettled(pending)).toEqual([
+            { status: 'fulfilled', value: undefined },
+            { status: 'fulfilled', value: undefined },
+          ]);
+          for (const destination of destinations) {
+            const app = postgres(destination.databaseUrl, { max: 1 });
+            try {
+              expect(
+                await app`
+                  select current_user as name, rolcanlogin, rolsuper, rolbypassrls,
+                    has_table_privilege(current_user, 'users', 'SELECT') as can_read,
+                    has_table_privilege(current_user, 'sessions', 'INSERT') as can_issue
+                  from pg_roles where rolname = current_user
+                `,
+              ).toEqual([
+                {
+                  name: 'mindsprout_app',
+                  rolcanlogin: true,
+                  rolsuper: false,
+                  rolbypassrls: false,
+                  can_read: true,
+                  can_issue: true,
+                },
+              ]);
+            } finally {
+              await app.end();
+            }
+          }
+        } finally {
+          await Promise.allSettled(pending);
+          await holder.end();
+          await monitor.end();
         }
       });
     });

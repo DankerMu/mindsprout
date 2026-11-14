@@ -219,7 +219,7 @@ Everywhere else gray-box review (contracts + runtime evidence) is sufficient. Th
 | ------------------------------------------------------------------ | ---------------------------- | ------------------------------------------------------------------ |
 | `src/contexts/account/`, `db/migrations/`                          | auth, data loss, key leakage | full cross-review + integration evidence against a real DB         |
 | `src/contexts/ai/infrastructure/providers/` and quota logic        | billing, key handling        | full cross-review + mock-provider tests; never a real key in tests |
-| `src/app/api/` route handlers                                      | public API contract          | full cross-review + `schemas/openapi.yaml` update + smoke entry    |
+| `src/app/api/`, `src/app/server/`                                  | public API, shared auth      | full cross-review + `schemas/openapi.yaml` update + smoke entry    |
 | `.github/workflows/`, `.husky/`, `.git-hooks/`, `constraints.yaml` | gate integrity               | full cross-review + `pnpm test:guardrails` evidence                |
 
 ## Observability
@@ -287,7 +287,7 @@ Strictness profile: **L4** (see `constraints.yaml`). Levels: `advice` < `review-
 | Test coverage gate (90% per file)                       | `vitest.config.ts`                                                         | `pnpm test:unit` + CI layer2 `coverage-gate`                       | block           |
 | API contract snapshot                                   | `schemas/openapi.yaml` + `schemas/snapshots/openapi.yaml.snapshot`         | `pnpm test:contract` + CI layer2                                   | block           |
 | Integration tests (real DB, no self-skip)               | `vitest.integration.config.ts`                                             | `pnpm test:integration` + CI layer3                                | block           |
-| API smoke                                               | `smoke/health.hurl`                                                        | `pnpm smoke` + CI layer3                                           | block           |
+| API smoke                                               | `smoke/*.hurl`                                                             | `pnpm smoke` + CI layer3                                           | block           |
 | E2E (zero console errors)                               | `playwright.config.ts` + `e2e/smoke.spec.ts`                               | `pnpm e2e` + CI layer7                                             | block           |
 | Duplicate code (2%)                                     | `jscpd.json`                                                               | `pnpm duplicate-code` + CI layer4                                  | block           |
 | Dead code                                               | `knip.json`                                                                | `pnpm dead-code` + CI layer4                                       | block           |
