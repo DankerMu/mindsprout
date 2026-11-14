@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   verify: vi.fn(),
   sessionToken: vi.fn(),
   create: vi.fn(),
+  delete: vi.fn(),
 }));
 vi.mock('postgres', () => ({ default: mocks.postgres }));
 vi.mock('@/contexts/account/infrastructure/postgres', () => ({
@@ -55,7 +56,11 @@ beforeEach(() => {
     return { register: mocks.register, findByUsername: mocks.findByUsername };
   });
   mocks.sessions.mockImplementation(function () {
-    return { resolve: mocks.resolve, createIfPasswordHashMatches: mocks.create };
+    return {
+      resolve: mocks.resolve,
+      createIfPasswordHashMatches: mocks.create,
+      delete: mocks.delete,
+    };
   });
   mocks.hasher.mockImplementation(function () {
     return { hash: mocks.hash, verify: mocks.verify };
@@ -313,5 +318,113 @@ describe('credential composition', () => {
       'stored-hash',
     );
     expect(mocks.register).not.toHaveBeenCalled();
+  });
+});
+
+describe('JSON media guard', () => {
+  it.each([
+    'application/json',
+    'APPLICATION/JSON',
+    ' \tApplication/Json\t ',
+    'application/json; charset=utf-8',
+    'application/json \t; charset="utf-8"; profile="a;b"',
+    'application/json; profile="escaped\\"quote"',
+  ])('accepts the JSON media type %j without consuming the body', async (contentType) => {
+    const { requireJson } = await import('./account-services');
+    const input = new Request('http://localhost', {
+      method: 'POST',
+      headers: { 'content-type': contentType },
+      body: '{}',
+    });
+    expect(requireJson(input)).toBeUndefined();
+    expect(input.bodyUsed).toBe(false);
+    expect(mocks.postgres).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    undefined,
+    '',
+    'application/x-www-form-urlencoded',
+    'multipart/form-data; boundary=example',
+    'text/plain',
+    'application/problem+json',
+    'application/*+json',
+    'application/jsonp',
+    'application /json',
+    'application/json, text/plain',
+    'application/json; charset',
+    'application/json; charset=',
+    'application/json; charset="unterminated',
+    'application/json; charset=utf-8 garbage',
+    'application/json;',
+    'application/json; =utf-8',
+    'application/json\u00a0',
+  ])('refuses unsupported or malformed media type %j without side effects', async (contentType) => {
+    vi.stubEnv('DATABASE_URL', undefined);
+    const { requireJson } = await import('./account-services');
+    const input = new Request('http://localhost', { method: 'POST', body: '{}' });
+    if (contentType === undefined) input.headers.delete('content-type');
+    else input.headers.set('content-type', contentType);
+    const response = requireJson(input);
+    expect(response?.status).toBe(415);
+    await expect(response?.json()).resolves.toEqual({ error: 'unsupported-media-type' });
+    expect(response?.headers.get('set-cookie')).toBeNull();
+    expect(input.bodyUsed).toBe(false);
+    expect(mocks.postgres).not.toHaveBeenCalled();
+    expect(mocks.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe('request sign-out composition', () => {
+  it.each([undefined, '', 'other=value', 'mindsprout_session=', 'MindSprout_session=wrong'])(
+    'succeeds without database configuration for absent or empty token %j',
+    async (cookie) => {
+      vi.stubEnv('DATABASE_URL', undefined);
+      const { signOutRequest } = await import('./account-services');
+      await expect(signOutRequest(request(cookie))).resolves.toBeUndefined();
+      expect(mocks.postgres).not.toHaveBeenCalled();
+      expect(mocks.delete).not.toHaveBeenCalled();
+      expect(mocks.resolve).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [`mindsprout_session=${token}`, token],
+    ['mindsprout_session=unknown', 'unknown'],
+    ['xmindsprout_session=wrong; mindsprout_session=forged', 'forged'],
+    ['mindsprout_session=first; mindsprout_session=second', 'first'],
+    ['mindsprout_session=; malformed; mindsprout_session=%E0%A4%A', '%E0%A4%A'],
+    ['mindsprout_session= leading trailing ; other=last', ' leading trailing '],
+    ['mindsprout_session=opaque=value; other=last', 'opaque=value'],
+  ])(
+    'deletes only the exact opaque token in %s without authorization',
+    async (cookie, expected) => {
+      const { signOutRequest } = await import('./account-services');
+      await expect(signOutRequest(request(cookie))).resolves.toBeUndefined();
+      expect(mocks.delete).toHaveBeenCalledExactlyOnceWith(expected);
+      expect(mocks.resolve).not.toHaveBeenCalled();
+      expect(mocks.postgres).toHaveBeenCalledExactlyOnceWith(
+        'postgres://app:local@localhost/accounts',
+        { max: 5 },
+      );
+    },
+  );
+
+  it('propagates session deletion failures unchanged', async () => {
+    const { signOutRequest } = await import('./account-services');
+    const failure = new Error('database unavailable');
+    mocks.delete.mockRejectedValue(failure);
+    await expect(signOutRequest(request(`mindsprout_session=${token}`))).rejects.toBe(failure);
+    expect(mocks.delete).toHaveBeenCalledExactlyOnceWith(token);
+  });
+
+  it('propagates missing configuration for a present token without opening a pool', async () => {
+    vi.stubEnv('DATABASE_URL', undefined);
+    const { signOutRequest } = await import('./account-services');
+    await expect(signOutRequest(request(`mindsprout_session=${token}`))).rejects.toThrow(
+      'DATABASE_URL',
+    );
+    expect(mocks.postgres).not.toHaveBeenCalled();
+    expect(mocks.delete).not.toHaveBeenCalled();
   });
 });

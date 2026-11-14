@@ -191,7 +191,7 @@ Minimal mergeable slice: 4.1 - the hasher and token source are pure adapters wit
     - login 200 with the cookie, 401 `invalid-credentials` and 400 `invalid-input`;
     - no password, cookie or request body appears in log calls.
   - Verify (contract): `pnpm test:contract` passes. Verify (smoke): `pnpm smoke` passes. Verify (gate): `pnpm test:guardrails` passes.
-- [ ] 5.3 Add `POST /api/auth/logout` and the shared JSON-only guard (design D3, D5, D6).
+- [x] 5.3 Add `POST /api/auth/logout` and the shared JSON-only guard (design D3, D5, D6).
   - The guard answers 415 `{ "error": "unsupported-media-type" }` before any side effect. This task applies it to logout and to the register and login handlers from 5.2.
   - Logout deletes the session, clears the cookie, and answers 204 also without a session.
   - Register this task's routes in `schemas/openapi.yaml`, review and update the snapshot hunk by hunk, add its section of `smoke/api.hurl`, and add its routes to `constraints.yaml` `key_api_routes`. Flag the Critical Path edit in the PR.

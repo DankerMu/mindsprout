@@ -35,6 +35,40 @@ afterEach(() => {
 });
 
 describe('POST /api/auth/register', () => {
+  it.each([undefined, 'application/x-www-form-urlencoded', 'text/plain'])(
+    'refuses media type %s before reading credentials or creating an account',
+    async (contentType) => {
+      const input = request(
+        contentType === 'application/x-www-form-urlencoded'
+          ? 'username=Alice&password=body-secret'
+          : JSON.stringify(credentials),
+      );
+      if (contentType === undefined) input.headers.delete('content-type');
+      else input.headers.set('content-type', contentType);
+      const json = vi.spyOn(input, 'json');
+      const response = await POST(input);
+      expect(response.status).toBe(415);
+      await expect(response.json()).resolves.toEqual({ error: 'unsupported-media-type' });
+      expect(json).not.toHaveBeenCalled();
+      expect(input.bodyUsed).toBe(false);
+      expect(registerAccount).not.toHaveBeenCalled();
+      expect(response.headers.get('set-cookie')).toBeNull();
+      expect(errorLog).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['APPLICATION/JSON', 'application/json; charset=utf-8'])(
+    'registers JSON credentials with media type %s',
+    async (contentType) => {
+      registerAccount.mockResolvedValue({ user: { username: ' Alice ', isAdmin: false }, token });
+      const input = request();
+      input.headers.set('content-type', contentType);
+      const response = await POST(input);
+      expect(response.status).toBe(201);
+      expect(registerAccount).toHaveBeenCalledExactlyOnceWith(credentials);
+    },
+  );
+
   it.each([
     ['development', false],
     ['development', true],
