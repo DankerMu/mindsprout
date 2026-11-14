@@ -96,9 +96,11 @@ Sessions expire exactly 30 days after the injected clock instant. Resolution req
 
 Password replacement and conditional issuance hold the same user-row `FOR UPDATE` lock until commit. Replacement changes the hash and deletes only that user's sessions atomically. The session adapter stores SHA-256 hex digests of UTF-8 tokens, binds the supplied clock instant for strict expiry, and leaves expired rows untouched. Database failures propagate without a success result.
 
+`infrastructure/map-store.ts` exposes `PostgresMapStore.forUser(userId)` through the map port re-exported by `account/acl/map.ts`. The caller owns the injected app-role pool; every repository call sets transaction-local identity before accessing maps. `put` stores JSON verbatim under `(owner_id, id)` without stamping or validating. `get` alone rejects newer schema versions; `list` includes their readable summaries, skips null title/updatedAt, and sorts the final plain array with the canonical `byRecency` comparator: updatedAt descending, then id ascending in JavaScript code-unit order. SQL `"C"` collation alone does not provide that Unicode tie order. Missing or other-owner reads return absence, and deletes are no-ops.
+
 #### Known Limitations
 
-The crypto and Postgres adapters are not wired to production account services. HTTP routes and cookies require their own adapters and integration evidence. Password migration/rehashing, expired-session purging and whole-operation timing equalisation are not provided. Login throttling is deferred until the first public deployment; see [decision 0023](../decisions/implemented/architecture/0023-self-hosted-accounts-on-postgres-rls.md).
+The crypto and Postgres adapters are not wired to production account services. HTTP routes and cookies require their own adapters and integration evidence. Map payload validation belongs to the route boundary, not the store; browser persistence is not switched by this adapter. Password migration/rehashing, expired-session purging and whole-operation timing equalisation are not provided. Login throttling is deferred until the first public deployment; see [decision 0023](../decisions/implemented/architecture/0023-self-hosted-accounts-on-postgres-rls.md).
 
 ## 4. 树操作协议（AI 与画布的唯一接口）
 
