@@ -36,7 +36,7 @@
 
 ## 1. Database foundation
 
-- [ ] 1.1 Add the migration runner and the integration database lifecycle (design D1, D11).
+- [x] 1.1 Add the migration runner and the integration database lifecycle (design D1, D11).
   - Add `scripts/db-migrate.mjs` and the `pnpm db:migrate` script, `node --env-file-if-exists=.env scripts/db-migrate.mjs` (design D1: no dotenv dependency, exported variables win, values never printed):
     - it applies `db/migrations/NNNN_*.sql` in name order under `MIGRATION_DATABASE_URL`, one transaction per file;
     - it records applied files in `schema_migrations`, skips files already recorded, and on failure rolls back and stops with a non-zero exit.

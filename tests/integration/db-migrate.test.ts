@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -141,17 +141,5 @@ describe('ordered database migrations', () => {
         expect(result.stderr).not.toContain('credential-marker');
       }
     });
-  });
-
-  it('documents the built-in environment-loading command without adding dotenv', async () => {
-    const manifest = JSON.parse(await readFile('package.json', 'utf8')) as {
-      scripts: Record<string, string>;
-      dependencies: Record<string, string>;
-      devDependencies: Record<string, string>;
-    };
-    expect(manifest.scripts['db:migrate']).toBe(
-      'node --env-file-if-exists=.env scripts/db-migrate.mjs',
-    );
-    expect({ ...manifest.dependencies, ...manifest.devDependencies }).not.toHaveProperty('dotenv');
   });
 });

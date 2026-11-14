@@ -5,11 +5,16 @@ import { migrateDatabase } from './db-migrate.mjs';
 
 function targetUrl(key, name) {
   if (!process.env[key]) throw new Error(`${key} is required`);
+  if (!URL.canParse(process.env[key])) {
+    throw new Error(`${key} must be a PostgreSQL URL`);
+  }
   const url = new URL(process.env[key]);
   if (!['postgres:', 'postgresql:'].includes(url.protocol)) {
     throw new Error(`${key} must be a PostgreSQL URL`);
   }
   url.pathname = `/${name}`;
+  // postgres startup parameters override the pathname database.
+  url.searchParams.delete('database');
   return url.toString();
 }
 
@@ -55,17 +60,17 @@ export async function resetTestDatabase(name) {
 }
 
 export async function withScratchDatabase(callback) {
-  const destination = target(`app_scratch_${randomBytes(16).toString('hex')}`);
+  const databaseName = `app_scratch_${randomBytes(16).toString('hex')}`;
+  const destination = target(databaseName);
   const maintenance = ownerConnection(targetUrl('MIGRATION_DATABASE_URL', 'postgres'));
   let created = false;
   try {
-    await maintenance`create database ${maintenance(destination.databaseName)}`;
+    await maintenance`create database ${maintenance(databaseName)}`;
     created = true;
     return await callback(destination);
   } finally {
     try {
-      if (created)
-        await maintenance`drop database ${maintenance(destination.databaseName)} with (force)`;
+      if (created) await maintenance`drop database ${maintenance(databaseName)} with (force)`;
     } finally {
       await maintenance.end();
     }

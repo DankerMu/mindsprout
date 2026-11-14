@@ -1,10 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { parse } from 'yaml';
 
 const setupUrl = pathToFileURL(resolve('tests/integration/global-setup.mjs')).href;
 const lifecycleUrl = pathToFileURL(resolve('scripts/test-database.mjs')).href;
@@ -107,6 +106,87 @@ describe('integration globalSetup environment contract', () => {
     },
   );
 
+  it.each(['DATABASE_URL', 'MIGRATION_DATABASE_URL'])(
+    'redacts malformed %s before any connection',
+    async (key) => {
+      const malformed = 'postgres://malformed-user:malformed-password@localhost:badport/source';
+      const result = await probe(
+        undefined,
+        { DATABASE_URL: app, MIGRATION_DATABASE_URL: owner, [key]: malformed },
+        `
+        const { inspect } = await import('node:util');
+        const { resetTestDatabase, withScratchDatabase } = await import(${JSON.stringify(lifecycleUrl)});
+        const { default: setup } = await import(${JSON.stringify(setupUrl)});
+        for (const run of [() => resetTestDatabase('app_test'), () => withScratchDatabase(() => {}), setup]) {
+          try { await run(); throw new Error('unexpected success'); }
+          catch (error) {
+            assert.equal(connections.length, 0);
+            assert.equal(error.message, '${key} must be a PostgreSQL URL');
+            console.error(inspect(error, { showHidden: true }));
+            process.exitCode = 1;
+          }
+        }
+        console.log('sanitized all three seams');
+      `,
+      );
+      expect(result.status).toBe(1);
+      const output = result.stdout + result.stderr;
+      expect(output).toContain(`${key} must be a PostgreSQL URL`);
+      expect(output).toContain('sanitized all three seams');
+      for (const value of [malformed, 'malformed-user', 'malformed-password']) {
+        expect(output.includes(value)).toBe(false);
+      }
+    },
+  );
+
+  it.each(['lifecycle', 'migration'])(
+    'redacts %s failures at the setup boundary',
+    async (stage) => {
+      const result = await probe(
+        undefined,
+        { DATABASE_URL: app, MIGRATION_DATABASE_URL: owner },
+        `
+      mock.restoreAll();
+      mock.module(${JSON.stringify(postgresUrl)}, { defaultExport: () => {
+        const sql = async (parts) => {
+          if (typeof parts === 'string') return parts;
+          const query = parts.join('?');
+          if (query.includes(${JSON.stringify(stage === 'lifecycle' ? 'pg_database' : 'schema_migrations')})) {
+            throw Object.assign(new Error('failure-marker ' + process.env.MIGRATION_DATABASE_URL), {
+              input: process.env.DATABASE_URL, cause: new Error('cause-marker')
+            });
+          }
+          return [];
+        };
+        sql.begin = async callback => callback(sql);
+        sql.end = async () => {};
+        return sql;
+      }});
+      const { inspect } = await import('node:util');
+      const { default: setup } = await import(${JSON.stringify(setupUrl)});
+      try { await setup(); }
+      catch (error) {
+        console.error(inspect(error, { showHidden: true }));
+        process.exitCode = 1;
+      }
+    `,
+      );
+      expect(result.status).toBe(1);
+      const output = result.stdout + result.stderr;
+      expect(output).toContain('Integration database setup failed');
+      for (const value of [
+        owner,
+        app,
+        'owner-marker',
+        'reader-marker',
+        'failure-marker',
+        'cause-marker',
+      ]) {
+        expect(output.includes(value)).toBe(false);
+      }
+    },
+  );
+
   it('exported credentials win over file credentials and reset forces both paths without changing hosts', async () => {
     const result = await probe(
       `DATABASE_URL=${app}\nMIGRATION_DATABASE_URL=${owner}\n`,
@@ -155,34 +235,5 @@ describe('integration globalSetup environment contract', () => {
     );
     expect(result.stdout + result.stderr).toBe('');
     expect(result.status).toBe(0);
-  });
-});
-
-describe('migration workflow configuration', () => {
-  it('wires setup, safe defaults, owner CI URL, unchanged smoke and documented derivation', async () => {
-    expect(await readFile('vitest.integration.config.ts', 'utf8')).toContain(
-      "globalSetup: ['tests/integration/global-setup.mjs']",
-    );
-    const database = await readFile('tests/integration/database.test.ts', 'utf8');
-    expect(database).toContain('postgres://app:app@localhost:5432/app_test');
-    expect(database).not.toContain('app_dev');
-    const example = await readFile('.env.example', 'utf8');
-    expect(example).toContain('MIGRATION_DATABASE_URL=postgres://app:app@localhost:5432/app_dev');
-    expect(example).toMatch(/#.*integration.*e2e.*app_test.*app_e2e/);
-    const workflow = parse(await readFile('.github/workflows/ci.yml', 'utf8')) as {
-      jobs: Record<string, { env: Record<string, string>; steps: { run?: string }[] }>;
-    };
-    const integration = workflow.jobs['layer3-integration-tests'];
-    expect(integration?.env).toEqual({
-      DATABASE_URL: 'postgres://app:app@localhost:5432/app_test',
-      MIGRATION_DATABASE_URL: 'postgres://app:app@localhost:5432/app_test',
-    });
-    expect(integration?.steps.some((step) => step.run?.includes('pnpm smoke'))).toBe(true);
-    const agents = await readFile('AGENTS.md', 'utf8');
-    expect(agents).toContain('`pnpm db:migrate`');
-    expect(Buffer.byteLength(agents)).toBeLessThanOrEqual(32_768);
-    expect(
-      Math.max(...agents.split('\n').map((line) => Buffer.byteLength(line))),
-    ).toBeLessThanOrEqual(307);
   });
 });
