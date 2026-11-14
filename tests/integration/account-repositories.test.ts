@@ -138,15 +138,52 @@ async function backend(sql: Sql): Promise<number> {
   return row.pid;
 }
 
-async function freshUser() {
-  return users.register(randomUUID(), 'original');
+async function freshUser(repository = users) {
+  return repository.register(randomUUID(), 'original');
 }
 
-async function issue(userId: string, token: string = randomUUID()) {
+async function issue(userId: string, token: string = randomUUID(), repository = sessions) {
   expect(
-    await sessions.createIfPasswordHashMatches(token, { userId, expiresAt: EXPIRY }, 'original'),
+    await repository.createIfPasswordHashMatches(token, { userId, expiresAt: EXPIRY }, 'original'),
   ).toBe(true);
   return token;
+}
+
+async function withScratchAccounts(
+  operation: (context: {
+    app: Sql;
+    owner: Sql;
+    databaseUrl: string;
+    users: PostgresUserRepository;
+    sessions: PostgresSessionRepository;
+  }) => Promise<void>,
+) {
+  await withScratchDatabase(
+    async ({
+      databaseUrl,
+      migrationDatabaseUrl,
+    }: {
+      databaseUrl: string;
+      migrationDatabaseUrl: string;
+    }) => {
+      await setupDatabase({ databaseUrl: migrationDatabaseUrl });
+      const app = postgres(databaseUrl, { max: 1 });
+      const owner = postgres(migrationDatabaseUrl, { max: 1 });
+      try {
+        expect(await app`select current_user as name`).toEqual([{ name: 'mindsprout_app' }]);
+        await operation({
+          app,
+          owner,
+          databaseUrl,
+          users: new PostgresUserRepository(app),
+          sessions: new PostgresSessionRepository(app),
+        });
+      } finally {
+        await app.end();
+        await owner.end();
+      }
+    },
+  );
 }
 
 describe('Postgres account repositories as the application role', () => {
@@ -295,91 +332,109 @@ describe('Postgres account repositories as the application role', () => {
     expect(await sessions.resolve('abc', new Date('2001-02-03T04:05:06.790Z'))).toBeUndefined();
     expect(await sessions.resolve('abc', NOW)).toEqual(user);
     expect(await app`select * from sessions where user_id = ${user.id}`).toEqual(before);
-    await owner`delete from users where id = ${user.id}`;
-    expect(await sessions.resolve('abc', NOW)).toBeUndefined();
-    expect(await app`select token_hash from sessions where token_hash = ${HASH}`).toEqual([]);
+  });
+
+  it('user deletion cascades sessions and makes the token unknown in a scratch database', async () => {
+    await withScratchAccounts(async ({ app, owner, users, sessions }) => {
+      const user = await freshUser(users);
+      await issue(user.id, 'abc', sessions);
+      expect(await sessions.resolve('abc', NOW)).toEqual(user);
+      expect(await app`select token_hash from sessions where user_id = ${user.id}`).toEqual([
+        { token_hash: HASH },
+      ]);
+      await owner`delete from users where id = ${user.id}`;
+      expect(await users.findByUsername(user.username)).toBeUndefined();
+      expect(await app`select token_hash from sessions where user_id = ${user.id}`).toEqual([]);
+      expect(await sessions.resolve('abc', NOW)).toBeUndefined();
+    });
   });
 
   it('deletes only the supplied token idempotently and resets only the target user', async () => {
-    const target = await freshUser();
-    const peer = await freshUser();
-    const first = await issue(target.id);
-    const second = await issue(target.id);
-    const peerToken = await issue(peer.id);
-    await sessions.delete(first);
-    await sessions.delete(first);
-    await sessions.delete('unknown');
-    expect(await sessions.resolve(first, NOW)).toBeUndefined();
-    expect(await sessions.resolve(second, NOW)).toEqual(target);
-    expect(await sessions.resolve(peerToken, NOW)).toEqual(peer);
-    const third = await issue(target.id);
-    expect(await users.replacePasswordAndEndSessions(randomUUID(), 'missing')).toBe(false);
-    expect(await sessions.resolve(second, NOW)).toEqual(target);
-    expect(await users.replacePasswordAndEndSessions(target.id, 'replacement')).toBe(true);
-    expect(await sessions.resolve(second, NOW)).toBeUndefined();
-    expect(await sessions.resolve(third, NOW)).toBeUndefined();
-    expect(await app`select token_hash from sessions where user_id = ${target.id}`).toEqual([]);
-    expect(await users.findByUsername(target.username)).toEqual({
-      user: target,
-      passwordHash: 'replacement',
+    await withScratchAccounts(async ({ app, users, sessions }) => {
+      const target = await freshUser(users);
+      const peer = await freshUser(users);
+      const first = await issue(target.id, randomUUID(), sessions);
+      const second = await issue(target.id, randomUUID(), sessions);
+      const peerToken = await issue(peer.id, randomUUID(), sessions);
+      await sessions.delete(first);
+      await sessions.delete(first);
+      await sessions.delete('unknown');
+      expect(await sessions.resolve(first, NOW)).toBeUndefined();
+      expect(await sessions.resolve(second, NOW)).toEqual(target);
+      expect(await sessions.resolve(peerToken, NOW)).toEqual(peer);
+      const third = await issue(target.id, randomUUID(), sessions);
+      expect(await users.replacePasswordAndEndSessions(randomUUID(), 'missing')).toBe(false);
+      expect(await sessions.resolve(second, NOW)).toEqual(target);
+      expect(await users.replacePasswordAndEndSessions(target.id, 'replacement')).toBe(true);
+      expect(await sessions.resolve(second, NOW)).toBeUndefined();
+      expect(await sessions.resolve(third, NOW)).toBeUndefined();
+      expect(await app`select token_hash from sessions where user_id = ${target.id}`).toEqual([]);
+      expect(await users.findByUsername(target.username)).toEqual({
+        user: target,
+        passwordHash: 'replacement',
+      });
+      expect(await users.findByUsername(peer.username)).toEqual({
+        user: peer,
+        passwordHash: 'original',
+      });
+      expect(await sessions.resolve(peerToken, NOW)).toEqual(peer);
     });
-    expect(await users.findByUsername(peer.username)).toEqual({
-      user: peer,
-      passwordHash: 'original',
-    });
-    expect(await sessions.resolve(peerToken, NOW)).toEqual(peer);
   });
 
   it.each(['reset', 'issuance'] as const)(
     '%s holds the common user lock until its transaction commits',
     async (firstOperation) => {
-      const target = await freshUser();
-      const peer = await freshUser();
-      const prior = await issue(target.id);
-      const peerToken = await issue(peer.id);
-      const token = randomUUID();
-      const first = postgres(process.env.DATABASE_URL ?? '', { max: 1 });
-      const second = postgres(process.env.DATABASE_URL ?? '', { max: 1 });
-      const gate = barrier(first, /select password_hash from users/i);
-      const pending: Promise<unknown>[] = [];
-      try {
-        const holder = await backend(first);
-        const contender = await backend(second);
-        const reset = (sql: Sql) =>
-          new PostgresUserRepository(sql).replacePasswordAndEndSessions(target.id, 'replacement');
-        const issuance = (sql: Sql) =>
-          new PostgresSessionRepository(sql).createIfPasswordHashMatches(
-            token,
-            { userId: target.id, expiresAt: EXPIRY },
-            'original',
+      await withScratchAccounts(async ({ app, owner, users, sessions, databaseUrl }) => {
+        const target = await freshUser(users);
+        const peer = await freshUser(users);
+        const prior = await issue(target.id, randomUUID(), sessions);
+        const peerToken = await issue(peer.id, randomUUID(), sessions);
+        const token = randomUUID();
+        const first = postgres(databaseUrl, { max: 1 });
+        const second = postgres(databaseUrl, { max: 1 });
+        const gate = barrier(first, /select password_hash from users/i);
+        const pending: Promise<unknown>[] = [];
+        try {
+          const holder = await backend(first);
+          const contender = await backend(second);
+          const reset = (sql: Sql) =>
+            new PostgresUserRepository(sql).replacePasswordAndEndSessions(target.id, 'replacement');
+          const issuance = (sql: Sql) =>
+            new PostgresSessionRepository(sql).createIfPasswordHashMatches(
+              token,
+              { userId: target.id, expiresAt: EXPIRY },
+              'original',
+            );
+          const holding = firstOperation === 'reset' ? reset(gate.client) : issuance(gate.client);
+          pending.push(holding);
+          const xid = await beforeCompletion(gate.reached, holding);
+          const waiting = firstOperation === 'reset' ? issuance(second) : reset(second);
+          pending.push(waiting);
+          await observeWait(owner, holder, contender, xid, 'transactionid', waiting);
+          gate.release();
+          expect(await holding).toBe(true);
+          expect(await waiting).toBe(firstOperation === 'issuance');
+          expect(await users.findByUsername(target.username)).toEqual({
+            user: target,
+            passwordHash: 'replacement',
+          });
+          expect(await sessions.resolve(token, NOW)).toBeUndefined();
+          expect(await sessions.resolve(prior, NOW)).toBeUndefined();
+          expect(await app`select token_hash from sessions where user_id = ${target.id}`).toEqual(
+            [],
           );
-        const holding = firstOperation === 'reset' ? reset(gate.client) : issuance(gate.client);
-        pending.push(holding);
-        const xid = await beforeCompletion(gate.reached, holding);
-        const waiting = firstOperation === 'reset' ? issuance(second) : reset(second);
-        pending.push(waiting);
-        await observeWait(owner, holder, contender, xid, 'transactionid', waiting);
-        gate.release();
-        expect(await holding).toBe(true);
-        expect(await waiting).toBe(firstOperation === 'issuance');
-        expect(await users.findByUsername(target.username)).toEqual({
-          user: target,
-          passwordHash: 'replacement',
-        });
-        expect(await sessions.resolve(token, NOW)).toBeUndefined();
-        expect(await sessions.resolve(prior, NOW)).toBeUndefined();
-        expect(await app`select token_hash from sessions where user_id = ${target.id}`).toEqual([]);
-        expect(await sessions.resolve(peerToken, NOW)).toEqual(peer);
-        expect(await users.findByUsername(peer.username)).toEqual({
-          user: peer,
-          passwordHash: 'original',
-        });
-      } finally {
-        gate.release();
-        await Promise.allSettled(pending);
-        await first.end();
-        await second.end();
-      }
+          expect(await sessions.resolve(peerToken, NOW)).toEqual(peer);
+          expect(await users.findByUsername(peer.username)).toEqual({
+            user: peer,
+            passwordHash: 'original',
+          });
+        } finally {
+          gate.release();
+          await Promise.allSettled(pending);
+          await first.end();
+          await second.end();
+        }
+      });
     },
   );
 
@@ -418,28 +473,33 @@ describe('Postgres account repositories as the application role', () => {
   it.each(['update users', 'delete from sessions'])(
     'rolls back replacement when %s fails in the real transaction',
     async (failingStatement) => {
-      const target = await freshUser();
-      const peer = await freshUser();
-      const targetToken = await issue(target.id);
-      const peerToken = await issue(peer.id);
-      const client = instrument(
-        app,
-        async () => {
-          await Promise.resolve();
-        },
-        async (text, tx) => {
-          if (text.startsWith(failingStatement)) await tx`select 1 / 0`;
-        },
-      );
-      await expect(
-        new PostgresUserRepository(client).replacePasswordAndEndSessions(target.id, 'replacement'),
-      ).rejects.toMatchObject({ code: '22012' });
-      expect(await users.findByUsername(target.username)).toEqual({
-        user: target,
-        passwordHash: 'original',
+      await withScratchAccounts(async ({ app, users, sessions }) => {
+        const target = await freshUser(users);
+        const peer = await freshUser(users);
+        const targetToken = await issue(target.id, randomUUID(), sessions);
+        const peerToken = await issue(peer.id, randomUUID(), sessions);
+        const client = instrument(
+          app,
+          async () => {
+            await Promise.resolve();
+          },
+          async (text, tx) => {
+            if (text.startsWith(failingStatement)) await tx`select 1 / 0`;
+          },
+        );
+        await expect(
+          new PostgresUserRepository(client).replacePasswordAndEndSessions(
+            target.id,
+            'replacement',
+          ),
+        ).rejects.toMatchObject({ code: '22012' });
+        expect(await users.findByUsername(target.username)).toEqual({
+          user: target,
+          passwordHash: 'original',
+        });
+        expect(await sessions.resolve(targetToken, NOW)).toEqual(target);
+        expect(await sessions.resolve(peerToken, NOW)).toEqual(peer);
       });
-      expect(await sessions.resolve(targetToken, NOW)).toEqual(target);
-      expect(await sessions.resolve(peerToken, NOW)).toEqual(peer);
     },
   );
 });
