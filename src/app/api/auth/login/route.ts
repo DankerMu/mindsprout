@@ -1,9 +1,16 @@
 import { NextResponse } from 'next/server';
-import { readCredentials, setSessionCookie, signInAccount } from '@/app/server/account-services';
+import {
+  readCredentials,
+  requireJson,
+  setSessionCookie,
+  signInAccount,
+} from '@/app/server/account-services';
 import { AccountError } from '@/contexts/account/domain/account';
 import { logger } from '@/shared/logger';
 
 export async function POST(request: Request): Promise<Response> {
+  const rejected = requireJson(request);
+  if (rejected) return rejected;
   try {
     const { user, token } = await signInAccount(await readCredentials(request));
     const response = NextResponse.json({ username: user.username, isAdmin: user.isAdmin });

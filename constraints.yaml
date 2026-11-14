@@ -272,6 +272,8 @@ verification:
       status: "covered by smoke/api.hurl"
     - path: "/api/auth/login"
       status: "covered by smoke/api.hurl"
+    - path: "/api/auth/logout"
+      status: "covered by smoke/api.hurl"
     - path: "/api/ai/generate"
       status: "pending — add to smoke/api.hurl when the route lands (M3)"
     - path: "/api/maps"

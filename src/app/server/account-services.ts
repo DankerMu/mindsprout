@@ -1,6 +1,6 @@
 import type { NextResponse } from 'next/server';
 import postgres from 'postgres';
-import { register, resolveSession, signIn } from '@/contexts/account/application/auth';
+import { register, resolveSession, signIn, signOut } from '@/contexts/account/application/auth';
 import { AccountError, type User } from '@/contexts/account/domain/account';
 import { CryptoTokenSource, ScryptPasswordHasher } from '@/contexts/account/infrastructure/crypto';
 import {
@@ -10,6 +10,9 @@ import {
 import { loadEnv } from '@/shared/env';
 
 const SESSION_COOKIE = 'mindsprout_session';
+// Match HTTP tokens and quoted parameter values, not JSON suffixes or a second media type.
+const JSON_MEDIA_TYPE =
+  /^[\t ]*application\/json[\t ]*(?:;[\t ]*[!#$%&'*+.^_`|~0-9a-z-]+=(?:[!#$%&'*+.^_`|~0-9a-z-]+|"(?:[\t !#-[\]-~\x80-\xff]|\\[\t !-~\x80-\xff])*")[\t ]*)*$/i;
 let ports: Parameters<typeof register>[1] | undefined;
 
 function accountPorts(): Parameters<typeof register>[1] {
@@ -25,6 +28,12 @@ function accountPorts(): Parameters<typeof register>[1] {
     clock: { now: () => new Date() },
   };
   return ports;
+}
+
+export function requireJson(request: Request): Response | undefined {
+  const contentType = request.headers.get('content-type') ?? '';
+  if (JSON_MEDIA_TYPE.test(contentType)) return undefined;
+  return Response.json({ error: 'unsupported-media-type' }, { status: 415 });
 }
 
 export async function readCredentials(request: Request): Promise<Parameters<typeof register>[0]> {
@@ -71,6 +80,12 @@ export async function resolveRequestUser(request: Request): Promise<User | undef
   const token = requestToken(request);
   if (token === undefined) return undefined;
   return resolveSession(token, accountPorts());
+}
+
+export async function signOutRequest(request: Request): Promise<void> {
+  const token = requestToken(request);
+  if (token === undefined) return;
+  await signOut(token, accountPorts());
 }
 
 export async function requireUser(request: Request): Promise<User | Response> {

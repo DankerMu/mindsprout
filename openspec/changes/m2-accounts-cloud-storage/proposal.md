@@ -120,6 +120,15 @@ Blast radius: malformed runtime JSON can cause 500/side effects; wrong AccountEr
 Selected risk packs: Auth/credentials/tokens; Public HTTP/runtime input; Error/log secrecy; API contract; Session/cookie; Configuration/gate registration; Compatibility reset-race outcomes. No maps/JSON415/UI yet.
 Evidence floor: behavior red/green, actual runtime JSON matrix before side effects, exact register/login status/body/cookie, 400/401/409/500 mapping, logs no secrets, real cookie-jar register→session→login plus malformed-body smoke, full unit≥90% per-file/contract/boundaries/guardrails. Preserve D2/D3/D5/D6/D11 and previous fixtures.
 
+## Issue #154 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: public CSRF/media boundary and session deletion on Critical Path)
+Blast radius: late media validation permits cross-site side effects; wrong logout token/clear ordering deletes the wrong session or leaves a usable bearer token; no-session configuration failure breaks idempotency.
+Selected risk packs: Auth/session deletion; CSRF/public HTTP; Error/logging; Cookie scope; API contract/smoke/gates. No maps/admin/UI yet.
+Evidence floor: behavior red/green, guard before read/use-case, form/missing/wrong media415 no side effects, valid JSON parameters, logout204 with/without/forged session, exact clear cookie dev/prod, DB failure500 no clear, live form415→session200→logout204→replayed old token401, full unit/integration/contract/gates. Preserve all D2/D3/D5/D6/D11 fixtures.
+
 ## Impact
 
 - **New code:**
