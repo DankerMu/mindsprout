@@ -1,7 +1,7 @@
 import type { NextResponse } from 'next/server';
 import postgres from 'postgres';
-import { resolveSession, type register } from '@/contexts/account/application/auth';
-import type { User } from '@/contexts/account/domain/account';
+import { register, resolveSession, signIn } from '@/contexts/account/application/auth';
+import { AccountError, type User } from '@/contexts/account/domain/account';
 import { CryptoTokenSource, ScryptPasswordHasher } from '@/contexts/account/infrastructure/crypto';
 import {
   PostgresSessionRepository,
@@ -25,6 +25,35 @@ function accountPorts(): Parameters<typeof register>[1] {
     clock: { now: () => new Date() },
   };
   return ports;
+}
+
+export async function readCredentials(request: Request): Promise<Parameters<typeof register>[0]> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    throw new AccountError('invalid-input');
+  }
+  if (
+    typeof body !== 'object' ||
+    body === null ||
+    Array.isArray(body) ||
+    !('username' in body) ||
+    typeof body.username !== 'string' ||
+    !('password' in body) ||
+    typeof body.password !== 'string'
+  ) {
+    throw new AccountError('invalid-input');
+  }
+  return { username: body.username, password: body.password };
+}
+
+export function registerAccount(input: Parameters<typeof register>[0]) {
+  return register(input, accountPorts());
+}
+
+export function signInAccount(input: Parameters<typeof signIn>[0]) {
+  return signIn(input, accountPorts());
 }
 
 function requestToken(request: Request): string | undefined {
