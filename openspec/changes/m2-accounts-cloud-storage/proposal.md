@@ -84,6 +84,15 @@ Blast radius: a weak lock permits old-password session issuance after reset; an 
 Selected risk packs: Public port; Schema/timestamps/hash; Auth/secrets; Concurrency/transactions; File IO/DB lifecycle; Resource bounds; Compatibility; Error rollback; Documentation. Config/setup, large discovery/search and packaging are not selected: no migration, new config/search or dependency change.
 Evidence floor: sibling mocked unit coverage plus real-DB integration through the app role, controlled independent-connection orderings for conditional issuance/reset, and exact token/identity/expiry outcomes. Full unit ≥90% per-file, integration, boundaries, guardrails and independent real-DB lifecycle/race smoke required. D2.4 is additive; D2.1–D2.3 stay intact.
 
+## Issue #151 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: Critical Path RLS persistence, real-DB evidence)
+Blast radius: an identity leak can expose/overwrite another user's maps; a wrong upsert/version/null query can destroy or hide valid data and break existing MapRepository consumers.
+Selected risk packs: Public MapRepository/ACL; Schema/JSON/timestamps/collation; Auth/RLS; File IO/DB lifecycle; Transaction/error rollback; Compatibility; Resource limits; Documentation. Config setup, general concurrency race and packaging not selected: no new config/concurrent invariant/dependency; transaction-local pool identity explicitly tested.
+Evidence floor: unchanged shared contract plus real app-role RLS/scratch integration, mocked per-file coverage, executed wrong-owner/version/null/rollback counterexamples and restored full unit/integration/boundary/guardrail checks. D4.1 is additive; D2.1–D2.4 remain intact.
+
 ## Impact
 
 - **New code:**
