@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import {
+  byRecency,
   type MapRepository,
   type MapSummary,
   type MindMap,
@@ -21,7 +22,7 @@ export class PostgresMapStore {
           where title is not null and updated_at is not null
           order by updated_at desc, id collate "C" asc
         `;
-          return Array.from(rows);
+          return Array.from(rows).sort(byRecency);
         }),
       get: (id) =>
         this.sql.begin(async (tx) => {

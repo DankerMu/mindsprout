@@ -81,7 +81,7 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
 
 - Map ids are scoped per owner: the primary key is `(owner_id, id)`. Two users may hold the same id, and neither can learn that the other does. The contract suite and the e2e specs reuse fixed ids (`'a'`, `'selection'`) for every fresh user.
 - The whole `MindMap` is kept as one `jsonb` value. `title` and `updatedAt` are generated columns, so there is one source of truth and `get` returns exactly what `put` stored.
-- `updatedAt` is always `toISOString()` output (fixed format), so sorting it as text sorts it by time. The `"C"` collation gives the contract's code-unit order for ties.
+- `updatedAt` is always `toISOString()` output (fixed format), so sorting it as text sorts it by time. The `"C"` collation indexes UTF-8 byte order, which differs from JavaScript UTF-16 code-unit order for some non-BMP ids. Adapters apply the canonical `byRecency` comparator to final summaries; the index does not define the API's tie order.
 - **RLS policy.** `maps_owner` applies to all commands: `using (owner_id = nullif(current_setting('app.user_id', true), '')::uuid)`, with the same `with check`.
   - When the setting is missing the comparison yields null, so the query sees no rows.
 - **Grants to `mindsprout_app`.**
@@ -204,7 +204,7 @@ See proposal.md (Why) and decision 0023 for the chosen direction. Facts that sha
 ### D4.1 RLS map-store slice fixture
 
 - **Change surface:** `account/acl/map.ts`, `account/infrastructure/map-store.ts`, sibling mocked unit tests, `tests/integration/postgres-map-store.test.ts`, existing TECH/changeset. Preserve D2.1–D2.4, migration and existing MapRepository contract unchanged.
-- **Must preserve:** `put` verbatim/deep-equal roundtrip without stamping/validation; summary order updatedAt desc then id code-unit asc; absent get/delete no-op; unsupported version only get errors; ACL is the sole cross-context door. Least-privilege app role and D11 no shared-table delete/truncate remain.
+- **Must preserve:** `put` verbatim/deep-equal roundtrip without stamping/validation; summary order updatedAt desc then id JavaScript UTF-16 code-unit asc using canonical `byRecency` on final results (not SQL UTF-8 `C` order); absent get/delete no-op; unsupported version only get errors; ACL is the sole cross-context door. Least-privilege app role and D11 no shared-table delete/truncate remain.
 - **Must add/change:** one transaction per port call with `set_config('app.user_id', userId, true)` before map SQL; owner-scoped `(owner_id,id)` upsert; RLS read/delete; newer-version error; generated summary selection and null skipping. JSONB roundtrip independent of input/output mutation.
 - **Governing invariant:** no port call can reveal/change another user's row even for the same map id; transaction identity never survives commit into a pooled connection. A newer or unreadable map cannot break the whole list.
 - **Sibling surfaces:** list/get/put/delete, same-id two users, null summaries, version>1, no identity, pool reuse and transaction rollback, future HTTP store. Payload validation/HTTP/browser adapter are later slices; no production role changes.

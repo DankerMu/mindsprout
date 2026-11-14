@@ -89,6 +89,18 @@ export function describeMapRepositoryContract(
 
       expect(await idsOfList(aFirst)).toStrictEqual(['B', 'a']);
       expect(await idsOfList(bFirst)).toStrictEqual(['B', 'a']);
+
+      const supplementaryFirst = await createRepository();
+      await supplementaryFirst.put(storedMap('\u{10000}', AT_10));
+      await supplementaryFirst.put(storedMap('\uE000', AT_10));
+      const bmpFirst = await createRepository();
+      await bmpFirst.put(storedMap('\uE000', AT_10));
+      await bmpFirst.put(storedMap('\u{10000}', AT_10));
+
+      expect([await idsOfList(supplementaryFirst), await idsOfList(bmpFirst)]).toStrictEqual([
+        ['\u{10000}', '\uE000'],
+        ['\u{10000}', '\uE000'],
+      ]);
     });
 
     it('lists exactly { id, title, updatedAt } of each stored map', async () => {

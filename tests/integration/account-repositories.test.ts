@@ -484,7 +484,11 @@ describe('Postgres account repositories as the application role', () => {
             await Promise.resolve();
           },
           async (text, tx) => {
-            if (text.startsWith(failingStatement)) await tx`select 1 / 0`;
+            const targetStatement =
+              failingStatement === 'update users'
+                ? 'update users set password_hash'
+                : 'delete from sessions where';
+            if (text.startsWith(targetStatement)) await tx`select 1 / 0`;
           },
         );
         await expect(

@@ -111,12 +111,20 @@ describe('PostgresMapStore', () => {
     );
   });
 
-  it('lists generated summaries in database order without a schema version filter', async () => {
+  it('lists summaries in canonical recency and code-unit order without a schema version filter', async () => {
     const db = database();
-    const summaries = [{ id: 'm1', title: '导图', updatedAt: '2001-01-01T00:00:00.000Z' }];
+    const summaries = [
+      { id: 'm1', title: 'older', updatedAt: '2001-01-01T00:00:00.000Z' },
+      { id: '\uE000', title: 'BMP', updatedAt: '2001-01-02T00:00:00.000Z' },
+      { id: '\u{10000}', title: 'supplementary', updatedAt: '2001-01-02T00:00:00.000Z' },
+    ];
     db.transaction.mockResolvedValueOnce([]).mockResolvedValueOnce(summaries);
     const repository = new PostgresMapStore(db.sql).forUser('alice');
-    expect(await repository.list()).toEqual(summaries);
+    expect(await repository.list()).toStrictEqual([
+      { id: '\u{10000}', title: 'supplementary', updatedAt: '2001-01-02T00:00:00.000Z' },
+      { id: '\uE000', title: 'BMP', updatedAt: '2001-01-02T00:00:00.000Z' },
+      { id: 'm1', title: 'older', updatedAt: '2001-01-01T00:00:00.000Z' },
+    ]);
     expect(statement(db.transaction.mock.calls[1])).toBe(
       'select id, title, updated_at as "updatedAt" from maps where title is not null and updated_at is not null order by updated_at desc, id collate "C" asc',
     );
