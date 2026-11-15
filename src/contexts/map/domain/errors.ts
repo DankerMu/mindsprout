@@ -30,6 +30,10 @@ export class StorageUnavailableError extends Error {
   }
 }
 
+export class StorageUnauthorizedError extends Error {
+  override readonly name = 'StorageUnauthorizedError';
+}
+
 // A stored record was written by a newer schema than this adapter reads (design D7, D8).
 export class UnsupportedSchemaVersionError extends Error {
   override readonly name = 'UnsupportedSchemaVersionError';

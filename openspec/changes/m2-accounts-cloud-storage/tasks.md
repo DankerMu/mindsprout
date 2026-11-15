@@ -238,7 +238,7 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
 
 ## 6. Browser storage cut-over
 
-- [ ] 6.1 Add `StorageUnauthorizedError` to `src/contexts/map/domain/errors.ts`. Implement `HttpMapRepository` in `src/contexts/map/infrastructure/persistence` (design D7):
+- [x] 6.1 Add `StorageUnauthorizedError` to `src/contexts/map/domain/errors.ts`. Implement `HttpMapRepository` in `src/contexts/map/infrastructure/persistence` (design D7):
   - `get` maps 404 to `undefined`, and a 409 `unsupported-schema-version` body to `UnsupportedSchemaVersionError(found, 1)`;
   - `put` uses keepalive only for bodies of at most 60,000 bytes and starts its request synchronously;
   - `delete` sends `Content-Type: application/json` with the body `{}`;

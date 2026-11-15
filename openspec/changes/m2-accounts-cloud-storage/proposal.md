@@ -165,6 +165,15 @@ Blast radius: missing actor checks expose every account or permit credential rep
 Selected risk packs: Admin authorization; Credential/session revocation; Public API and UUID refusal ordering; Secret/log handling; Composition/pool lifecycle; Contract/smoke/gates. No admin UI or map changes.
 Evidence floor: behavior red/green for401/403/404/415 and no admin use-case on refusal, non-UUID404 before target work, ordered public list and one-time200 temporaryPassword without logs/cookies, same-pool composition, complete contract and two-random-user403 smoke, full unit/integration/contract/gates. Preserve D2.2/D3/D5/D6 and all prior fixtures.
 
+## Issue #158 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: persisted-state transport boundary and flush ordering; unused by UI until6.8)
+Blast radius: deferred put loses the final edit during page unload; wrong keepalive threshold triggers browser rejection; misclassified401/network/malformed data causes wrong redirects or silent fallback; contract drift loses/corrupts maps.
+Selected risk packs: Repository contract compatibility; Flush timing/keepalive resource limit; Error taxonomy; Envelope validation; Same-origin request safety. No UI/provider flip or API change.
+Evidence floor: unchanged shared contract suite over HTTP+memory double, synchronous deferred-put proof, UTF-8 60000/60001 boundary, request shapes,404/409/malformed200, every-method401 and plain-Error failure matrix, full unit≥90 and boundaries. Preserve D5/D7/decision0011 and all prior fixtures.
+
 ## Impact
 
 - **New code:**
