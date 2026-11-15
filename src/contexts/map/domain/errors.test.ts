@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { z } from 'zod';
 import {
+  StorageUnauthorizedError,
   StorageUnavailableError,
   TreeOpError,
   UnsupportedSchemaVersionError,
@@ -74,5 +75,15 @@ describe('UnsupportedSchemaVersionError', () => {
     expect(error.supported).toBe(3);
     expect(error.message).toMatch(/\b17\b/);
     expect(error.message).toMatch(/\b3\b/);
+  });
+});
+
+describe('StorageUnauthorizedError', () => {
+  it('identifies an ended session without classifying storage as unavailable', () => {
+    const error = new StorageUnauthorizedError('GET /api/maps returned HTTP 401');
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(StorageUnavailableError);
+    expect(error.name).toBe('StorageUnauthorizedError');
+    expect(error.message).toBe('GET /api/maps returned HTTP 401');
   });
 });
