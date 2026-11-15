@@ -201,6 +201,15 @@ Blast radius: matching loosely, trusting a declaration without its observed resp
 Selected risk packs: Shared test API; URL/status error correlation; Negative error evidence; Runtime browser/response ordering. No auth/API/persistence/config/dependency change.
 Evidence floor: real Chromium self-test against signed-out `/api/healthz` and `/api/auth/session` 401 covers matched, undeclared, wrong-status, truncated-path and query/fragment cases, unused declaration, unrelated console.error/warn/pageerror. Register response+console waiters before fetch and reconcile either event order with no fixed sleep. Full e2e and `pnpm decisions:check`/`pnpm dead-code` must pass. Preserve D13, existing collectors, D11.2 private credential transport and decision0020; decision0024 ships in this PR. Only6.4, no existing-spec adoption.
 
+## Issue #163 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: required CI/gate integrity, job-local databases and authenticated shared native probe)
+Blast radius: an unavailable or wrongly owned database blocks both required native legs; signing in on the wrong browser context leaves authenticated coverage unproven; changing check names, native timing/noise gates or cleanup can hide regressions.
+Selected risk packs: CI/gate integrity; Database/job lifecycle; Auth/session cookie transport; Browser event ordering; Secret/evidence hygiene; Legacy native behavior/artifact compatibility; Documentation. No application/API/e2e seeding/dependency change and no #174 anchor/assertion work.
+Evidence floor: sign-in helper red/green covers register→session order, exact context request/cookie proof and failure redaction; `pnpm native:browser:test`, local `source-change` and `restored-lifecycle` against a real `pnpm db:setup` database, both installed-native CI legs with unchanged check names plus the sibling Linux candidate workflow, `pnpm test:guardrails`, docs/decisions/static gates. Preserve D1/D11/D13, decisions 0020/0021/0023/0026, all existing native timeouts/noise/cleanup/artifact contracts; decision 0027 ships with this slice.
+
 ## Impact
 
 - **New code:**

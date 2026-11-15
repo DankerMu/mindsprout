@@ -11,6 +11,7 @@ Supported frozen installations use the exact-version native overrides in [packag
 - macOS: Xcode command-line tools, CMake and the pinned toolchain's `rust-lld` available on `PATH`. Linux: a GNU x64 host, C/C++ compiler, CMake, pkg-config and OpenSSL development headers. CI installs the pinned Rust toolchain explicitly.
 - Enough disk for release and native-test Cargo outputs. `CARGO_BUILD_JOBS` may bound parallel compilation; `CARGO_TARGET_DIR` may reuse an owned Cargo cache. Compiler selectors, wrappers, injected rustflags, target linkers/runners and `VERGEN_*` values are rejected before output creation or fetch. External Cargo home/ancestor configuration files are rejected because they can override compiler selection. `CARGO_HOME` must be an absolute, configuration-free path; relative values are rejected even without configuration files. When unset, the default home is used. The accepted home is normalized once and supplied identically to configuration inspection and subprocesses, independent of their working directories. Only the pinned checkout's upstream Cargo configuration supplies build flags. The script clears CI's dirty-tree exception and canonicalizes `TMPDIR` for build and test subprocesses, including macOS `/var` → `/private/var`, without excluding upstream tests.
 - Chromium installed with `pnpm exec playwright install chromium` (Linux CI adds `--with-deps`). Browser commands require port 3000 to be unused and a writable checkout. Never run them concurrently with a dev server or source edits.
+- Browser probes also require a reachable local Postgres 16 database and both `MIGRATION_DATABASE_URL` (owner) and `DATABASE_URL` (non-owner application role). Export both for the probe's child server, then run `pnpm db:setup` after frozen installation and before either browser mode. Use an owned test database, never a shared developer database or production target; setup migrates and bootstraps the app role without a destructive reset.
 
 ## Build and qualify a candidate
 
@@ -25,6 +26,7 @@ pnpm native:verify .run/native-package/manifest.json
 pnpm native:package:test .run/native-package/manifest.json
 pnpm native:test .run/native-package/manifest.json
 pnpm native:browser:test
+pnpm db:setup
 NEXT_TEST_NATIVE_DIR="$PWD/.run/native-package/package" pnpm native:browser restored-lifecycle .run/native-restored .run/native-package/manifest.json
 NEXT_TEST_NATIVE_DIR="$PWD/.run/native-package/package" pnpm native:browser source-change .run/native-source .run/native-package/manifest.json
 ```
@@ -42,6 +44,8 @@ Success emits the manifest path and actual addon target/cache version. `manifest
 ## Browser behavior contracts
 
 Both modes use one maintained [entrypoint](../../scripts/native-hmr.mjs), real Chromium/CDP, public map creation and persisted reopening. They preserve the five-second editor-readiness deadline and reject browser warnings, errors, pageerrors and crashes. JSON, raw CDP events, screenshots, HTML, server logs and source-restoration hashes remain in the output directory. A failure exits nonzero and still attempts owned-process shutdown and restoration; it never parks a failing CI browser indefinitely.
+
+Before creating its first page, the probe registers a fresh `native-<UUID>` user through `context.request`, requires registration status201, then requires `/api/auth/session` status200 with that exact username in the same context. The HttpOnly session cookie is shared with subsequent pages and remains in use across restored-lifecycle server restarts; there is no re-registration on restart. These requests use the existing 5000ms default. Sign-in produces no page console events or expected non-2xx responses, so it needs no D13 declaration or noise filter. Diagnostics never include passwords, response bodies, headers or cookies; only the public username leaves the helper.
 
 - **`restored-lifecycle`** retains the qualified provider's compiled environment-value trigger. It exercises unchanged A→A first, A→B, a second editor round trip, and a retained library document. Before each restart it pauses only its verified Chromium process group, executes exactly one health route request on the restarted server, then resumes the browser. Each 15-second observation requires route-handler-first connection/subscription ordering, the expected compiled client literal, exactly one normal reconnect document/reload, zero resource restart messages and editor readiness within five seconds. SPA preparation must not request a document.
 - **`source-change`** edits an actual rendered MapEditor literal from A to B within one dev-server lifecycle. During setup, a retained editor document load establishes and proves its route-specific chunk-list subscription. Only then does a separate library tab make its first SPA editor navigation concurrently with the source edit. The retained page must receive an actual partial MapEditor update and visibly render B without replacing its document; the target must reach editor readiness and B without a document request or reload. No manual recovery occurs after the stimulus.
@@ -74,6 +78,7 @@ For a maintenance publication, copy the unchanged qualified manifests into `patc
 pnpm install --frozen-lockfile
 pnpm native:installed
 pnpm native:verify /absolute/path/to/published/manifest.json --installed
+pnpm db:setup
 pnpm native:browser restored-lifecycle .run/installed-restored
 pnpm native:browser source-change .run/installed-source
 pnpm build
@@ -81,7 +86,11 @@ pnpm build
 
 The stronger tarball qualification command requires the published tarball beside its manifest. Installed checks run **without `NEXT_TEST_NATIVE_DIR`**; the verifier rejects that variable and checks the binary resolved from Next's installed dependency tree. Installation failure is a blocker, never permission to patch `node_modules` or enable a fallback.
 
-The required **All checks passed** aggregate includes both installed-native matrix targets: Linux x64 GNU on Ubuntu 24.04 and macOS arm64 on `macos-26`. Each must complete frozen installation, installed addon verification, corrupt-artifact installation regression, both browser modes and a production build. Matrix failure does not cancel the other target, but neither target may fail or be skipped. The independent native build workflow still qualifies freshly built candidates and cannot substitute for this required installed-package matrix. A Next upgrade that bypasses the exact-version native override fails closed until equivalent proof qualifies upstream replacement and the fork is removed atomically through Renovate.
+The required **All checks passed** aggregate includes two independent jobs: `native-installed-runtime` on Ubuntu 24.04 and `native-installed-runtime-darwin` on `macos-26`. Their public check names remain **Installed native HMR (linux-x64-gnu)** and **Installed native HMR (darwin-arm64)**. Linux uses a healthy `postgres:16` service; macOS starts an owned Homebrew `postgresql@16` cluster under `$RUNNER_TEMP/native-postgres` and always attempts to stop it after qualification. Each job owns `app_native`, sets `MIGRATION_DATABASE_URL=postgres://app:app@127.0.0.1:5432/app_native` and `DATABASE_URL=postgres://mindsprout_app:app@127.0.0.1:5432/app_native`, and invokes the same [composite action](../../.github/actions/native-installed-runtime/action.yml). It runs frozen installation, `pnpm db:setup`, installed addon verification, corrupt-artifact installation regression, native unit tests, both browser modes and a production build, with always-upload evidence. Neither job cancels the other; neither may fail or be skipped. [Decision0027](../../decisions/implemented/testing/0027-signed-in-native-hmr-database.md) owns this database/sign-in topology.
+
+The independent [native build workflow](../../.github/workflows/native-hmr.yml) qualifies freshly built candidates. Its `linux-native` job uses the same Linux Postgres16 service, `app_native` URLs and `pnpm db:setup`, immediately after its frozen `--ignore-scripts` candidate bootstrap. It retains candidate build/test steps, the 180-minute budget, `NEXT_TEST_NATIVE_DIR` and candidate artifacts; it does not invoke the installed-only action. Candidate qualification must also pass when changing the shared probe, but cannot substitute for either required installed-package check and is not an aggregate dependency.
+
+A Next upgrade that bypasses the exact-version native override fails closed until equivalent proof qualifies upstream replacement and the fork is removed atomically through Renovate.
 
 ### Installed-only guard
 
