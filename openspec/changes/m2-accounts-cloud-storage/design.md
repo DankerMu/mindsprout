@@ -444,7 +444,7 @@ A reset never targets the developer's `app_dev`.
   - Every other signed-in test registers a unique user (`u-<random>`), through the fixture unless the test drives registration itself. Specs that test signed-out behaviour use no fixture.
   - Screenshot evidence still lands in `.run/ui-evidence/`.
   - CI layer7 keeps running `pnpm e2e`. Only its environment changes.
-- **Native HMR probe** (`pnpm native:browser`, CI `native-installed-runtime`). It runs `pnpm dev` on `:3000` against a database prepared by `pnpm db:setup`: a job-local one in CI, the developer's dev database locally. It registers a fresh random user over the API before visiting `/`. Because it signs in before it opens any page that calls an authenticated API, it receives no expected non-2xx response and needs no D13 declaration.
+- **Native HMR probe** (`pnpm native:browser`, CI `native-installed-runtime`). It runs `pnpm dev` on `:3000` against a database prepared by `pnpm db:setup`: a job-local one in CI and an owned local test database locally (D11.3), never a shared developer database. It registers a fresh random user over the API before visiting `/`. Because it signs in before it opens any page that calls an authenticated API, it receives no expected non-2xx response and needs no D13 declaration.
 - **Smoke** (`pnpm smoke`) runs against the `:3000` server and whatever database it has.
   - It registers two random users, so it never needs to know who the admin is. The 403 assertion uses the second user, who is never the first registrant.
   - On a brand-new dev database, the first smoke user becomes the admin. `docs/engineering/database.md` therefore tells developers to register their own account before running smoke.

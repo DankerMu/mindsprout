@@ -28,26 +28,35 @@ function registrationContext({
   registerStatus = 201,
   sessionStatus = 200,
   wrongUser = false,
+  failureAt,
 } = {}) {
   const calls = [];
   let registered;
   const unread = () => assert.fail('Response credentials must not be inspected');
+  const fail = () => {
+    throw new Error(
+      'native-probe-only mindsprout_session=synthetic-token-marker Set-Cookie private-body-marker',
+    );
+  };
   const context = {
     newPage: () => assert.fail('Sign-in must not open a page'),
     request: {
       async post(...args) {
         assert.equal(this, context.request);
         calls.push(['post', ...args]);
+        if (failureAt === 'post') fail();
         registered = args[1].data.username;
         return { status: () => registerStatus, json: unread, headers: unread, body: unread };
       },
       async get(...args) {
         assert.equal(this, context.request);
         calls.push(['get', ...args]);
+        if (failureAt === 'get') fail();
         return {
           status: () => sessionStatus,
           json: async () => {
             assert.equal(sessionStatus, 200, 'A refused session body must not be read');
+            if (failureAt === 'json') fail();
             return {
               username: wrongUser ? 'private-response-marker' : registered,
               token: 'private-token-marker',
@@ -112,6 +121,31 @@ for (const refusal of [
       },
     );
     assert.equal(fixture.calls.length, refusal.calls);
+  });
+}
+
+for (const [failureAt, message, expectedCalls] of [
+  ['post', 'Native probe registration request failed', 1],
+  ['get', 'Native probe session request failed', 2],
+  ['json', 'Native probe session payload must be valid JSON', 2],
+]) {
+  test(`native sign-in redacts unexpected ${failureAt} failures from all error evidence`, async () => {
+    const fixture = registrationContext({ failureAt });
+    await assert.rejects(
+      () => nativeSupport.registerNativeProbeUser(fixture.context, 'http://localhost:3000'),
+      (error) => {
+        assert.equal(error.message, message);
+        assert.equal(error.cause, undefined);
+        for (const evidence of [error.message, String(error), error.stack]) {
+          assert.doesNotMatch(
+            evidence,
+            /native-probe-only|mindsprout_session|synthetic-token-marker|set-cookie|private-body-marker/i,
+          );
+        }
+        return true;
+      },
+    );
+    assert.equal(fixture.calls.length, expectedCalls);
   });
 }
 
