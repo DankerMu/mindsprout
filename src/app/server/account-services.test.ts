@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   postgres: vi.fn(),
   users: vi.fn(),
   sessions: vi.fn(),
+  maps: vi.fn(),
+  forUser: vi.fn(),
   hasher: vi.fn(),
   tokens: vi.fn(),
   resolve: vi.fn(),
@@ -22,6 +24,9 @@ vi.mock('postgres', () => ({ default: mocks.postgres }));
 vi.mock('@/contexts/account/infrastructure/postgres', () => ({
   PostgresUserRepository: mocks.users,
   PostgresSessionRepository: mocks.sessions,
+}));
+vi.mock('@/contexts/account/infrastructure/map-store', () => ({
+  PostgresMapStore: mocks.maps,
 }));
 vi.mock('@/contexts/account/infrastructure/crypto', () => ({
   ScryptPasswordHasher: mocks.hasher,
@@ -62,6 +67,9 @@ beforeEach(() => {
       delete: mocks.delete,
     };
   });
+  mocks.maps.mockImplementation(function () {
+    return { forUser: mocks.forUser };
+  });
   mocks.hasher.mockImplementation(function () {
     return { hash: mocks.hash, verify: mocks.verify };
   });
@@ -97,6 +105,28 @@ describe('request session composition', () => {
     expect(mocks.tokens).toHaveBeenCalledOnce();
     expect(mocks.resolve).toHaveBeenCalledTimes(2);
     expect(mocks.resolve).toHaveBeenCalledWith(token, now);
+  });
+
+  it('shares the lazy account pool with per-user map repositories', async () => {
+    const { mapsForUser, requireUser } = await import('./account-services');
+    expect(mocks.postgres).not.toHaveBeenCalled();
+    const aliceMaps = { list: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn() };
+    const bobMaps = { list: vi.fn(), get: vi.fn(), put: vi.fn(), delete: vi.fn() };
+    mocks.forUser.mockReturnValueOnce(aliceMaps).mockReturnValueOnce(bobMaps);
+    expect(mapsForUser('alice-id')).toBe(aliceMaps);
+    mocks.resolve.mockResolvedValue(user);
+    await expect(requireUser(request(`mindsprout_session=${token}`))).resolves.toBe(user);
+    expect(mapsForUser('bob-id')).toBe(bobMaps);
+    expect(mocks.forUser).toHaveBeenNthCalledWith(1, 'alice-id');
+    expect(mocks.forUser).toHaveBeenNthCalledWith(2, 'bob-id');
+    expect(mocks.forUser).toHaveBeenCalledTimes(2);
+    expect(mocks.postgres).toHaveBeenCalledExactlyOnceWith(
+      'postgres://app:local@localhost/accounts',
+      { max: 5 },
+    );
+    expect(mocks.maps).toHaveBeenCalledExactlyOnceWith(mocks.sql);
+    expect(mocks.users).toHaveBeenCalledExactlyOnceWith(mocks.sql);
+    expect(mocks.sessions).toHaveBeenCalledExactlyOnceWith(mocks.sql);
   });
 
   it('fails on first composed use without a database URL, before creating a pool', async () => {

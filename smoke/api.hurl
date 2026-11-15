@@ -37,6 +37,21 @@ jsonpath "$.username" == "{{username}}"
 jsonpath "$.isAdmin" == {{is_admin}}
 header "Set-Cookie" not exists
 
+# The registered user's untouched library is empty.
+GET {{base_url}}/api/maps
+
+HTTP 200
+[Asserts]
+body == "[]"
+header "Set-Cookie" not exists
+
+GET {{base_url}}/api/maps/absent-{{newUuid}}
+
+HTTP 404
+[Asserts]
+body == "{\"error\":\"not-found\"}"
+header "Set-Cookie" not exists
+
 POST {{base_url}}/api/auth/login
 Content-Type: application/json
 {

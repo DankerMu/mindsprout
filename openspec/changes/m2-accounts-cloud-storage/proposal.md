@@ -138,6 +138,15 @@ Blast radius: mislabeled gates send debugging to the wrong layer; missing Docume
 Selected risk packs: Gate integrity; Timing/concurrency observability; Browser/network evidence; Compatibility existing five-second contracts; Resource bounds/no extra requests. No auth/map/storage behavior.
 Evidence floor: deterministic red fake timeout and CDP Document events, explicit root-commit gate and response/completion metadata, unchanged 5000ms/noise/readiness, actual local native both modes, native:browser:test/guardrails/docs. Root cause may remain unknown per issue, never inferred from a later pass. Preserve all existing fixtures/D11.
 
+## Issue #155 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: public map/RLS boundary and shared composition on Critical Path)
+Blast radius: authenticating after store access or using a global store leaks map content; wrong version/absence mapping breaks forward compatibility and browser reads; second pool exhausts DB.
+Selected risk packs: Auth/RLS tenant isolation; Public map API; Schema/version forward compatibility; Error/log secrecy; Composition/pool lifecycle; Contract ordering; Gates. No write/body/parser/browser yet.
+Evidence floor: behavior red/green, requireUser before params/store, per-user store same pool, list contract order and newer-version tolerance via store, get200/404/409 found/500, real fresh-user empty list and absent404, full unit/integration/contract/gates. Preserve D4/D4.1/D5/D6 and all prior fixtures.
+
 ## Impact
 
 - **New code:**
