@@ -1,3 +1,5 @@
+import type { MapRepository } from '../../src/contexts/map/domain/map-repository';
+import { HttpMapRepository } from '../../src/contexts/map/infrastructure/persistence/http-map-repository';
 import { InMemoryMapRepository } from '../../src/contexts/map/infrastructure/persistence/in-memory-map-repository';
 import { parseMindMap } from '../../src/contexts/map/domain/parse-mind-map';
 
@@ -56,4 +58,8 @@ export class MapFetch {
     }
     return new Response(null, { status: 204 });
   }
+}
+
+export function httpRepository(server: MapFetch): MapRepository {
+  return new HttpMapRepository(server.fetch);
 }

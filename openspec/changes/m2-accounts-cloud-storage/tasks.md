@@ -252,15 +252,19 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
     - a malformed 200 envelope rejects with an `Error` naming the id;
     - `put` has issued its request before its returned promise settles.
 
-- [ ] 6.2 Handle the new storage outcomes in the editor and library (design D7).
+- [x] 6.2 Handle the new storage outcomes in the editor and library (design D7).
   - Autosave classifies `StorageUnauthorizedError` and sets `SESSION_EXPIRED` (`登录已过期，请在新标签页重新登录后继续编辑`); the map stays pending.
   - `EditorView` shows the `重新登录` link to `/login?next=%2F` (new tab, never the editor) while that notice is displayed.
   - The library list and the editor `get` redirect to `/login?next=<path>` on a load-time `StorageUnauthorizedError`.
+  - Use the actual notice/store seam in `editor-store.ts` and guarded library load seam in `MapLibrary.tsx`; preserve decision0011 explicit notice dismissal and decision0016 map identity.
   - Verify (unit/component, fetch double):
     - account-auth "Edit after the session ended" and "Pending edits saved after signing in again" (401 then 204: the second save contains both edits);
     - account-auth "Re-login does not open a second editor", link half: the link's `href` is `/login?next=%2F` and its `target` is `_blank`;
     - "Expired session on page load";
     - map-persistence "Write failure is visible" (500 and network error show "保存失败", the next edit saves both).
+    - repeated failures and older204 after newer401 retain the current pending map; successful current saves stop duplicate flushes without dismissing notices;
+    - current library/editor401 redirects to the encoded pathname; non401, discarded library401 and stale editor401 do not redirect.
+  - Verify existing library/editor UI smoke with Playwright screenshots and zero unexpected console errors; no provider or e2e implementation changes.
 - [ ] 6.3 Prepare e2e for the database (design D11).
   - Add a Postgres service to CI layer7, plus `MIGRATION_DATABASE_URL` and `DATABASE_URL`. CI layer7 keeps running `pnpm e2e`.
   - Add `scripts/e2e-db.mjs`. It calls the task 1.1 reset helper for `app_e2e`, which creates the database if absent, resets it, migrates and applies the bootstrap. The `e2e` script becomes `node --env-file-if-exists=.env scripts/e2e-db.mjs && playwright test`, and `verify-ui` gets the same prefix, so the database exists before Playwright starts its `webServer`.

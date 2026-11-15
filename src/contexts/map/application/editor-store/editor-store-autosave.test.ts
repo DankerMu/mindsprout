@@ -16,6 +16,8 @@ import {
   // Applies any op list in order through the checked apply helper — the expected-map oracle here.
   undo as applied,
 } from '../../../../../tests/support/map-domain';
+import { httpRepository, MapFetch } from '../../../../../tests/support/map-fetch';
+import { heldResult } from '../../../../../tests/support/map-library';
 import { RecordingRepository } from '../../../../../tests/support/map-repository-stub';
 import { StorageUnavailableError } from '../../domain/errors';
 import type { TreeOp } from '../../domain/tree-op';
@@ -490,5 +492,85 @@ describe('autosave failures (spec "Storage unavailable is visible")', () => {
     await store.getState().flush();
     vi.advanceTimersByTime(10_000);
     expect(repository.puts).toHaveLength(1);
+  });
+});
+
+describe('HTTP save failure recovery', () => {
+  function httpSaving() {
+    const server = new MapFetch();
+    const store = createEditorStore({ repository: httpRepository(server) });
+    store.getState().load(mapOf(node('r', [node('a'), node('b')])));
+    return { server, store };
+  }
+
+  it.each([
+    { status: 401, notice: '登录已过期，请在新标签页重新登录后继续编辑' },
+    { status: 500, notice: '保存失败' },
+  ])('retries repeated HTTP $status failures on flush', async ({ status, notice }) => {
+    const { server, store } = httpSaving();
+    store.getState().dispatch({ op: 'update_node', id: 'a', text: '保留的修改' });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      server.respondNext(() => new Response(null, { status }));
+      await store.getState().flush();
+      expect(store.getState().notice).toBe(notice);
+      expect(store.getState().storageUnavailable).toBe(false);
+    }
+    expect(server.requests).toHaveLength(2);
+    await store.getState().flush();
+    expect(server.requests).toHaveLength(3);
+    const body = server.requests[2]?.init?.body;
+    if (typeof body !== 'string') throw new Error('Expected a JSON request body');
+    expect(JSON.parse(body) as unknown).toMatchObject({
+      map: {
+        roots: [
+          {
+            children: [
+              { id: 'a', text: '保留的修改' },
+              { id: 'b', text: 'B' },
+            ],
+          },
+        ],
+      },
+    });
+    await store.getState().flush();
+    expect(server.requests).toHaveLength(3);
+    expect(store.getState().notice).toBe(notice);
+    store.getState().clearNotice();
+    expect(store.getState().notice).toBeNull();
+  });
+
+  it('keeps newer failed edits pending when an older successful save finishes later', async () => {
+    const { server, store } = httpSaving();
+    const older = heldResult<Response>();
+    server.respondNext(() => older.promise);
+    store.getState().dispatch({ op: 'update_node', id: 'a', text: '较早的修改' });
+    const firstSave = store.getState().flush();
+    server.respondNext(() => new Response(null, { status: 401 }));
+    store.getState().dispatch({ op: 'update_node', id: 'b', text: '较新的修改' });
+    await store.getState().flush();
+    expect(server.requests).toHaveLength(2);
+    older.resolve(new Response(null, { status: 204 }));
+    await firstSave;
+    expect(store.getState().notice).toBe('登录已过期，请在新标签页重新登录后继续编辑');
+
+    await store.getState().flush();
+    expect(server.requests).toHaveLength(3);
+    const body = server.requests[2]?.init?.body;
+    if (typeof body !== 'string') throw new Error('Expected a JSON request body');
+    expect(JSON.parse(body) as unknown).toMatchObject({
+      map: {
+        roots: [
+          {
+            children: [
+              { id: 'a', text: '较早的修改' },
+              { id: 'b', text: '较新的修改' },
+            ],
+          },
+        ],
+      },
+    });
+    await store.getState().flush();
+    expect(server.requests).toHaveLength(3);
+    expect(store.getState().notice).toBe('登录已过期，请在新标签页重新登录后继续编辑');
   });
 });

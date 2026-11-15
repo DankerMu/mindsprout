@@ -23,6 +23,7 @@ function setup() {
     repository,
     now: () => new Date(),
     onUnavailable,
+    onUnauthorized: vi.fn(),
     onFailed,
   });
   return { repository, onUnavailable, onFailed, autosave };

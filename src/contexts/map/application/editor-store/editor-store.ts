@@ -98,6 +98,7 @@ const EMPTY_SLICE: SelectionSlice = Object.freeze({
 const CREATION_LABEL = 'add node';
 
 const SAVE_FAILED = '保存失败';
+export const SESSION_EXPIRED = '登录已过期，请在新标签页重新登录后继续编辑';
 
 // Feeds the autosave every stable map the store publishes. Session state, not map state:
 // storageUnavailable survives load, and a repeated failure does not republish the notice.
@@ -111,6 +112,9 @@ function attachAutosave(
     now,
     onUnavailable: () => {
       api.setState({ storageUnavailable: true });
+    },
+    onUnauthorized: () => {
+      if (api.getState().notice !== SESSION_EXPIRED) api.setState({ notice: SESSION_EXPIRED });
     },
     onFailed: () => {
       if (api.getState().notice !== SAVE_FAILED) api.setState({ notice: SAVE_FAILED });
