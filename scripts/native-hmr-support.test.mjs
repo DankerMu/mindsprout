@@ -17,10 +17,43 @@ import {
   emittedB,
   firstNavigationGate,
   processGroup,
+  publicMap,
   stopOwnedProcessGroup,
   visibleWithin,
   waitForEmitted,
 } from './native-hmr-support.mjs';
+
+test('public map root document commit failure preserves its cause and navigation budget', async () => {
+  const cause = new Error('page.goto: Timeout 5000ms exceeded.');
+  const calls = [];
+  const unused = () => assert.fail('Root commit failure must stop public map setup');
+  const state = {
+    page: {
+      goto: (...args) => {
+        calls.push(args);
+        return Promise.reject(cause);
+      },
+      getByRole: unused,
+    },
+    observation: { begin: unused, end: unused },
+  };
+  let guarded = 0;
+  const guard = (promise) => {
+    guarded++;
+    return promise;
+  };
+  await assert.rejects(
+    publicMap(state, 'http://localhost:3000', guard, unused, unused),
+    (error) => {
+      assert.match(error.message, /public-map root document commit/);
+      assert(error.message.includes(cause.message));
+      assert.equal(error.cause, cause);
+      return true;
+    },
+  );
+  assert.deepEqual(calls, [['http://localhost:3000', { waitUntil: 'commit', timeout: 5000 }]]);
+  assert.equal(guarded, 1);
+});
 
 const childSource = `
   const net = require('node:net');

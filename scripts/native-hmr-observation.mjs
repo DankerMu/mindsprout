@@ -9,8 +9,18 @@ export function observeNavigation(state, record) {
   let active = false;
   let omittedRequests = 0;
   const requests = new Map();
+  const documents = new Map();
   const { cdp, label } = state;
   cdp.on('Network.requestWillBeSent', (data) => {
+    if (data.type === 'Document') {
+      documents.set(data.requestId, {
+        requestId: data.requestId,
+        url: data.request.url,
+        type: data.type,
+        requestTimestamp: data.timestamp,
+        loaderId: data.loaderId,
+      });
+    }
     if (!active) return;
     const url = new URL(data.request.url);
     if (data.type !== 'Script' && !url.searchParams.has('_rsc')) return;
@@ -30,6 +40,21 @@ export function observeNavigation(state, record) {
     });
   });
   cdp.on('Network.responseReceived', (data) => {
+    const document = documents.get(data.requestId);
+    if (document) {
+      record(
+        'public-document-response',
+        {
+          ...document,
+          timestamp: data.timestamp,
+          status: data.response.status,
+          timing: data.response.timing,
+          protocol: data.response.protocol,
+          fromDiskCache: data.response.fromDiskCache,
+        },
+        label,
+      );
+    }
     const request = requests.get(data.requestId);
     if (!request) return;
     request.response = {
@@ -51,6 +76,21 @@ export function observeNavigation(state, record) {
   });
   for (const event of ['Network.loadingFinished', 'Network.loadingFailed']) {
     cdp.on(event, (data) => {
+      const document = documents.get(data.requestId);
+      if (document) {
+        documents.delete(data.requestId);
+        record(
+          'public-document-completion',
+          {
+            ...document,
+            event,
+            timestamp: data.timestamp,
+            encodedDataLength: data.encodedDataLength,
+            errorText: data.errorText,
+          },
+          label,
+        );
+      }
       const request = requests.get(data.requestId);
       if (request) request.completion = { event, ...data };
     });

@@ -400,6 +400,15 @@ A reset never targets the developer's `app_dev`.
   - It registers two random users, so it never needs to know who the admin is. The 403 assertion uses the second user, who is never the first registrant.
   - On a brand-new dev database, the first smoke user becomes the admin. `docs/engineering/database.md` therefore tells developers to register their own account before running smoke.
 
+### D11.1 Native cold-navigation diagnostic slice fixture
+
+- **Issue #190 scope:** only existing `native-hmr-support.mjs`, `native-hmr-observation.mjs`, paired Node tests and native HMR documentation. No application/map/API/workflow/dependency change and no #187 editor-gate fix claimed.
+- **Must preserve:** every existing 5000ms timeout and remaining() calculation, route-handler-first/no-warmup/no-retry/no-skip/no-reload/no-extended-deadline rules, browser-noise assertions, native addon and CI matrix. Do not reclassify cold readiness or separate its budget; decision 0021 and native-hmr.md remain binding.
+- **Gate attribution:** `publicMap`'s initial `page.goto(origin,{waitUntil:'commit',timeout:5000})` retains identical arguments but errors are labeled `public-map root document commit` with the original cause. Later create-button/editor/mode-specific errors remain distinguishable; no catch-and-continue, recovery or changed status.
+- **Document evidence:** the existing passive navigation observer records every Document request's response metadata and completion/failure, even before its RSC observation window begins. Include requestId/url/loaderId, response status/protocol/cache flag/timing and CDP timestamps, completion event/encoded bytes/error. Track request ids and remove completed/failed entries; no body reads, new HTTP requests, cache changes, warmup or arbitrary logs. Existing RSC/script capture unchanged.
+- **Required evidence:** deterministic failing-before tests using a fake page whose root goto rejects and fake CDP Document request→response→finish/failure events. Current code has generic root error and no Document response events; after change labels and metadata pass without changing timeout. Actual local restored-lifecycle and source-change runs plus native:browser:test, guardrails, fmt/lint/docs. Compare original CI artifacts against intervening pass and record ranked hypotheses: server response delay, browser commit processing, cache/compilation, observer attribution; no root cause claimed until response timeline proves it. Expanded review gate integrity.
+- **Non-goals:** product/CI performance claims, editor-readiness issue #132, local stale-cache pino ENOENT repair, root-cause guess, longer deadlines or stronger/weaker gate. #189 rebases only after this diagnostic change merges; a later green run is evidence scope, not proof the intermittent defect is gone.
+
 ### D12. Copy and documentation
 
 - **README `## Known Limitations`** (spec map-library) keeps every existing entry that is still true, such as `开发热更新`, and includes at least:

@@ -326,7 +326,11 @@ export async function nativeIdentity(manifestPath) {
 }
 
 export async function publicMap(state, origin, guard, visitEditor, homeBack) {
-  await guard(state.page.goto(origin, { waitUntil: 'commit', timeout: 5000 }));
+  await guard(
+    state.page.goto(origin, { waitUntil: 'commit', timeout: 5000 }).catch((cause) => {
+      throw new Error(`public-map root document commit: ${cause.message}`, { cause });
+    }),
+  );
   await guard(
     state.page
       .getByRole('button', { name: '新建导图', exact: true })

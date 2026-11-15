@@ -52,6 +52,8 @@ The entrypoint refuses occupied port 3000 and unexpected source seams. It backs 
 
 First public map creation also retains bounded diagnostic evidence: RSC and script response/completion timestamps, response timing/status, in-memory data-delivery totals, and browser Performance metrics immediately before its readiness clock and after the outcome. Failure captures timestamp the DOM, screenshot, URL and loader independently. These observations add no HTTP requests, body dumps, warmup, retry or extended readiness deadline; they do not attribute an unexplained slow navigation to runner pressure.
 
+The initial root commit failure is labeled `public-map root document commit`; passive Document response/completion metadata is captured even before the RSC observation window, without extra requests or body reads, and all 5000ms deadlines and no-warmup/no-retry rules remain unchanged.
+
 ## Publication and frozen installation
 
 The Linux PR workflow uploads `native-linux-x64-gnu-<workflow SHA>`. A candidate handoff consists of the emitted `.tgz`, `manifest.json`, native-test/build logs, both browser results and cleanup evidence. The tarball filename includes target, unchanged upstream version, patch identity and the complete tarball digest. Preserve that filename when publishing; do not overwrite an asset to change its bytes.

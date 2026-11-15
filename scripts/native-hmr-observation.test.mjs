@@ -9,6 +9,7 @@ import {
   bodyLiterals,
   cacheIdentity,
   headerValue,
+  observeNavigation,
   observeScripts,
   probeLiterals,
   probeValue,
@@ -16,6 +17,112 @@ import {
 } from './native-hmr-observation.mjs';
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+
+test('document responses and completion are observed before public map creation begins', () => {
+  const cdp = new EventEmitter();
+  cdp.send = () => assert.fail('Document observation must not issue CDP commands');
+  const events = [];
+  observeNavigation({ cdp, label: 'setup' }, (type, data, page) =>
+    events.push({ type, data, page }),
+  );
+  cdp.emit('Network.requestWillBeSent', {
+    requestId: 'root',
+    type: 'Document',
+    request: { url: 'http://localhost:3000/' },
+    timestamp: 10,
+    loaderId: 'root-loader',
+  });
+  const response = {
+    requestId: 'root',
+    type: 'Document',
+    timestamp: 11,
+    response: {
+      status: 200,
+      timing: { requestTime: 10, sendEnd: 2, receiveHeadersEnd: 900 },
+      protocol: 'http/1.1',
+      fromDiskCache: false,
+    },
+  };
+  cdp.emit('Network.responseReceived', response);
+  cdp.emit('Network.loadingFinished', {
+    requestId: 'root',
+    timestamp: 12,
+    encodedDataLength: 4096,
+  });
+  cdp.emit('Network.responseReceived', response);
+  cdp.emit('Network.loadingFinished', { requestId: 'root', timestamp: 13 });
+  cdp.emit('Network.requestWillBeSent', {
+    requestId: 'failed',
+    type: 'Document',
+    request: { url: 'http://localhost:3000/maps/test' },
+    timestamp: 20,
+    loaderId: 'failed-loader',
+  });
+  cdp.emit('Network.loadingFailed', {
+    requestId: 'failed',
+    timestamp: 21,
+    errorText: 'net::ERR_ABORTED',
+  });
+  cdp.emit('Network.responseReceived', { ...response, requestId: 'failed' });
+  cdp.emit('Network.loadingFailed', { requestId: 'failed', timestamp: 22 });
+  cdp.emit('Network.requestWillBeSent', {
+    requestId: 'script',
+    type: 'Script',
+    request: { url: 'http://localhost:3000/script.js' },
+    timestamp: 30,
+    loaderId: 'root-loader',
+  });
+  cdp.emit('Network.responseReceived', { ...response, requestId: 'script', type: 'Script' });
+  cdp.emit('Network.loadingFinished', { requestId: 'script', timestamp: 31 });
+  assert.deepEqual(events, [
+    {
+      type: 'public-document-response',
+      page: 'setup',
+      data: {
+        requestId: 'root',
+        url: 'http://localhost:3000/',
+        type: 'Document',
+        requestTimestamp: 10,
+        loaderId: 'root-loader',
+        timestamp: 11,
+        status: 200,
+        timing: { requestTime: 10, sendEnd: 2, receiveHeadersEnd: 900 },
+        protocol: 'http/1.1',
+        fromDiskCache: false,
+      },
+    },
+    {
+      type: 'public-document-completion',
+      page: 'setup',
+      data: {
+        requestId: 'root',
+        url: 'http://localhost:3000/',
+        type: 'Document',
+        requestTimestamp: 10,
+        loaderId: 'root-loader',
+        event: 'Network.loadingFinished',
+        timestamp: 12,
+        encodedDataLength: 4096,
+        errorText: undefined,
+      },
+    },
+    {
+      type: 'public-document-completion',
+      page: 'setup',
+      data: {
+        requestId: 'failed',
+        url: 'http://localhost:3000/maps/test',
+        type: 'Document',
+        requestTimestamp: 20,
+        loaderId: 'failed-loader',
+        event: 'Network.loadingFailed',
+        timestamp: 21,
+        encodedDataLength: undefined,
+        errorText: 'net::ERR_ABORTED',
+      },
+    },
+  ]);
+});
 
 test('probe literals follow the active qualification mode', () => {
   assert.deepEqual(probeLiterals('source-change'), ['Native HMR A', 'Native HMR B']);

@@ -129,6 +129,15 @@ Blast radius: late media validation permits cross-site side effects; wrong logou
 Selected risk packs: Auth/session deletion; CSRF/public HTTP; Error/logging; Cookie scope; API contract/smoke/gates. No maps/admin/UI yet.
 Evidence floor: behavior red/green, guard before read/use-case, form/missing/wrong media415 no side effects, valid JSON parameters, logout204 with/without/forged session, exact clear cookie dev/prod, DB failure500 no clear, live form415→session200→logout204→replayed old token401, full unit/integration/contract/gates. Preserve all D2/D3/D5/D6/D11 fixtures.
 
+## Issue #190 Fixture Triage
+
+Issue type: bugfix
+Fixture level: expanded
+Upstream suggested level: absent (expanded: required native CI/gate observability and timing boundaries; no product behavior)
+Blast radius: mislabeled gates send debugging to the wrong layer; missing Document response metadata prevents server/browser attribution; any timeout/retry/warmup change could hide a real native regression.
+Selected risk packs: Gate integrity; Timing/concurrency observability; Browser/network evidence; Compatibility existing five-second contracts; Resource bounds/no extra requests. No auth/map/storage behavior.
+Evidence floor: deterministic red fake timeout and CDP Document events, explicit root-commit gate and response/completion metadata, unchanged 5000ms/noise/readiness, actual local native both modes, native:browser:test/guardrails/docs. Root cause may remain unknown per issue, never inferred from a later pass. Preserve all existing fixtures/D11.
+
 ## Impact
 
 - **New code:**
