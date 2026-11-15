@@ -318,7 +318,7 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
   - Record passive Document response/completion metadata with bounded request tracking and paired fake-CDP tests.
   - Verify (unit): deterministic fake root timeout and Document response/finish/failure cases; `pnpm native:browser:test` passes.
   - Verify (runtime): both local native browser modes pass with unchanged gates; `pnpm test:guardrails` and `pnpm docs:check` pass. Record unknown root-cause boundary rather than inferring repair from a later green run.
-- [ ] 6.7 Add the component tests that replace the raw-record e2e cases (design D10 step 2). Every test runs over a repository double that returns the given value, and stays green alongside the e2e cases it replaces until the flip deletes them.
+- [x] 6.7 Add the component tests that replace the raw-record e2e cases (design D10 step 2). Every test runs over a repository double that returns the given value, and stays green alongside the e2e cases it replaces until the flip deletes them.
   - The cases and their new seams:
     - `e2e/map-editor.spec.ts` "corrupt record shows the error state and leaves the record untouched" → map-library "Corrupt record";
     - `e2e/map-editor.spec.ts` "mismatched map identity shows the error state and preserves source and peer records" → map-library "Mismatched stored map identity";

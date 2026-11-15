@@ -210,6 +210,15 @@ Blast radius: an unavailable or wrongly owned database blocks both required nati
 Selected risk packs: CI/gate integrity; Database/job lifecycle; Auth/session cookie transport; Browser event ordering; Secret/evidence hygiene; Legacy native behavior/artifact compatibility; Documentation. No application/API/e2e seeding/dependency change and no #174 anchor/assertion work.
 Evidence floor: sign-in helper red/green covers register→session order, exact context request/cookie proof and failure redaction; `pnpm native:browser:test`, local `source-change` and `restored-lifecycle` against a real `pnpm db:setup` database, both installed-native CI legs with unchanged check names plus the sibling Linux candidate workflow, `pnpm test:guardrails`, docs/decisions/static gates. Preserve D1/D11/D13, decisions 0020/0021/0023/0026, all existing native timeouts/noise/cleanup/artifact contracts; decision 0027 ships with this slice.
 
+## Issue #164 Fixture Triage
+
+Issue type: test
+Fixture level: expanded
+Upstream suggested level: expanded (agree for persisted-state/identity risk; PR itself is test-only and not a Critical Path)
+Blast radius: deleting raw-record e2e later without equivalent component evidence can hide corrupt-record error selection, wrong-identity writes, lost autosaves or future-version mutation.
+Selected risk packs: Repository identity/no-write guards; Error-state selection; Autosave/peer preservation; Test evidence and e2e coexistence. No production/e2e/dependency/CI/auth change.
+Evidence floor: six existing-behavior characterization scenarios over `ControlledLibrary`, with exact no-put/no-delete/source-peer assertions through `pagehide` and unmount where relevant; focused jsdom, unfiltered `pnpm test:unit` at per-file coverage gates, and full `pnpm e2e` with raw-record cases unchanged and zero skips/console errors. Green-on-main is valid; no artificial RED or production fix. Odd versions stay excluded. Decision 0016 and existing map-library/map-persistence requirements govern; no new decision record.
+
 ## Impact
 
 - **New code:**
