@@ -15,6 +15,7 @@ export default tseslint.config(
   {
     ignores: [
       '.next/**',
+      '.next-e2e/**',
       'coverage/**',
       'dist/**',
       'node_modules/**',

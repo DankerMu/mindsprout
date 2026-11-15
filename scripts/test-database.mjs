@@ -2,12 +2,13 @@ import { randomBytes } from 'node:crypto';
 import postgres from 'postgres';
 import { assertDevelopmentDatabaseSetup, setupDatabase } from './db-setup.mjs';
 
-function targetUrl(key, name) {
-  if (!process.env[key]) throw new Error(`${key} is required`);
-  if (!URL.canParse(process.env[key])) {
+function targetUrl(key, name, env) {
+  const value = env[key];
+  if (!value) throw new Error(`${key} is required`);
+  if (!URL.canParse(value)) {
     throw new Error(`${key} must be a PostgreSQL URL`);
   }
-  const url = new URL(process.env[key]);
+  const url = new URL(value);
   if (!['postgres:', 'postgresql:'].includes(url.protocol)) {
     throw new Error(`${key} must be a PostgreSQL URL`);
   }
@@ -17,11 +18,11 @@ function targetUrl(key, name) {
   return url.toString();
 }
 
-function target(name) {
+export function deriveTestDatabaseTarget(name, env) {
   return {
     databaseName: name,
-    databaseUrl: targetUrl('DATABASE_URL', name),
-    migrationDatabaseUrl: targetUrl('MIGRATION_DATABASE_URL', name),
+    databaseUrl: targetUrl('DATABASE_URL', name, env),
+    migrationDatabaseUrl: targetUrl('MIGRATION_DATABASE_URL', name, env),
   };
 }
 
@@ -35,8 +36,8 @@ export async function resetTestDatabase(name) {
     throw new Error('Test database must be app_test or app_e2e');
   }
   assertDevelopmentDatabaseSetup();
-  const destination = target(name);
-  const maintenance = ownerConnection(targetUrl('MIGRATION_DATABASE_URL', 'postgres'));
+  const destination = deriveTestDatabaseTarget(name, process.env);
+  const maintenance = ownerConnection(targetUrl('MIGRATION_DATABASE_URL', 'postgres', process.env));
   try {
     const existing = await maintenance`select datname from pg_database where datname = ${name}`;
     if (existing.length === 0) await maintenance`create database ${maintenance(name)}`;
@@ -58,8 +59,8 @@ export async function resetTestDatabase(name) {
 
 export async function withScratchDatabase(callback) {
   const databaseName = `app_scratch_${randomBytes(16).toString('hex')}`;
-  const destination = target(databaseName);
-  const maintenance = ownerConnection(targetUrl('MIGRATION_DATABASE_URL', 'postgres'));
+  const destination = deriveTestDatabaseTarget(databaseName, process.env);
+  const maintenance = ownerConnection(targetUrl('MIGRATION_DATABASE_URL', 'postgres', process.env));
   let created = false;
   try {
     await maintenance`create database ${maintenance(databaseName)}`;

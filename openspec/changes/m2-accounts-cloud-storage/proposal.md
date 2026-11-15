@@ -183,6 +183,15 @@ Blast radius: clearing or replacing pending state loses pre/post-expiry edits; w
 Selected risk packs: Pending-edit state machine; Save failure recovery; Load-time auth redirect; Editor identity compatibility; Accessible link/UI evidence. No provider flip/login implementation.
 Evidence floor: fetch-double component tests prove401→pending canvas+notice/link→combined second save, repeated failure and stale204 preserve retries, successful saves leave notices until explicit dismissal,500/network recovery, exact new-tab link, current-path redirects and discarded/stale401 suppression; scoped unit coverage and existing library/editor Playwright smoke. Preserve D7/decisions0011/0016 and all prior fixtures.
 
+## Issue #160 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: destructive test-database lifecycle, environment loading and CI/gate configuration)
+Blast radius: a target or environment mismatch can reset developer data or verify the wrong server; shared output locks block coexistence; raw errors can expose credentials.
+Selected risk packs: Database isolation; Environment precedence/secrecy; Shared URL derivation; Server/output ownership; CI gate integrity; Runtime evidence.
+Evidence floor: target/config subprocess red→green; isolated file-only/exported-wins/each-missing-key cases with a no-server-launch sentinel; failing e2e CLI output redaction; disposable Postgres absent-target and app_dev sentinel proof; unchanged full e2e alongside dev3000; guardrails/integration/default build/static checks. Preserve D1/D11 and decisions0020/0023; only6.3a completes, not6.3b/#175.
+
 ## Impact
 
 - **New code:**

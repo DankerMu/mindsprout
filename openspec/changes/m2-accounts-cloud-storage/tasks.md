@@ -266,6 +266,8 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
     - current library/editor401 redirects to the encoded pathname; non401, discarded library401 and stale editor401 do not redirect.
   - Verify existing library/editor UI smoke with Playwright screenshots and zero unexpected console errors; no provider or e2e implementation changes.
 - [ ] 6.3 Prepare e2e for the database (design D11).
+  - [x] 6.3a Isolate the e2e database, server and build output (#160; D11.2). Complete the lifecycle/environment evidence below without registration or signed-in fixtures.
+  - [ ] 6.3b Register e2e-admin and add signed-in fixtures (#175). The parent6.3 task completes only after both slices.
   - Add a Postgres service to CI layer7, plus `MIGRATION_DATABASE_URL` and `DATABASE_URL`. CI layer7 keeps running `pnpm e2e`.
   - Add `scripts/e2e-db.mjs`. It calls the task 1.1 reset helper for `app_e2e`, which creates the database if absent, resets it, migrates and applies the bootstrap. The `e2e` script becomes `node --env-file-if-exists=.env scripts/e2e-db.mjs && playwright test`, and `verify-ui` gets the same prefix, so the database exists before Playwright starts its `webServer`.
   - `next.config.ts` reads `distDir` from `NEXT_DIST_DIR`, defaulting to `.next`. Add `.next-e2e/` to `.gitignore` and to the knip, ESLint and Prettier ignores.
@@ -279,7 +281,11 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
     - with `pnpm dev:bg` serving `:3000`, `pnpm e2e` still starts its own server and passes;
     - `pnpm e2e` passes on a database server where `app_e2e` does not yet exist.
   - Verify (local): with the URLs only in `.env` and none exported, `scripts/e2e-db.mjs` prepares `app_e2e`, the e2e server connects to `app_e2e` (not `app_dev`), and no variable value is printed; with `DATABASE_URL` unset everywhere, `playwright test` fails before starting a server.
+  - Verify isolated public-fixture subprocesses for file-only URLs, exported-wins precedence and each missing key. Absolute entrypoint/config paths and scrubbed inherited database variables must avoid the checkout `.env`; a launch sentinel proves no webServer command ran for missing keys.
+  - Induce an e2e preparation CLI reset/driver failure: nonzero exit and fixed diagnostics, with no URL/password/cause markers in captured output.
   - Verify (gate): `pnpm test:guardrails` passes and the PR flags the workflow edit.
+  - Verify `pnpm dead-code` without exported database keys; its static-only fixture URLs must preserve Playwright plugin discovery and fail-fast runtime validation.
+  - Verify native JSON stdout and file reports contain neither source nor derived URLs, usernames, passwords or unique secret markers for both package entrypoints. The real launched child must still receive both derived app_e2e URLs; missing keys prevent launch, child failures remain nonzero and Playwright teardown leaves no owned server.
 - [ ] 6.4 Add the declared expected-response helper for e2e (design D13). Depends on 6.3.
   - Add `e2e/support/expected-responses.ts`. A test declares each expected non-2xx response as a URL pattern and a status; the helper records page responses through `page.on('response')` and exports the console-noise collector.
   - The collector drops a `Failed to load resource` console message only when its URL and status match a declaration that was observed as a response with that URL and status. It reports every other console error or warning, every page error, every failed load without a matching declaration, and every declaration that was never observed.

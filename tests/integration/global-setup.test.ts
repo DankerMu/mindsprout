@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 const setupUrl = pathToFileURL(resolve('tests/integration/global-setup.mjs')).href;
 const lifecycleUrl = pathToFileURL(resolve('scripts/test-database.mjs')).href;
+const e2eCli = resolve('scripts/e2e-db.mjs');
 const postgresUrl = import.meta.resolve('postgres');
 const owner = 'postgres://owner:owner-marker@localhost:5432/app_dev';
 const app = 'postgres://reader:reader-marker@localhost:5432/app_dev';
@@ -33,6 +34,7 @@ async function probe(
   file: string | undefined,
   env: Record<string, string | undefined>,
   code: string,
+  cli?: string,
 ) {
   const cwd = await mkdtemp(join(tmpdir(), 'mindsprout-setup-'));
   try {
@@ -41,7 +43,17 @@ async function probe(
     if (file !== undefined) await writeFile(join(cwd, '.env'), file);
     return spawnSync(
       process.execPath,
-      ['--experimental-test-module-mocks', '--input-type=module', '-e', mockBoundary + code],
+      [
+        '--experimental-test-module-mocks',
+        ...(cli
+          ? [
+              '--env-file-if-exists=.env',
+              '--import',
+              `data:text/javascript,${encodeURIComponent(mockBoundary + code)}`,
+              cli,
+            ]
+          : ['--input-type=module', '-e', mockBoundary + code]),
+      ],
       {
         cwd,
         env: { PATH: process.env.PATH, NODE_NO_WARNINGS: '1', NODE_ENV: 'test', ...env },
@@ -237,5 +249,101 @@ describe('integration globalSetup environment contract', () => {
     );
     expect(result.stdout + result.stderr).toBe('');
     expect(result.status).toBe(0);
+  });
+});
+
+describe('e2e preparation CLI', () => {
+  it.each(['file-only', 'exported-wins'])('%s resets app_e2e exactly once', async (kind) => {
+    const result = await probe(
+      `DATABASE_URL=${app}\nMIGRATION_DATABASE_URL=${owner}\n`,
+      kind === 'file-only'
+        ? {}
+        : {
+            DATABASE_URL: 'postgres://exported-reader:exported-app-marker@reader-host:5433/source',
+            MIGRATION_DATABASE_URL:
+              'postgres://exported-owner:exported-owner-marker@owner-host:5434/source',
+          },
+      `
+      process.on('beforeExit', () => {
+        assert.equal(queries.filter(query => /drop schema/i.test(query)).length, 1);
+        assert.equal(queries.filter(query => /create database/i.test(query)).length, 1);
+        assert(queries.some(query => /schema_migrations/i.test(query)));
+        assert(queries.some(query => /ALTER ROLE mindsprout_app LOGIN/i.test(query)));
+        const expected = ${JSON.stringify(
+          kind === 'file-only'
+            ? 'postgres://owner:owner-marker@localhost:5432/app_e2e'
+            : 'postgres://exported-owner:exported-owner-marker@owner-host:5434/app_e2e',
+        )};
+        assert(connections.includes(expected));
+        assert(connections.every(url => ['/app_e2e', '/postgres'].includes(new URL(url).pathname)));
+      });
+      `,
+      e2eCli,
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe('');
+  });
+
+  it.each(['connection', 'reset'])('redacts secret-bearing %s failures', async (stage) => {
+    const result = await probe(
+      `DATABASE_URL=${app}\nMIGRATION_DATABASE_URL=${owner}\n`,
+      {},
+      `
+      mock.restoreAll();
+      const failure = Object.assign(new Error('failure-marker ' + process.env.MIGRATION_DATABASE_URL), {
+        input: process.env.DATABASE_URL, cause: new Error('cause-marker')
+      });
+      mock.module(${JSON.stringify(postgresUrl)}, { defaultExport: () => {
+        if (${JSON.stringify(stage)} === 'connection') throw failure;
+        const sql = async () => { throw failure; };
+        sql.end = async () => {};
+        return sql;
+      }});
+      `,
+      e2eCli,
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe(
+      'E2E database setup failed; check database configuration and migrations.\n',
+    );
+    for (const marker of [
+      app,
+      owner,
+      'reader-marker',
+      'owner-marker',
+      'failure-marker',
+      'cause-marker',
+    ]) {
+      expect(result.stdout + result.stderr).not.toContain(marker);
+    }
+  });
+
+  it('derives a target without clients or environment mutation and removes every database override', async () => {
+    const result = await probe(
+      undefined,
+      {},
+      `
+      const { deriveTestDatabaseTarget } = await import(${JSON.stringify(lifecycleUrl)});
+      const env = Object.freeze({
+        DATABASE_URL: 'postgres://reader:reader-marker@reader-host:5433/app_dev?database=app_dev&%64atabase=postgres&application_name=e2e-probe',
+        MIGRATION_DATABASE_URL: 'postgresql://owner:owner-marker@owner-host:5434/source?database=source&database=postgres&sslmode=require'
+      });
+      assert.deepEqual(deriveTestDatabaseTarget('app_e2e', env), {
+        databaseName: 'app_e2e',
+        databaseUrl: 'postgres://reader:reader-marker@reader-host:5433/app_e2e?application_name=e2e-probe',
+        migrationDatabaseUrl: 'postgresql://owner:owner-marker@owner-host:5434/app_e2e?sslmode=require'
+      });
+      assert.equal(connections.length, 0);
+      assert.equal(process.env.DATABASE_URL, undefined);
+      assert.equal(process.env.MIGRATION_DATABASE_URL, undefined);
+      `,
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout + result.stderr).toBe('');
   });
 });
