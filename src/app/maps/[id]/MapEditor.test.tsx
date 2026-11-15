@@ -1,8 +1,10 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { StrictMode, type ReactElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../../tests/support/canvas';
 import { mapOf, node } from '../../../../tests/support/map-domain';
+import { MapFetch } from '../../../../tests/support/map-fetch';
+import { heldResult } from '../../../../tests/support/map-library';
 import { RecordingRepository } from '../../../../tests/support/map-repository-stub';
 import {
   StorageUnavailableError,
@@ -10,6 +12,7 @@ import {
 } from '../../../contexts/map/domain/errors';
 import type { MapRepository } from '../../../contexts/map/domain/map-repository';
 import type { MindMap } from '../../../contexts/map/domain/types';
+import { HttpMapRepository } from '../../../contexts/map/infrastructure/persistence/http-map-repository';
 import { InMemoryMapRepository } from '../../../contexts/map/infrastructure/persistence/in-memory-map-repository';
 import { MapRepositoryProvider } from '../../providers/MapRepositoryProvider';
 import { MapEditor } from './MapEditor';
@@ -19,6 +22,9 @@ import { MapEditor } from './MapEditor';
 // in exactly one visible state; a rejection is never presented as not-found.
 
 failOnConsoleNoise();
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const NOT_FOUND = '找不到这张导图';
 const FUTURE_VERSION = '此导图由更新版本创建';
@@ -157,6 +163,8 @@ describe('MapEditor', () => {
     ['a plain Error', new Error('stored map "m1" is unreadable')],
     ['StorageUnavailableError', new StorageUnavailableError('IndexedDB became unusable')],
   ])('shows the error state, never not-found, when get rejects with %s', async (_label, error) => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { pathname: '/maps/m1', assign });
     const repository = await rejectGetWith(error);
 
     expect(screen.getByText(UNREADABLE)).toBeTruthy();
@@ -167,6 +175,7 @@ describe('MapEditor', () => {
       error instanceof StorageUnavailableError,
     );
     expect(screen.getByRole('link', { name: '返回导图列表' }).getAttribute('href')).toBe('/');
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it('shows the error state when the repository failed to open', async () => {
@@ -239,5 +248,96 @@ describe('MapEditor', () => {
     expect(screen.queryByText(UNREADABLE)).toBeNull();
     expect(screen.queryByText(NOT_FOUND)).toBeNull();
     expect(screen.queryByText('未保存到浏览器')).toBeNull();
+  });
+});
+
+describe('editor load session expiry', () => {
+  it.each([
+    { id: 'm1', pathname: '/maps/m1', next: '/login?next=%2Fmaps%2Fm1' },
+    { id: 'map two', pathname: '/maps/map%20two', next: '/login?next=%2Fmaps%2Fmap%2520two' },
+  ])('redirects the current HTTP 401 at $pathname to login', async ({ id, pathname, next }) => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { pathname, search: '?view=map', assign });
+    const server = new MapFetch();
+    server.respondNext(() => new Response(null, { status: 401 }));
+    editorOver(() => Promise.resolve(new HttpMapRepository(server.fetch)), id);
+    await waitFor(() => {
+      expect(assign.mock.calls).toEqual([[next]]);
+    });
+    expect(server.requests).toHaveLength(1);
+    expect(screen.queryByTestId('map-editor-ready')).toBeNull();
+    expect(screen.queryByText(UNREADABLE)).toBeNull();
+  });
+
+  it.each([
+    { status: 500, message: UNREADABLE },
+    { status: 404, message: NOT_FOUND },
+    { status: 409, message: FUTURE_VERSION },
+    { status: null, message: UNREADABLE },
+  ])('preserves the HTTP $status load outcome', async ({ status, message }) => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { pathname: '/maps/m1', assign });
+    const server = new MapFetch();
+    server.respondNext(() => {
+      if (status === null) throw new TypeError('network disconnected');
+      return Response.json({ error: 'unsupported-schema-version', found: 2 }, { status });
+    });
+    editorOver(() => Promise.resolve(new HttpMapRepository(server.fetch)), 'm1');
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('ignores an expired prior-map load after a different map opens', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { pathname: '/maps/current', assign });
+    const server = new MapFetch();
+    const stale = heldResult<Response>();
+    server.respondNext(() => stale.promise);
+    const repository = new HttpMapRepository(server.fetch);
+    const open = () => Promise.resolve(repository);
+    const view = editorOver(open, 'previous');
+    await settled();
+    expect(server.requests).toHaveLength(1);
+    server.respondNext(() =>
+      Response.json({ schemaVersion: 1, map: { ...SEEDED, id: 'current', title: '当前导图' } }),
+    );
+    view.rerender(
+      <MapRepositoryProvider open={open}>
+        <MapEditor id="current" />
+      </MapRepositoryProvider>,
+    );
+    expect(await screen.findByTestId('map-editor-ready')).toBeTruthy();
+    await act(async () => {
+      stale.resolve(new Response(null, { status: 401 }));
+      await stale.promise;
+    });
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.getByTestId('editor-title').textContent).toBe('当前导图');
+    expect(server.requests).toMatchObject([
+      { input: '/api/maps/previous', init: { method: 'GET' } },
+      { input: '/api/maps/current', init: { method: 'GET' } },
+    ]);
+  });
+
+  it('ignores HTTP 401 from a StrictMode-discarded editor load', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { pathname: '/maps/m1', assign });
+    const server = new MapFetch();
+    const discarded = heldResult<Response>();
+    server.respondNext(() => discarded.promise);
+    server.respondNext(() => Response.json({ schemaVersion: 1, map: SEEDED }));
+    editorOver(
+      () => Promise.resolve(new HttpMapRepository(server.fetch)),
+      'm1',
+      (element) => <StrictMode>{element}</StrictMode>,
+    );
+    expect(await screen.findByTestId('map-editor-ready')).toBeTruthy();
+    expect(server.requests).toHaveLength(2);
+    await act(async () => {
+      discarded.resolve(new Response(null, { status: 401 }));
+      await discarded.promise;
+    });
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.getByTestId('editor-title').textContent).toBe('标题A');
   });
 });

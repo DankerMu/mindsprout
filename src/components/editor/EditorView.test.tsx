@@ -4,6 +4,7 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { EditorState } from '../../contexts/map/application/editor-store/editor-store';
 import { failOnConsoleNoise, nodeWrapper } from '../../../tests/support/canvas';
 import { mapOf, node } from '../../../tests/support/map-domain';
+import { httpRepository, MapFetch } from '../../../tests/support/map-fetch';
 import { RecordingRepository } from '../../../tests/support/map-repository-stub';
 import { StorageUnavailableError } from '../../contexts/map/domain/errors';
 import { EditorSession, selectMap, useEditorStoreApi } from './EditorSession';
@@ -33,6 +34,7 @@ describe('EditorView', () => {
     expect(nodeWrapper('r').textContent).toBe('根节点B');
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '撤销' }).disabled).toBe(true);
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '重做' }).disabled).toBe(true);
+    expect(screen.queryByRole('link', { name: '重新登录' })).toBeNull();
   });
 
   it('projects click and Shift toggle selection and routes canvas keys to the session', () => {
@@ -92,6 +94,97 @@ describe('EditorView', () => {
     },
   );
 
+  it('keeps a renamed canvas node after session expiry and offers re-login in a new tab', async () => {
+    vi.useFakeTimers();
+    const server = new MapFetch();
+    server.respondNext(() => new Response(null, { status: 401 }));
+    render(
+      <EditorSession map={MAP} repository={httpRepository(server)}>
+        <EditorView />
+      </EditorSession>,
+    );
+
+    fireEvent.doubleClick(nodeWrapper('a'));
+    fireEvent.change(screen.getByLabelText('节点标题'), { target: { value: '过期后保留的改名' } });
+    fireEvent.keyDown(screen.getByLabelText('节点标题'), { key: 'Enter' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(server.requests).toHaveLength(1);
+    expect(server.requests[0]).toMatchObject({
+      input: '/api/maps/m1',
+      init: { method: 'PUT' },
+    });
+    expect(nodeWrapper('a').textContent).toBe('过期后保留的改名');
+    expect(
+      screen
+        .getByRole('alert')
+        .contains(screen.getByText('登录已过期，请在新标签页重新登录后继续编辑')),
+    ).toBe(true);
+    const relogin = screen.getByRole('link', { name: '重新登录' });
+    expect(relogin.getAttribute('href')).toBe('/login?next=%2F');
+    expect(relogin.getAttribute('target')).toBe('_blank');
+  });
+
+  it.each([
+    { failure: 'HTTP 401', status: 401, notice: '登录已过期，请在新标签页重新登录后继续编辑' },
+    { failure: 'HTTP 500', status: 500, notice: '保存失败' },
+    { failure: 'network failure', status: null, notice: '保存失败' },
+  ])('recovers both edits after $failure until notice dismissal', async ({ status, notice }) => {
+    vi.useFakeTimers();
+    const server = new MapFetch();
+    server.respondNext(() => {
+      if (status === null) throw new TypeError('network disconnected');
+      return new Response(null, { status });
+    });
+    render(
+      <EditorSession map={MAP} repository={httpRepository(server)}>
+        <EditorView />
+      </EditorSession>,
+    );
+    fireEvent.doubleClick(nodeWrapper('a'));
+    fireEvent.change(screen.getByLabelText('节点标题'), { target: { value: '第一次修改' } });
+    fireEvent.keyDown(screen.getByLabelText('节点标题'), { key: 'Enter' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(server.requests).toHaveLength(1);
+    expect(nodeWrapper('a').textContent).toBe('第一次修改');
+    expect(screen.getByText(notice)).toBeTruthy();
+    expect(screen.queryByRole('link', { name: '重新登录' }) !== null).toBe(status === 401);
+    expect(screen.queryByText('未保存到浏览器')).toBeNull();
+
+    fireEvent.doubleClick(nodeWrapper('r'));
+    fireEvent.change(screen.getByLabelText('节点标题'), { target: { value: '第二次修改' } });
+    fireEvent.keyDown(screen.getByLabelText('节点标题'), { key: 'Enter' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(server.requests).toHaveLength(2);
+    const body = server.requests[1]?.init?.body;
+    if (typeof body !== 'string') throw new Error('Expected a JSON request body');
+    expect(JSON.parse(body) as unknown).toMatchObject({
+      schemaVersion: 1,
+      map: {
+        id: 'm1',
+        roots: [{ id: 'r', text: '第二次修改', children: [{ id: 'a', text: '第一次修改' }] }],
+      },
+    });
+    expect(nodeWrapper('a').textContent).toBe('第一次修改');
+    expect(nodeWrapper('r').textContent).toBe('第二次修改');
+    await act(async () => {
+      window.dispatchEvent(new Event('pagehide'));
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(server.requests).toHaveLength(2);
+    expect(screen.getByText(notice)).toBeTruthy();
+    expect(screen.queryByRole('link', { name: '重新登录' }) !== null).toBe(status === 401);
+    fireEvent.click(screen.getByRole('button', { name: '关闭提示' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('link', { name: '重新登录' })).toBeNull();
+  });
+
   it('keeps a failed rename, renders the current store notice and clears it only on dismiss', async () => {
     vi.useFakeTimers();
     const repository = new RecordingRepository();
@@ -121,6 +214,7 @@ describe('EditorView', () => {
     });
     expect(screen.getByRole('alert').textContent).toContain('主根不能删除');
     expect(screen.queryByText('保存失败')).toBeNull();
+    expect(screen.queryByRole('link', { name: '重新登录' })).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
     fireEvent.click(screen.getByRole('button', { name: '关闭提示' }));
     expect(store?.getState().notice).toBeNull();

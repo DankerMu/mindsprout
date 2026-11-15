@@ -3,7 +3,10 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { deleteMap } from '../../contexts/map/application/delete-map';
 import { renameMap } from '../../contexts/map/application/rename-map';
-import { UnsupportedSchemaVersionError } from '../../contexts/map/domain/errors';
+import {
+  StorageUnauthorizedError,
+  UnsupportedSchemaVersionError,
+} from '../../contexts/map/domain/errors';
 import { createMindMap } from '../../contexts/map/domain/create-mind-map';
 import type { MapRepository, MapSummary } from '../../contexts/map/domain/map-repository';
 import { byRecency } from '../../contexts/map/domain/summary-order';
@@ -211,8 +214,14 @@ export function MapLibrary({
       (maps) => {
         if (!lifetime.cancelled) setLoaded({ status: 'ready', maps, repository, lifetime });
       },
-      () => {
-        if (!lifetime.cancelled) setLoaded({ status: 'error', repository });
+      (error: unknown) => {
+        if (lifetime.cancelled) return;
+        if (error instanceof StorageUnauthorizedError) {
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- Decision 0025: expired loads require a fresh document.
+          window.location.assign('/login?next=' + encodeURIComponent(window.location.pathname));
+          return;
+        }
+        setLoaded({ status: 'error', repository });
       },
     );
     return () => {

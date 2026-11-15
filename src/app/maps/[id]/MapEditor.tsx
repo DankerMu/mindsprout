@@ -5,6 +5,7 @@ import { EditorSession } from '../../../components/editor/EditorSession';
 import { EditorView } from '../../../components/editor/EditorView';
 import { StorageUnavailableBanner } from '../../../components/StorageUnavailableBanner';
 import {
+  StorageUnauthorizedError,
   StorageUnavailableError,
   UnsupportedSchemaVersionError,
 } from '../../../contexts/map/domain/errors';
@@ -46,11 +47,16 @@ function StoredMap({
         }
       },
       (error: unknown) => {
-        if (!cancelled)
-          setLoaded({
-            status: statusOf(error),
-            storageUnavailable: error instanceof StorageUnavailableError,
-          });
+        if (cancelled) return;
+        if (error instanceof StorageUnauthorizedError) {
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- Decision 0025: expired loads require a fresh document.
+          window.location.assign('/login?next=' + encodeURIComponent(window.location.pathname));
+          return;
+        }
+        setLoaded({
+          status: statusOf(error),
+          storageUnavailable: error instanceof StorageUnavailableError,
+        });
       },
     );
     return () => {

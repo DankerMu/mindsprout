@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { SESSION_EXPIRED } from '../../contexts/map/application/editor-store/editor-store';
 import { findNode, visibleIds } from '../../contexts/map/application/editor-store/selection';
 import { MindMapCanvas } from '../canvas/MindMapCanvas';
 import { NotePanel } from '../canvas/NotePanel';
@@ -79,6 +80,11 @@ export function EditorView({ storageUnavailable = false }: { storageUnavailable?
           selection.clearNotice();
         }}
       />
+      {selection.notice === SESSION_EXPIRED && (
+        <a href="/login?next=%2F" target="_blank" rel="noopener noreferrer">
+          重新登录
+        </a>
+      )}
       <div className={styles.canvas}>
         <MindMapCanvas
           map={map}

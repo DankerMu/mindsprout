@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StrictMode } from 'react';
 import type { MapSummary } from '../../contexts/map/domain/map-repository';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
+import { httpRepository, MapFetch } from '../../../tests/support/map-fetch';
 import { RecordingRepository } from '../../../tests/support/map-repository-stub';
 import type { MindMap } from '../../contexts/map/domain/types';
 import { heldResult, memoryLibrary } from '../../../tests/support/map-library';
@@ -11,6 +12,7 @@ import { MapLibrary } from './MapLibrary';
 failOnConsoleNoise();
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 const EARLY = '2026-11-05T10:00:00.000Z';
@@ -392,5 +394,61 @@ describe('MapLibrary', () => {
       await Promise.resolve();
     });
     expect(navigate.mock.calls).toEqual([[`/maps/${repository.puts[1]?.id ?? ''}`]]);
+  });
+});
+
+describe('library load session expiry', () => {
+  it('redirects an expired library load to login with only the current pathname', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', {
+      pathname: '/',
+      search: '?filter=recent',
+      hash: '#maps',
+      assign,
+    });
+    const server = new MapFetch();
+    server.respondNext(() => new Response(null, { status: 401 }));
+    render(<MapLibrary repository={httpRepository(server)} navigate={vi.fn()} />);
+    await waitFor(() => {
+      expect(assign.mock.calls).toEqual([['/login?next=%2F']]);
+    });
+    expect(server.requests).toMatchObject([{ input: '/api/maps', init: { method: 'GET' } }]);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it.each(['HTTP 500', 'network failure'])('does not redirect on %s', async (failure) => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { pathname: '/', assign });
+    const server = new MapFetch();
+    server.respondNext(() => {
+      if (failure === 'network failure') throw new TypeError('network disconnected');
+      return new Response(null, { status: 500 });
+    });
+    render(<MapLibrary repository={httpRepository(server)} navigate={vi.fn()} />);
+    expect((await screen.findByRole('alert')).textContent).toBe('无法读取导图列表');
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('ignores a discarded library load that returns HTTP 401 after the current list', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { pathname: '/', assign });
+    const server = new MapFetch();
+    const discarded = heldResult<Response>();
+    server.respondNext(() => discarded.promise);
+    const repository = httpRepository(server);
+    render(
+      <StrictMode>
+        <MapLibrary repository={repository} navigate={vi.fn()} />
+      </StrictMode>,
+    );
+    expect(await screen.findByText('还没有导图')).toBeTruthy();
+    expect(server.requests).toHaveLength(2);
+    await act(async () => {
+      discarded.resolve(new Response(null, { status: 401 }));
+      await discarded.promise;
+    });
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.getByText('还没有导图')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

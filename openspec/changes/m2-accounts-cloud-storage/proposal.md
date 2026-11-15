@@ -174,6 +174,15 @@ Blast radius: deferred put loses the final edit during page unload; wrong keepal
 Selected risk packs: Repository contract compatibility; Flush timing/keepalive resource limit; Error taxonomy; Envelope validation; Same-origin request safety. No UI/provider flip or API change.
 Evidence floor: unchanged shared contract suite over HTTP+memory double, synchronous deferred-put proof, UTF-8 60000/60001 boundary, request shapes,404/409/malformed200, every-method401 and plain-Error failure matrix, full unit≥90 and boundaries. Preserve D5/D7/decision0011 and all prior fixtures.
 
+## Issue #159 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: autosave/pending-edit state and load redirect across application+UI; runtime consumer waits for6.8)
+Blast radius: clearing or replacing pending state loses pre/post-expiry edits; wrong error classification sends ordinary failures to login; an in-place editor navigation or stale-map401 loses the current editing context.
+Selected risk packs: Pending-edit state machine; Save failure recovery; Load-time auth redirect; Editor identity compatibility; Accessible link/UI evidence. No provider flip/login implementation.
+Evidence floor: fetch-double component tests prove401→pending canvas+notice/link→combined second save, repeated failure and stale204 preserve retries, successful saves leave notices until explicit dismissal,500/network recovery, exact new-tab link, current-path redirects and discarded/stale401 suppression; scoped unit coverage and existing library/editor Playwright smoke. Preserve D7/decisions0011/0016 and all prior fixtures.
+
 ## Impact
 
 - **New code:**
