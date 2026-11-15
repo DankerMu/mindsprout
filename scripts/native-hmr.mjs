@@ -19,6 +19,7 @@ import {
   capturePage,
   nativeIdentity,
   publicMap,
+  registerNativeProbeUser,
   clock,
   editorChunkFile,
   editorUpdates,
@@ -645,6 +646,7 @@ async function startRuntime() {
   const context = await browser.newContext();
   context.setDefaultTimeout(5000);
   context.setDefaultNavigationTimeout(5000);
+  await registerNativeProbeUser(context, origin);
   retained = await attach(await context.newPage(), 'retained-editor');
   phase = 'public-map-setup';
   return context;

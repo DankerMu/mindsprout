@@ -3,13 +3,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { performance } from 'node:perf_hooks';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
+
+export async function registerNativeProbeUser(context, origin) {
+  const username = `native-${randomUUID()}`;
+  const registration = await context.request.post(`${origin}/api/auth/register`, {
+    data: { username, password: 'native-probe-only' },
+  });
+  if (registration.status() !== 201) throw new Error('Native probe registration must return 201');
+  const session = await context.request.get(`${origin}/api/auth/session`);
+  if (session.status() !== 200) throw new Error('Native probe session must return 200');
+  if ((await session.json())?.username !== username)
+    throw new Error('Native probe session username must match registration');
+  return username;
+}
 
 export function deadline(promise, ms, label) {
   let timer;

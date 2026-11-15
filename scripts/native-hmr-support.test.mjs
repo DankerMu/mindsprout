@@ -8,6 +8,7 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { setImmediate as nextTurn, setTimeout as sleep } from 'node:timers/promises';
 import test from 'node:test';
+import * as nativeSupport from './native-hmr-support.mjs';
 import {
   assertSourceProof,
   clock,
@@ -22,6 +23,97 @@ import {
   visibleWithin,
   waitForEmitted,
 } from './native-hmr-support.mjs';
+
+function registrationContext({
+  registerStatus = 201,
+  sessionStatus = 200,
+  wrongUser = false,
+} = {}) {
+  const calls = [];
+  let registered;
+  const unread = () => assert.fail('Response credentials must not be inspected');
+  const context = {
+    newPage: () => assert.fail('Sign-in must not open a page'),
+    request: {
+      async post(...args) {
+        assert.equal(this, context.request);
+        calls.push(['post', ...args]);
+        registered = args[1].data.username;
+        return { status: () => registerStatus, json: unread, headers: unread, body: unread };
+      },
+      async get(...args) {
+        assert.equal(this, context.request);
+        calls.push(['get', ...args]);
+        return {
+          status: () => sessionStatus,
+          json: async () => {
+            assert.equal(sessionStatus, 200, 'A refused session body must not be read');
+            return {
+              username: wrongUser ? 'private-response-marker' : registered,
+              token: 'private-token-marker',
+            };
+          },
+          headers: unread,
+          body: unread,
+        };
+      },
+    },
+  };
+  return { context, calls };
+}
+
+test('native sign-in registers a fresh user and proves its session in the same context', async () => {
+  const fixture = registrationContext();
+  const first = await nativeSupport.registerNativeProbeUser(
+    fixture.context,
+    'http://localhost:3000',
+  );
+  assert.match(
+    first,
+    /^native-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+  assert.equal(first.length, 43);
+  assert.deepEqual(fixture.calls, [
+    [
+      'post',
+      'http://localhost:3000/api/auth/register',
+      { data: { username: first, password: 'native-probe-only' } },
+    ],
+    ['get', 'http://localhost:3000/api/auth/session'],
+  ]);
+  const second = await nativeSupport.registerNativeProbeUser(
+    fixture.context,
+    'http://localhost:3000',
+  );
+  assert.notEqual(second, first);
+  assert.equal(fixture.calls.length, 4);
+  assert.equal(fixture.calls[2][2].data.username, second);
+});
+
+for (const refusal of [
+  { registerStatus: 200, message: 'Native probe registration must return 201', calls: 1 },
+  { registerStatus: 409, message: 'Native probe registration must return 201', calls: 1 },
+  { sessionStatus: 401, message: 'Native probe session must return 200', calls: 2 },
+  { sessionStatus: 500, message: 'Native probe session must return 200', calls: 2 },
+  { wrongUser: true, message: 'Native probe session username must match registration', calls: 2 },
+]) {
+  test(`native sign-in refuses ${JSON.stringify(refusal)} without leaking credentials`, async () => {
+    const fixture = registrationContext(refusal);
+    await assert.rejects(
+      async () => nativeSupport.registerNativeProbeUser(fixture.context, 'http://localhost:3000'),
+      (error) => {
+        assert.equal(error.message, refusal.message);
+        assert.equal(error.cause, undefined);
+        assert.doesNotMatch(
+          String(error),
+          /native-probe-only|private-response-marker|private-token-marker|set-cookie/i,
+        );
+        return true;
+      },
+    );
+    assert.equal(fixture.calls.length, refusal.calls);
+  });
+}
 
 test('public map root document commit failure preserves its cause and navigation budget', async () => {
   const cause = new Error('page.goto: Timeout 5000ms exceeded.');

@@ -26,11 +26,27 @@ jobs:
     name: Linux x64 GNU native repair
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: app_native
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d app_native"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       CARGO_BUILD_JOBS: "2" # Bound simultaneous LLVM links on the hosted runner.
       CARGO_PROFILE_DEV_DEBUG: "0" # Native test symbols otherwise exhaust runner disk.
       CARGO_PROFILE_TEST_DEBUG: "0"
       NEXT_TELEMETRY_DISABLED: "1"
+      MIGRATION_DATABASE_URL: postgres://app:app@127.0.0.1:5432/app_native
+      DATABASE_URL: postgres://mindsprout_app:app@127.0.0.1:5432/app_native
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -73,6 +89,7 @@ jobs:
           NODE
       - name: Bootstrap candidate dependencies without qualifying the previous publication
         run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm db:setup
       - run: pnpm exec playwright install --with-deps chromium
       - name: Owned process-group lifecycle contracts
         shell: bash
