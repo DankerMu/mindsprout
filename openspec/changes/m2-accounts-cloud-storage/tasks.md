@@ -349,7 +349,7 @@ Minimal mergeable slice: 6.1 - the HTTP adapter is fully contract-tested and unu
 
 ## 7. Sign-in pages and routing
 
-- [ ] 7.1 Add `/login` and `/register` pages with client forms in `src/components/account/` (design D8).
+- [x] 7.1 Add `/login` and `/register` pages with client forms in `src/components/account/` (design D8).
   - The forms post JSON to the auth routes and show `用户名或密码错误`, `用户名已被占用` and `请输入用户名和密码`.
   - On success they navigate to `next`, sanitised by a shared pure `safeNextPath` helper in `src/shared/`.
   - Add `/login` to `constraints.yaml` `key_ui_paths` and to the `e2e/smoke.spec.ts` walk.

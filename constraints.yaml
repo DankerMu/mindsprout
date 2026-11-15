@@ -289,6 +289,8 @@ verification:
       status: "covered by e2e/smoke.spec.ts"
     - path: "/maps/[id]"
       status: "covered by e2e/smoke.spec.ts"
+    - path: "/login"
+      status: "covered by e2e/smoke.spec.ts"
   surfaces:
     liveness:
       command: "pnpm dev:status"
