@@ -359,9 +359,56 @@ describe('PUT map validation and size', () => {
       expect(response.status).toBe(413);
       await expect(response.json()).resolves.toEqual({ error: 'too-large' });
       expect(pulls).toBe(2);
-      expect(cancelled).toHaveBeenCalledOnce();
+      expect(cancelled).not.toHaveBeenCalled();
+      expect(stream.locked).toBe(false);
       expect(mapsForUser).not.toHaveBeenCalled();
       expect(put).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['rejected', 'deferred'])(
+    'returns overflow without depending on %s stream cancellation',
+    async (mode) => {
+      let finishCancel: (() => void) | undefined;
+      const cancelled = vi.fn(() =>
+        mode === 'rejected'
+          ? Promise.reject(new Error('private cancellation failure'))
+          : new Promise<void>((resolve) => {
+              finishCancel = resolve;
+            }),
+      );
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            controller.enqueue(new Uint8Array(1048577));
+          },
+          cancel: cancelled,
+        },
+        { highWaterMark: 0 },
+      );
+      const input = new Request('http://localhost/api/maps/map-id', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: stream,
+        duplex: 'half',
+      } as RequestInit);
+      let response: Response | undefined;
+      const pending = PUT(input, { params: Promise.resolve({ id: 'map-id' }) }).then((result) => {
+        response = result;
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      try {
+        expect(response?.status).toBe(413);
+        await expect(response?.json()).resolves.toEqual({ error: 'too-large' });
+        expect(stream.locked).toBe(false);
+        expect(cancelled).not.toHaveBeenCalled();
+        expect(mapsForUser).not.toHaveBeenCalled();
+        expect(put).not.toHaveBeenCalled();
+        expect(errorLog).not.toHaveBeenCalled();
+      } finally {
+        finishCancel?.();
+        await pending;
+      }
     },
   );
 
@@ -390,6 +437,72 @@ describe('PUT map validation and size', () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: 'invalid-map' });
     expect(mapsForUser).not.toHaveBeenCalled();
+  });
+
+  it('refuses malformed UTF-8 inside map text without repairing or writing it', async () => {
+    const [prefix, suffix] = JSON.stringify({
+      schemaVersion: 1,
+      map: { ...map, title: 'BYTE' },
+    }).split('BYTE');
+    const input = new Request('http://localhost/api/maps/map-id', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: new Uint8Array([
+        ...new TextEncoder().encode(prefix),
+        0xff,
+        ...new TextEncoder().encode(suffix),
+      ]),
+    });
+    const response = await PUT(input, { params: Promise.resolve({ id: 'map-id' }) });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'invalid-map' });
+    expect(mapsForUser).not.toHaveBeenCalled();
+    expect(put).not.toHaveBeenCalled();
+    expect(errorLog).not.toHaveBeenCalled();
+  });
+
+  it('refuses a truncated UTF-8 sequence at end of body without logging', async () => {
+    const input = new Request('http://localhost/api/maps/map-id', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: new Uint8Array([
+        ...new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, map })),
+        0xc3,
+      ]),
+    });
+    const response = await PUT(input, { params: Promise.resolve({ id: 'map-id' }) });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'invalid-map' });
+    expect(mapsForUser).not.toHaveBeenCalled();
+    expect(put).not.toHaveBeenCalled();
+    expect(errorLog).not.toHaveBeenCalled();
+  });
+
+  it('refuses malformed UTF-8 split across chunks without writing', async () => {
+    const [prefix, suffix] = JSON.stringify({
+      schemaVersion: 1,
+      map: { ...map, title: 'BYTE' },
+    }).split('BYTE');
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([...new TextEncoder().encode(prefix), 0xc3]));
+        controller.enqueue(new Uint8Array([0x28, ...new TextEncoder().encode(suffix)]));
+        controller.close();
+      },
+    });
+    const input = new Request('http://localhost/api/maps/map-id', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: stream,
+      duplex: 'half',
+    } as RequestInit);
+    const response = await PUT(input, { params: Promise.resolve({ id: 'map-id' }) });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'invalid-map' });
+    expect(mapsForUser).not.toHaveBeenCalled();
+    expect(put).not.toHaveBeenCalled();
+    expect(errorLog).not.toHaveBeenCalled();
+    expect(stream.locked).toBe(false);
   });
 
   it('preserves UTF-8 split across stream chunks without rereading the body', async () => {

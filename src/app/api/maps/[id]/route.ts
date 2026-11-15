@@ -35,7 +35,7 @@ async function readMapBody(request: Request): Promise<string | Response> {
   }
   const reader = request.body?.getReader();
   if (!reader) return '';
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
   let bytes = 0;
   let text = '';
   try {
@@ -43,13 +43,20 @@ async function readMapBody(request: Request): Promise<string | Response> {
     while (!chunk.done) {
       bytes += chunk.value.byteLength;
       if (bytes > MAX_BODY_BYTES) {
-        await reader.cancel();
         return Response.json({ error: 'too-large' }, { status: 413 });
       }
-      text += decoder.decode(chunk.value, { stream: true });
+      try {
+        text += decoder.decode(chunk.value, { stream: true });
+      } catch {
+        return Response.json({ error: 'invalid-map' }, { status: 400 });
+      }
       chunk = await reader.read();
     }
-    return text + decoder.decode();
+    try {
+      return text + decoder.decode();
+    } catch {
+      return Response.json({ error: 'invalid-map' }, { status: 400 });
+    }
   } finally {
     reader.releaseLock();
   }
