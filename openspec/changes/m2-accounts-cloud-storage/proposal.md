@@ -137,6 +137,7 @@ Upstream suggested level: absent (expanded: required native CI/gate observabilit
 Blast radius: mislabeled gates send debugging to the wrong layer; missing Document response metadata prevents server/browser attribution; any timeout/retry/warmup change could hide a real native regression.
 Selected risk packs: Gate integrity; Timing/concurrency observability; Browser/network evidence; Compatibility existing five-second contracts; Resource bounds/no extra requests. No auth/map/storage behavior.
 Evidence floor: deterministic red fake timeout and CDP Document events, explicit root-commit gate and response/completion metadata, unchanged 5000ms/noise/readiness, actual local native both modes, native:browser:test/guardrails/docs. Root cause may remain unknown per issue, never inferred from a later pass. Preserve all existing fixtures/D11.
+
 ## Issue #155 Fixture Triage
 
 Issue type: feature
