@@ -1,10 +1,17 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
-import { StrictMode, type ReactElement } from 'react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  type RenderOptions,
+} from '@testing-library/react';
+import { Component, StrictMode, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { failOnConsoleNoise } from '../../../../tests/support/canvas';
+import { failOnConsoleNoise, nodeWrapper } from '../../../../tests/support/canvas';
 import { mapOf, node } from '../../../../tests/support/map-domain';
 import { MapFetch } from '../../../../tests/support/map-fetch';
-import { heldResult } from '../../../../tests/support/map-library';
+import { ControlledLibrary, heldResult } from '../../../../tests/support/map-library';
 import { RecordingRepository } from '../../../../tests/support/map-repository-stub';
 import {
   StorageUnavailableError,
@@ -16,6 +23,7 @@ import { HttpMapRepository } from '../../../contexts/map/infrastructure/persiste
 import { InMemoryMapRepository } from '../../../contexts/map/infrastructure/persistence/in-memory-map-repository';
 import { MapRepositoryProvider } from '../../providers/MapRepositoryProvider';
 import { MapEditor } from './MapEditor';
+import MapEditorError from './error';
 
 // Design "Fixture — issue #16": MapEditor inside the provider with an injected open, over an
 // InMemoryMapRepository or a stub whose get outcomes the test scripts. Every get outcome must end
@@ -23,6 +31,7 @@ import { MapEditor } from './MapEditor';
 
 failOnConsoleNoise();
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -57,10 +66,23 @@ class ScriptedGetRepository extends RecordingRepository {
   }
 }
 
+class EditorErrorBoundary extends Component<{ children: ReactElement }, { failed: boolean }> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  override render() {
+    return this.state.failed ? <MapEditorError /> : this.props.children;
+  }
+}
+
 function editorOver(
   open: () => Promise<MapRepository>,
   id: string,
   wrap: (element: ReactElement) => ReactElement = (element) => element,
+  options: Pick<RenderOptions, 'onCaughtError'> = {},
 ) {
   return render(
     wrap(
@@ -68,6 +90,7 @@ function editorOver(
         <MapEditor id={id} />
       </MapRepositoryProvider>,
     ),
+    options,
   );
 }
 
@@ -76,6 +99,18 @@ async function settled(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
   });
+}
+
+async function throughPagehideAndUnmount(unmount: () => void, check: () => Promise<void>) {
+  await check();
+  act(() => {
+    window.dispatchEvent(new Event('pagehide'));
+  });
+  await settled();
+  await check();
+  unmount();
+  await settled();
+  await check();
 }
 
 async function rejectGetWith(error: Error): Promise<ScriptedGetRepository> {
@@ -123,12 +158,59 @@ describe('MapEditor', () => {
     expect(screen.getByRole('link', { name: '返回导图列表' }).getAttribute('href')).toBe('/');
   });
 
+  it('shows the corrupt-record error without changing the record through pagehide and unmount', async () => {
+    const corrupt = {
+      ...mapOf(node('root', [], { text: '根' }), node('lost', [], { text: '无位置' })),
+      id: 'corrupt',
+      title: '损坏',
+    };
+    const repository = new ControlledLibrary();
+    await repository.storage.put(corrupt);
+    const onCaughtError = vi.fn();
+    const { unmount } = editorOver(
+      () => Promise.resolve(repository),
+      corrupt.id,
+      (element) => <EditorErrorBoundary>{element}</EditorErrorBoundary>,
+      { onCaughtError },
+    );
+
+    expect(await screen.findByText(UNREADABLE)).toBeTruthy();
+    expect(screen.queryByText(NOT_FOUND)).toBeNull();
+    expect(screen.queryByTestId('map-editor-ready')).toBeNull();
+    expect(screen.getByRole('link', { name: '返回导图列表' }).getAttribute('href')).toBe('/');
+    expect(onCaughtError).toHaveBeenCalledTimes(1);
+    expect(onCaughtError.mock.calls[0]?.[0]).toEqual(
+      new Error('layoutForest: floating root lost has no finite position'),
+    );
+    await throughPagehideAndUnmount(unmount, async () => {
+      expect(repository.gets).toStrictEqual(['corrupt']);
+      expect(repository.lists).toBe(0);
+      expect(repository.puts).toStrictEqual([]);
+      expect(repository.deletes).toStrictEqual([]);
+      expect(await repository.storage.get('corrupt')).toStrictEqual(corrupt);
+    });
+  });
+
   it('rejects a mismatched map identity without writes through pagehide and unmount', async () => {
-    const repository = new ScriptedGetRepository();
-    const { unmount } = editorOver(() => Promise.resolve(repository), SEEDED.id);
+    const source = {
+      ...mapOf(node('source-root', [], { text: '来源内容' })),
+      id: 'identity-b',
+      title: '来源导图',
+    };
+    const originalSource = structuredClone(source);
+    const peer = {
+      ...mapOf(node('peer-root', [], { text: '独立内容' })),
+      id: 'identity-b',
+      title: '独立导图',
+    };
+    const repository = new ControlledLibrary();
+    await repository.storage.put(peer);
+    const pending = heldResult<MindMap>();
+    repository.read = () => pending.promise;
+    const { unmount } = editorOver(() => Promise.resolve(repository), 'identity-a');
     await settled();
     await act(async () => {
-      repository.call(0).resolve({ ...SEEDED, id: 'other-map' });
+      pending.resolve(source);
       await Promise.resolve();
     });
 
@@ -137,26 +219,90 @@ describe('MapEditor', () => {
     expect(screen.queryByText(NOT_FOUND)).toBeNull();
     expect(screen.queryByText('未保存到浏览器')).toBeNull();
     expect(screen.getByRole('link', { name: '返回导图列表' }).getAttribute('href')).toBe('/');
-    expect(repository.puts).toStrictEqual([]);
-
-    act(() => {
-      window.dispatchEvent(new Event('pagehide'));
+    await throughPagehideAndUnmount(unmount, async () => {
+      expect(repository.gets).toStrictEqual(['identity-a']);
+      expect(repository.lists).toBe(0);
+      expect(repository.puts).toStrictEqual([]);
+      expect(repository.deletes).toStrictEqual([]);
+      expect(source).toStrictEqual(originalSource);
+      expect(await repository.storage.get('identity-a')).toBeUndefined();
+      expect(await repository.storage.get('identity-b')).toStrictEqual(peer);
     });
-    await settled();
-    expect(repository.puts).toStrictEqual([]);
-
-    unmount();
-    await settled();
-    expect(repository.puts).toStrictEqual([]);
   });
 
-  it('shows the future-version state and writes nothing', async () => {
-    const repository = await rejectGetWith(new UnsupportedSchemaVersionError(2, 1));
-
-    expect(screen.getByText(FUTURE_VERSION)).toBeTruthy();
-    expect(screen.queryByText(NOT_FOUND)).toBeNull();
+  it('autosaves a matching identity under its own key and preserves its peer', async () => {
+    const map = {
+      ...mapOf(node('root', [], { text: '编辑前内容' })),
+      id: 'matching-a',
+      title: '编辑导图',
+    };
+    const peer = {
+      ...mapOf(node('peer-root', [], { text: '独立内容' })),
+      id: 'matching-b',
+      title: '独立导图',
+    };
+    const repository = new ControlledLibrary();
+    await repository.storage.put(map);
+    await repository.storage.put(peer);
+    const { unmount } = editorOver(() => Promise.resolve(repository), map.id);
+    expect(await screen.findByTestId('map-editor-ready')).toBeTruthy();
+    expect(nodeWrapper('root').textContent).toBe('编辑前内容');
     expect(repository.puts).toStrictEqual([]);
+
+    vi.useFakeTimers({ now: new Date('2026-11-07T12:00:00.000Z') });
+    try {
+      fireEvent.doubleClick(nodeWrapper('root'));
+      const input = screen.getByLabelText('节点标题');
+      expect(document.activeElement).toBe(input);
+      fireEvent.change(input, { target: { value: '自动保存后的内容' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(screen.queryByLabelText('节点标题')).toBeNull();
+      expect(nodeWrapper('root').textContent).toBe('自动保存后的内容');
+      expect(screen.getByTestId('editor-title').textContent).toBe('编辑导图');
+      expect(repository.puts).toStrictEqual([]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      const saved = {
+        id: 'matching-a',
+        title: '编辑导图',
+        roots: [{ id: 'root', text: '自动保存后的内容', children: [] }],
+        createdAt: '2026-11-05T09:00:00.000Z',
+        updatedAt: '2026-11-07T12:00:00.500Z',
+      };
+      await throughPagehideAndUnmount(unmount, async () => {
+        expect(repository.gets).toStrictEqual(['matching-a']);
+        expect(repository.lists).toBe(0);
+        expect(repository.puts).toStrictEqual([saved]);
+        expect(repository.deletes).toStrictEqual([]);
+        expect(await repository.storage.get('matching-a')).toStrictEqual(saved);
+        expect(await repository.storage.get('matching-b')).toStrictEqual(peer);
+      });
+    } finally {
+      unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows the future-version state without changing records through pagehide and unmount', async () => {
+    const repository = new ControlledLibrary();
+    await repository.storage.put(SEEDED);
+    repository.read = () => Promise.reject(new UnsupportedSchemaVersionError(2, 1));
+    const { unmount } = editorOver(() => Promise.resolve(repository), SEEDED.id);
+
+    expect(await screen.findByText(FUTURE_VERSION)).toBeTruthy();
+    expect(screen.getByRole('link', { name: '返回导图列表' }).getAttribute('href')).toBe('/');
+    expect(screen.queryByTestId('map-editor-ready')).toBeNull();
+    expect(screen.queryByText(NOT_FOUND)).toBeNull();
+    expect(screen.queryByText(UNREADABLE)).toBeNull();
     expect(screen.queryByText('未保存到浏览器')).toBeNull();
+    await throughPagehideAndUnmount(unmount, async () => {
+      expect(repository.gets).toStrictEqual([SEEDED.id]);
+      expect(repository.lists).toBe(0);
+      expect(repository.puts).toStrictEqual([]);
+      expect(repository.deletes).toStrictEqual([]);
+      expect(await repository.storage.get(SEEDED.id)).toStrictEqual(SEEDED);
+    });
   });
 
   it.each([

@@ -180,19 +180,16 @@ describe('mutation failures', () => {
     },
   );
 
-  it.each(['missing', 'mismatched', 'future'] as const)(
+  it.each(['missing', 'mismatched'] as const)(
     'refuses a %s rename without changing any record',
     async (kind) => {
       const { repository } = await setup();
       repository.read = () => {
-        if (kind === 'future') return Promise.reject(new UnsupportedSchemaVersionError(2, 1));
         return Promise.resolve(kind === 'missing' ? undefined : PEER);
       };
       openMutation('rename');
       await submitMutation('rename');
-      expect(screen.getByRole('alert').textContent).toBe(
-        kind === 'future' ? '此导图由更新版本创建' : '保存失败，请重试',
-      );
+      expect(screen.getByRole('alert').textContent).toBe('保存失败，请重试');
       expect(screen.getByRole('link', { name: 'A' })).toBeTruthy();
       expect(repository.gets).toEqual(['a']);
       expect(repository.puts).toEqual([]);
@@ -202,15 +199,43 @@ describe('mutation failures', () => {
     },
   );
 
-  it('deletes a visible row even when its content cannot be read', async () => {
+  it('refuses a future-version rename, then explicitly deletes only that record without rereading it', async () => {
     const { repository } = await setup();
+    const listCalls = repository.lists;
     repository.read = () => Promise.reject(new UnsupportedSchemaVersionError(2, 1));
-    openMutation('delete');
+    const form = openMutation('rename');
+    await submitMutation('rename');
+    expect(within(form).getByRole('alert').textContent).toBe('此导图由更新版本创建');
+    expect(screen.getByRole('link', { name: 'A' })).toBeTruthy();
+    expect(repository.gets).toEqual(['a']);
+    expect(repository.puts).toEqual([]);
+    expect(repository.deletes).toEqual([]);
+    expect(await repository.storage.get('a')).toStrictEqual(TARGET);
+    expect(await repository.storage.get('b')).toStrictEqual(PEER);
+
+    fireEvent.click(within(form).getByRole('button', { name: '取消' }));
+    expect(form.isConnected).toBe(false);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(repository.gets).toEqual(['a']);
+    expect(repository.puts).toEqual([]);
+    expect(repository.deletes).toEqual([]);
+    expect(await repository.storage.get('a')).toStrictEqual(TARGET);
+    expect(await repository.storage.get('b')).toStrictEqual(PEER);
+
+    const dialog = openMutation('delete');
+    expect(repository.deletes).toEqual([]);
+    expect(await repository.storage.get('a')).toStrictEqual(TARGET);
     await submitMutation('delete');
-    expect(repository.gets).toEqual([]);
+    expect(dialog.isConnected).toBe(false);
+    expect(repository.gets).toEqual(['a']);
+    expect(repository.puts).toEqual([]);
     expect(repository.deletes).toEqual(['a']);
+    expect(repository.lists).toBe(listCalls);
     expect(await repository.storage.get('a')).toBeUndefined();
     expect(await repository.storage.get('b')).toStrictEqual(PEER);
+    expect(screen.queryByRole('link', { name: 'A' })).toBeNull();
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'B' })).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
   });
 });
