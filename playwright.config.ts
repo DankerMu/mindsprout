@@ -4,7 +4,7 @@ import { deriveTestDatabaseTarget } from './scripts/test-database.mjs';
 
 // Preparation runs in a separate process; direct Playwright runs need the same environment.
 if (existsSync('.env')) process.loadEnvFile('.env');
-const target = deriveTestDatabaseTarget('app_e2e', process.env);
+deriveTestDatabaseTarget('app_e2e', process.env);
 
 export default defineConfig({
   testDir: './e2e',
@@ -20,13 +20,11 @@ export default defineConfig({
       : {}),
   },
   webServer: {
-    command: 'pnpm exec next dev --port 3100',
+    command: 'node scripts/e2e-server.mjs',
     url: 'http://localhost:3100/api/healthz',
     // E2E must own its server, database and build lock (decision 0026).
     reuseExistingServer: false,
     env: {
-      DATABASE_URL: target.databaseUrl,
-      MIGRATION_DATABASE_URL: target.migrationDatabaseUrl,
       NEXT_DIST_DIR: '.next-e2e',
     },
     timeout: 120_000,

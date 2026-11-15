@@ -16,7 +16,7 @@ E2e must reset its test database without affecting a developer's maps. Reusing t
 
 The e2e entrypoints prepare `app_e2e` before Playwright starts its server. Reset and server configuration share the database-target derivation in `scripts/test-database.mjs`; both URLs retain their host/credentials but bind to the test database and discard database query overrides. Existing reset allowlists and production refusal remain authoritative.
 
-Playwright owns port3100 with `reuseExistingServer: false` and passes the derived URLs and `NEXT_DIST_DIR=.next-e2e` explicitly. Next defaults to `.next` outside that override. Ignore exactly the generated `.next-e2e` tree in Git, ESLint, Prettier and knip; project source and gate thresholds remain covered.
+Playwright owns port3100 with `reuseExistingServer: false` and `NEXT_DIST_DIR=.next-e2e`. Its fixed server launcher derives both URLs and supplies them directly to the Next child environment, not serializable `webServer.env` or command text. Native stdout and file reporters therefore cannot expose database credentials. Next defaults to `.next` outside the output override. Ignore exactly the generated `.next-e2e` tree in Git, ESLint, Prettier and knip; project source and gate thresholds remain covered.
 
 The preparation script and Playwright each load environment independently using Node built-ins. Exported values win over `.env`; missing database keys fail before connection or server startup. Preparation is silent on success so stdout remains available to native Playwright reporters; fixed failure diagnostics go to stderr without URL values or raw database errors.
 
@@ -29,6 +29,7 @@ Knip evaluates the Playwright configuration during static discovery. The `dead-c
 - Copying URL derivation into Playwright can diverge from reset handling of driver query overrides.
 - Sharing `.next` prevents independent development-server locks; broad generated-directory ignores would also hide unrelated project files.
 - Disabling Knip's Playwright plugin loses configuration-driven discovery; adding runtime URL fallbacks hides missing deployment configuration.
+- Putting credential-bearing URLs in `webServer.env` leaks them through Playwright's native JSON serialization; rewriting reports would fork the external evidence contract instead of fixing credential transport.
 
 ## Consequences
 
