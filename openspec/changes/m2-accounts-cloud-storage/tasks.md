@@ -298,6 +298,12 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
   - The source-seam anchors in `sourceStimulus` (`scripts/native-hmr-support.mjs`) move off `<EditorView storageUnavailable={storageUnavailable} />` in `MapEditor.tsx` and the `RepositoryContext` return line in `MapRepositoryProvider.tsx`. The new anchors are lines that 6.8 and 6.9 do not touch; the implementer chooses them.
   - Update `docs/engineering/native-hmr.md` with the database prerequisite and the sign-in step.
   - Verify: development-navigation "First editor navigation after source invalidation" and "Retained session restores cached resource producers" still hold with the signed-in probe. `grep -n 未保存到浏览器 scripts/native-hmr.mjs` finds nothing. `pnpm native:browser:test` passes; `pnpm native:browser source-change` and `restored-lifecycle` pass locally against a `pnpm db:setup` database; the CI `native-installed-runtime` job passes on both legs. Verify (gate): `pnpm test:guardrails` passes, `pnpm docs:check` passes, and the PR flags the workflow edit (Critical Path `.github/workflows/`).
+- [x] 6.6.1 Add native cold-navigation gate and Document response diagnostics for #190 (design D11.1).
+  - Preserve every 5000ms deadline, browser-noise assertion and no-warmup/retry/skip rule.
+  - Label the initial public-map root-document commit error without changing navigation behavior.
+  - Record passive Document response/completion metadata with bounded request tracking and paired fake-CDP tests.
+  - Verify (unit): deterministic fake root timeout and Document response/finish/failure cases; `pnpm native:browser:test` passes.
+  - Verify (runtime): both local native browser modes pass with unchanged gates; `pnpm test:guardrails` and `pnpm docs:check` pass. Record unknown root-cause boundary rather than inferring repair from a later green run.
 - [ ] 6.7 Add the component tests that replace the raw-record e2e cases (design D10 step 2). Every test runs over a repository double that returns the given value, and stays green alongside the e2e cases it replaces until the flip deletes them.
   - The cases and their new seams:
     - `e2e/map-editor.spec.ts` "corrupt record shows the error state and leaves the record untouched" → map-library "Corrupt record";
