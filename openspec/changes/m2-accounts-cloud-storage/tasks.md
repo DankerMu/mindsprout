@@ -210,7 +210,7 @@ Minimal mergeable slice: 4.1 - the hasher and token source are pure adapters wit
     - 404 for an absent id;
     - cloud-map-storage "Newer-version map over the API", route half: with the store mocked to throw `UnsupportedSchemaVersionError(2, 1)`, the route answers 409 with body `{ "error": "unsupported-schema-version", "found": 2 }`.
   - Verify (contract): `pnpm test:contract` passes. Verify (smoke): `pnpm smoke` passes. Verify (gate): `pnpm test:guardrails` passes.
-- [ ] 5.5 Add the map write routes `PUT` and `DELETE /api/maps/{id}` (design D4, D5).
+- [x] 5.5 Add the map write routes `PUT` and `DELETE /api/maps/{id}` (design D4, D5).
   - `PUT` passes the shared JSON guard (5.3), limits the body to 1 MiB, validates with `parseMindMap`, and enforces `schemaVersion === 1` and `map.id === {id}` before calling the store.
   - `DELETE` passes the shared JSON guard and answers 204 for an absent id.
   - Register this task's routes in `schemas/openapi.yaml`, review and update the snapshot hunk by hunk, add its section of `smoke/api.hurl`, and add its routes to `constraints.yaml` `key_api_routes`. Flag the Critical Path edit in the PR.

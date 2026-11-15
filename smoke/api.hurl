@@ -52,6 +52,74 @@ HTTP 404
 body == "{\"error\":\"not-found\"}"
 header "Set-Cookie" not exists
 
+# A unique id shares the fresh account's UUID; the full envelope must survive storage.
+PUT {{base_url}}/api/maps/{{username}}
+Content-Type: application/json
+{"schemaVersion":1,"map":{"id":"{{username}}","title":"Smoke forest","createdAt":"2026-11-14T00:00:00.000Z","updatedAt":"2026-11-14T01:00:00.000Z","roots":[{"id":"primary","text":"Root","children":[{"id":"child","text":"Child","note":"Note","color":"purple","collapsed":false,"children":[]}]},{"id":"floating","text":"Floating","position":{"x":-10,"y":20},"children":[]}]}}
+
+HTTP 204
+[Asserts]
+body == ""
+header "Set-Cookie" not exists
+
+GET {{base_url}}/api/maps/{{username}}
+
+HTTP 200
+[Asserts]
+jsonpath "$.*" count == 2
+jsonpath "$.schemaVersion" == 1
+jsonpath "$.map.*" count == 5
+jsonpath "$.map.id" == "{{username}}"
+jsonpath "$.map.title" == "Smoke forest"
+jsonpath "$.map.createdAt" == "2026-11-14T00:00:00.000Z"
+jsonpath "$.map.updatedAt" == "2026-11-14T01:00:00.000Z"
+jsonpath "$.map.roots" count == 2
+jsonpath "$.map.roots[0].*" count == 3
+jsonpath "$.map.roots[0].id" == "primary"
+jsonpath "$.map.roots[0].text" == "Root"
+jsonpath "$.map.roots[0].children" count == 1
+jsonpath "$.map.roots[0].children[0].*" count == 6
+jsonpath "$.map.roots[0].children[0].id" == "child"
+jsonpath "$.map.roots[0].children[0].text" == "Child"
+jsonpath "$.map.roots[0].children[0].note" == "Note"
+jsonpath "$.map.roots[0].children[0].color" == "purple"
+jsonpath "$.map.roots[0].children[0].collapsed" == false
+jsonpath "$.map.roots[0].children[0].children" count == 0
+jsonpath "$.map.roots[1].*" count == 4
+jsonpath "$.map.roots[1].id" == "floating"
+jsonpath "$.map.roots[1].text" == "Floating"
+jsonpath "$.map.roots[1].position.*" count == 2
+jsonpath "$.map.roots[1].position.x" == -10
+jsonpath "$.map.roots[1].position.y" == 20
+jsonpath "$.map.roots[1].children" count == 0
+header "Set-Cookie" not exists
+
+GET {{base_url}}/api/maps
+
+HTTP 200
+[Asserts]
+jsonpath "$[0].*" count == 3
+jsonpath "$[0].id" == "{{username}}"
+jsonpath "$[0].title" == "Smoke forest"
+jsonpath "$[0].updatedAt" == "2026-11-14T01:00:00.000Z"
+jsonpath "$" count == 1
+
+DELETE {{base_url}}/api/maps/{{username}}
+Content-Type: application/json
+{}
+
+HTTP 204
+[Asserts]
+body == ""
+header "Set-Cookie" not exists
+
+GET {{base_url}}/api/maps/{{username}}
+
+HTTP 404
+[Asserts]
+body == "{\"error\":\"not-found\"}"
+header "Set-Cookie" not exists
+
 POST {{base_url}}/api/auth/login
 Content-Type: application/json
 {
