@@ -18,7 +18,7 @@ The e2e entrypoints prepare `app_e2e` before Playwright starts its server. Reset
 
 Playwright owns port3100 with `reuseExistingServer: false` and passes the derived URLs and `NEXT_DIST_DIR=.next-e2e` explicitly. Next defaults to `.next` outside that override. Ignore exactly the generated `.next-e2e` tree in Git, ESLint, Prettier and knip; project source and gate thresholds remain covered.
 
-The preparation script and Playwright each load environment independently using Node built-ins. Exported values win over `.env`; missing database keys fail before connection or server startup. Diagnostics must not expose URL values or raw database errors.
+The preparation script and Playwright each load environment independently using Node built-ins. Exported values win over `.env`; missing database keys fail before connection or server startup. Preparation is silent on success so stdout remains available to native Playwright reporters; fixed failure diagnostics go to stderr without URL values or raw database errors.
 
 Knip evaluates the Playwright configuration during static discovery. The `dead-code` command supplies explicit credential-free database URLs on the reserved `.invalid` domain for that process only. Configuration derives targets without connecting; analysis needs no database. Keep the Playwright plugin enabled and runtime validation unconditional.
 

@@ -282,6 +282,7 @@ describe('e2e preparation CLI', () => {
     );
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
     expect(result.stderr).toBe('');
   });
 
