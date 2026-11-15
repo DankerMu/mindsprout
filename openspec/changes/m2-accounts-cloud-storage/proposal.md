@@ -219,6 +219,15 @@ Blast radius: deleting raw-record e2e later without equivalent component evidenc
 Selected risk packs: Repository identity/no-write guards; Error-state selection; Autosave/peer preservation; Test evidence and e2e coexistence. No production/e2e/dependency/CI/auth change.
 Evidence floor: six existing-behavior characterization scenarios over `ControlledLibrary`, with exact no-put/no-delete/source-peer assertions through `pagehide` and unmount where relevant; focused jsdom, unfiltered `pnpm test:unit` at per-file coverage gates, and full `pnpm e2e` with raw-record cases unchanged and zero skips/console errors. Green-on-main is valid; no artificial RED or production fix. Odd versions stay excluded. Decision 0016 and existing map-library/map-persistence requirements govern; no new decision record.
 
+## Issue #165 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: public auth entrypoints, redirect-target safety and `constraints.yaml` gate integrity; proxy itself is out of scope)
+Blast radius: malformed credential transport or error mapping blocks account access; an unsafe `next` enables open redirect/XSS navigation; a false smoke/key-path entry can hide a broken login page.
+Selected risk packs: Credential/session transport; Open-redirect/path safety; Error-state selection; Browser/e2e evidence; Gate integrity. No API/schema/proxy/header/dependency change.
+Evidence floor: failing-first component/helper/e2e tests, then full unit coverage and build; real register→session and isolated-register→login→session Playwright walks; `/login` smoke with zero console errors/screenshot; `pnpm test:guardrails`, duplicate/dead-code and static gates. D8, account-auth requirements and decision 0023 govern; no new decision record.
+
 ## Impact
 
 - **New code:**

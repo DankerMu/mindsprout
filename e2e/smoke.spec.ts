@@ -19,6 +19,7 @@ const routes: {
 }[] = [
   { path: '/', name: 'home', ready: 'app-ready' },
   { path: '/maps/[id]', name: 'editor', ready: 'map-editor-ready', map: EDITOR_MAP },
+  { path: '/login', name: 'login', ready: 'login-ready' },
 ];
 
 fs.mkdirSync('.run/ui-evidence', { recursive: true });

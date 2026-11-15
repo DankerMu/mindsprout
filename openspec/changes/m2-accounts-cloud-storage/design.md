@@ -390,6 +390,16 @@ Every body is JSON. Every error body is `{ "error": "<code>" }`, except the 409 
   - Error texts: `用户名或密码错误` (401), `用户名已被占用` (409), `请输入用户名和密码` (400).
 - **Header session menu** (`src/components/account/`) on `/`, `/maps/[id]` and `/admin`. It fetches `GET /api/auth/session` once per page and shows the username, a `管理后台` link for the admin and `退出登录`, which posts `{}` to logout and then navigates to `/login`. The header task mounts it on `/` and `/maps/[id]`; the admin page task mounts it on `/admin`.
 
+### D8.1 Public credentials pages fixture
+
+- **Issue #165 scope:** add `safe-next-path.ts` and its node test, one shared client `CredentialsForm` and its jsdom test, thin async `/login` and `/register` pages, base-Playwright account-auth walks, one `/login` smoke row, its `constraints.yaml` key path, and the existing account changeset. Route components are coverage/pairing-exempt; the form and helper are not. Keep the diff below 400 counted lines.
+- **Must preserve:** existing auth routes and exact credential strings; no trimming, HTML `required`/`minLength`, mount-time session fetch, or new client validation. Existing home/editor smoke and all signed-out specs remain unchanged. The register/sign-in walks use base `@playwright/test`, not the future signed-in fixture. No proxy/header/API/OpenAPI/AGENTS/TECH change.
+- **Form contract:** `mode: login|register` selects endpoint and copy. Controlled values are posted verbatim as JSON with `Content-Type: application/json`; disable the pending submit. Only `response.ok` navigates with `router.push(safeNextPath(next))`. Map 400/401/409 to the three D8 texts; any other status or fetch rejection shows `请求失败，请重试` and does not navigate. Pages await Next 16 `searchParams`, pass a string `next` or null, and expose `${mode}-ready` for smoke.
+- **Governing invariant:** untrusted `next` never reaches navigation without the single pure `safeNextPath` guard; credentials are transported unchanged, and a failed request neither navigates nor claims a session.
+- **Sibling surfaces:** both pages and auth success statuses (200/201), session proof through the page context, isolated `request` registration for sign-in, smoke readiness/zero-console assertion, key-path metadata and changeset stale exclusions. Future proxy/header/6.5 fixture migration own their later tasks.
+- **Required evidence:** tests fail before implementation; helper accepts same-site paths and rejects `//`, `/\\`, absolute/empty/null; component proves request body/content type, pending/error/no-navigation branches and safe success navigation. E2E proves unique-user registration→`/`→session200 and isolated API registration→form login→`/`→session200, plus `/login` smoke. Full unit/build/e2e, static/duplicate/dead-code and guardrails pass; inspect login screenshot and native JSON.
+- **Review focus:** every `constraints.yaml` line and guardrail evidence; open-redirect and backslash cases; verbatim credential/no-mount-fetch behavior; exact 400/401/409/fallback states; no scope creep into proxy/header/fixtures.
+
 ### D9. Admin page
 
 - `/admin` fetches `GET /api/admin/users`. On 403 it shows `无权访问` with a link to `/`. On 401 it calls `window.location.assign('/login?next=%2Fadmin')`, like every other page's load-time 401 (D7).
