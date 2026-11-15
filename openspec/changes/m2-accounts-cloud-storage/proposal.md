@@ -235,7 +235,7 @@ Fixture level: expanded
 Upstream suggested level: expanded (agree: required native probe seam and two runtime modes, although this PR edits scripts only and no Critical Path)
 Blast radius: stale source anchors or a disappearing persistence assertion can make the required native HMR gate fail during the later cloud cut-over, or hide a real autosave failure.
 Selected risk packs: Native HMR source-seam integrity; Browser/cache state compatibility; Persistence-notice evidence; Runtime and CI proof. No application/UI behavior, workflow, database-lifecycle, sign-in or documentation change.
-Evidence floor: failing-first sourceStimulus tests, `pnpm native:browser:test`, no `未保存到浏览器` in `scripts/native-hmr.mjs`, local `source-change` and `restored-lifecycle` against an owned `pnpm db:setup` database with unchanged deadlines/noise/no-retry rules, then both installed-native CI legs. Static/guardrail/docs checks. Existing development-navigation requirements and decisions 0021/0027 govern; no new decision record or changeset.
+Evidence floor: failing-first sourceStimulus tests, `pnpm native:browser:test`, no `未保存到浏览器` in `scripts/native-hmr.mjs`, local `source-change` and `restored-lifecycle` against an owned `pnpm db:setup` database with unchanged deadlines/noise/no-retry rules, then both installed-native CI legs and the `Linux x64 GNU native repair` candidate qualification required by decision 0027. Static/guardrail/docs checks. Existing development-navigation requirements and decisions 0021/0027 govern; no new decision record or changeset.
 
 ## Impact
 
