@@ -17,7 +17,14 @@
     "commitlint.config.cjs"
   ],
   "project": ["src/**/*.{ts,tsx}", "tests/**/*.ts", "e2e/**/*.ts", "scripts/**/*.mjs"],
-  "ignore": [".next/**", "coverage/**", "dist/**", "node_modules/**", "playwright-report/**"],
+  "ignore": [
+    ".next/**",
+    ".next-e2e/**",
+    "coverage/**",
+    "dist/**",
+    "node_modules/**",
+    "playwright-report/**"
+  ],
   "ignoreDependencies": [
     "@types/*",
     "@changesets/cli",

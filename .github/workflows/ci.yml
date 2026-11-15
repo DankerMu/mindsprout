@@ -145,7 +145,23 @@ jobs:
     needs: layer2-unit-tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: app_e2e
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d app_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
+      DATABASE_URL: postgres://mindsprout_app:app@localhost:5432/app_e2e
+      MIGRATION_DATABASE_URL: postgres://app:app@localhost:5432/app_e2e
       PLAYWRIGHT_JSON_OUTPUT_FILE: .run/ui-evidence/e2e-results.json # Retain same-run evidence in always-upload artifacts, not mixed into stdout.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

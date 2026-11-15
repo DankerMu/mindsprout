@@ -57,6 +57,16 @@ cd mindsprout
 原生 HMR 修复的构建、验证、安装和故障处理见 [原生开发说明](docs/engineering/native-hmr.md)。
 依赖补丁（pnpm `patchedDependencies`）的维护与移除见 [依赖补丁说明](docs/engineering/dependency-patches.md)。
 
+### E2E
+
+完成上述本地 setup、确认 Postgres 16 可用后，运行 `pnpm exec playwright install chromium` 安装浏览器，再运行 `pnpm e2e`；单项检查用 `pnpm verify-ui "<测试标题正则>"`。
+
+两个命令都先创建或重置 `app_e2e`、迁移并应用开发角色 bootstrap，再由 Playwright 启动独占的 `http://localhost:3100` 服务，测试结束后关闭服务。输出位于 `.next-e2e/`，截图仍在 `.run/ui-evidence/`；开发服务 `:3000` 与默认 `.next/` 不受影响。
+
+仓库根目录的 `.env` 或导出的环境变量必须同时提供 `DATABASE_URL`（应用角色）和 `MIGRATION_DATABASE_URL`（可创建数据库的 owner）；导出值优先。准备脚本和 Playwright 分别加载环境，将两个连接目标强制派生为 `app_e2e`，不会使用 `app_dev`。直接运行 Playwright 不负责重置数据库，缺少或无效的 URL 会在启动服务前报错。
+
+同一数据库环境中的 `e2e` 和 `verify-ui` 必须串行执行：每次调用都会清空 `app_e2e`，不可并发运行或存放需保留的数据。端口 `3100` 必须空闲，`BASE_URL` 不能切换测试目标。隔离约定见[决策 0026](decisions/implemented/testing/0026-isolated-e2e-database-and-server.md)。
+
 ## 许可
 
 MIT
