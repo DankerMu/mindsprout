@@ -79,6 +79,9 @@ describe.each(['login', 'register'] as const)('account-auth: %s', (mode) => {
     ['//evil.example/x', '/'],
     ['https://evil.example', '/'],
     ['/\\evil', '/'],
+    ['/\n/evil.example/x', '/'],
+    ['/\r/evil.example/x', '/'],
+    ['/\t\\evil.example/x', '/'],
     [null, '/'],
   ])('posts exact credentials and navigates safely from %s', async (next, expected) => {
     const { fetch, router, button } = setup(mode, next);

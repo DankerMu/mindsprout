@@ -48,6 +48,8 @@ export function CredentialsForm({
       <h1>{label}</h1>
       <form
         aria-label={label}
+        method="post"
+        action={`/api/auth/${mode}`}
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
