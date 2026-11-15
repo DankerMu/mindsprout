@@ -297,6 +297,9 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
     - declared as 404: the collector reports the message and the unused declaration;
     - declared but never requested: the collector reports the unused declaration;
     - a `console.error` from the page next to a declared, observed 401 is still reported.
+    - Register the exact response and resource-error console waiters before fetch; await both with no fixed sleep and reconcile either event order.
+    - Truncated path mismatch reports resource error and unused declaration; relative/absolute equivalent paths and documented query/fragment cases report none.
+    - Page warning and uncaught pageerror beside the matched 401 remain reported.
   - Verify (gate): `pnpm decisions:check` and `pnpm dead-code` pass.
 - [ ] 6.5 Switch every e2e spec to the signed-in `test` fixture from `e2e/support/session.ts`, except the specs that test signed-out behaviour. This is a mechanical import change with no assertion edits.
   - Excluded by name: `e2e/expected-responses.spec.ts` (6.4), and any other spec that tests signed-out behaviour, such as the 7.1 register and sign-in walks if they have landed. They keep the base Playwright `test`, signed out by design.
