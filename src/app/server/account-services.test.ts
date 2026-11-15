@@ -19,6 +19,9 @@ const mocks = vi.hoisted(() => ({
   sessionToken: vi.fn(),
   create: vi.fn(),
   delete: vi.fn(),
+  list: vi.fn(),
+  replacePassword: vi.fn(),
+  temporaryPassword: vi.fn(),
 }));
 vi.mock('postgres', () => ({ default: mocks.postgres }));
 vi.mock('@/contexts/account/infrastructure/postgres', () => ({
@@ -58,7 +61,12 @@ beforeEach(() => {
   vi.setSystemTime(now);
   mocks.postgres.mockReturnValue(mocks.sql);
   mocks.users.mockImplementation(function () {
-    return { register: mocks.register, findByUsername: mocks.findByUsername };
+    return {
+      register: mocks.register,
+      findByUsername: mocks.findByUsername,
+      list: mocks.list,
+      replacePasswordAndEndSessions: mocks.replacePassword,
+    };
   });
   mocks.sessions.mockImplementation(function () {
     return {
@@ -74,7 +82,7 @@ beforeEach(() => {
     return { hash: mocks.hash, verify: mocks.verify };
   });
   mocks.tokens.mockImplementation(function () {
-    return { sessionToken: mocks.sessionToken };
+    return { sessionToken: mocks.sessionToken, temporaryPassword: mocks.temporaryPassword };
   });
   mocks.register.mockResolvedValue(user);
   mocks.findByUsername.mockResolvedValue({ user, passwordHash: 'stored-hash' });
@@ -194,6 +202,58 @@ describe('request session composition', () => {
     const failure = new Error('database unavailable');
     mocks.resolve.mockRejectedValue(failure);
     await expect(requireUser(request(`mindsprout_session=${token}`))).rejects.toBe(failure);
+  });
+});
+
+describe('admin composition', () => {
+  it('lists and resets through the real use cases on the shared lazy account ports', async () => {
+    const { listAccounts, resetAccountPassword, requireUser, mapsForUser } =
+      await import('./account-services');
+    const admin = { ...user, isAdmin: true };
+    expect(mocks.postgres).not.toHaveBeenCalled();
+    mocks.list.mockResolvedValue([admin, user]);
+    mocks.temporaryPassword.mockReturnValue('temporary_secret');
+    mocks.replacePassword.mockResolvedValue(true);
+    await expect(listAccounts(admin)).resolves.toEqual([admin, user]);
+    await expect(resetAccountPassword(admin, user.id)).resolves.toBe('temporary_secret');
+    expect(mocks.list).toHaveBeenCalledExactlyOnceWith();
+    expect(mocks.temporaryPassword).toHaveBeenCalledExactlyOnceWith();
+    expect(mocks.hash).toHaveBeenCalledExactlyOnceWith('temporary_secret');
+    expect(mocks.replacePassword).toHaveBeenCalledExactlyOnceWith('user-1', 'stored-hash');
+    mocks.resolve.mockResolvedValue(admin);
+    await expect(requireUser(request(`mindsprout_session=${token}`))).resolves.toBe(admin);
+    mapsForUser(admin.id);
+    expect(mocks.postgres).toHaveBeenCalledExactlyOnceWith(
+      'postgres://app:local@localhost/accounts',
+      { max: 5 },
+    );
+    expect(mocks.users).toHaveBeenCalledExactlyOnceWith(mocks.sql);
+    expect(mocks.sessions).toHaveBeenCalledExactlyOnceWith(mocks.sql);
+    expect(mocks.maps).toHaveBeenCalledExactlyOnceWith(mocks.sql);
+    expect(mocks.hasher).toHaveBeenCalledOnce();
+    expect(mocks.tokens).toHaveBeenCalledOnce();
+  });
+
+  it('retains use-case authorization before privileged port operations', async () => {
+    const { listAccounts, resetAccountPassword } = await import('./account-services');
+    await expect(listAccounts(user)).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(resetAccountPassword(user, user.id)).rejects.toMatchObject({ code: 'forbidden' });
+    expect(mocks.list).not.toHaveBeenCalled();
+    expect(mocks.temporaryPassword).not.toHaveBeenCalled();
+    expect(mocks.hash).not.toHaveBeenCalled();
+    expect(mocks.replacePassword).not.toHaveBeenCalled();
+  });
+
+  it('preserves the unknown-account outcome from atomic replacement', async () => {
+    const { resetAccountPassword } = await import('./account-services');
+    mocks.temporaryPassword.mockReturnValue('temporary_secret');
+    mocks.replacePassword.mockResolvedValue(false);
+    await expect(resetAccountPassword({ ...user, isAdmin: true }, 'unknown')).rejects.toMatchObject(
+      {
+        code: 'not-found',
+      },
+    );
+    expect(mocks.replacePassword).toHaveBeenCalledExactlyOnceWith('unknown', 'stored-hash');
   });
 });
 

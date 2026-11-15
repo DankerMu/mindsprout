@@ -223,7 +223,7 @@ Minimal mergeable slice: 4.1 - the hasher and token source are pure adapters wit
     - account-auth "Cross-site form post", map half: 415 on a form-encoded `PUT`; also 415 on a form-encoded `DELETE`;
     - `DELETE` of an absent id answers 204.
   - Verify (smoke): cloud-map-storage "Round trip through the API". Verify (contract): `pnpm test:contract` passes. Verify (gate): `pnpm test:guardrails` passes.
-- [ ] 5.6 Add `GET /api/admin/users` and `POST /api/admin/users/{id}/password-reset` (design D5).
+- [x] 5.6 Add `GET /api/admin/users` and `POST /api/admin/users/{id}/password-reset` (design D5).
   - The reset passes the shared JSON guard (5.3). A non-uuid id answers 404 `not-found`, like an unknown one.
   - Register this task's routes in `schemas/openapi.yaml`, review and update the snapshot hunk by hunk, add its section of `smoke/api.hurl`, and add `/api/admin/*` to `constraints.yaml` `key_api_routes`. Flag the Critical Path edit in the PR.
   - Smoke: register two fresh users and assert 403 for the second (design D11).

@@ -280,6 +280,8 @@ verification:
       status: "covered by smoke/api.hurl"
     - path: "/api/maps/{id}"
       status: "covered by smoke/api.hurl"
+    - path: "/api/admin/*"
+      status: "covered by smoke/api.hurl"
     - path: "/api/ai/grow"
       status: "pending — add to smoke/api.hurl when the route lands (M4)"
   key_ui_paths:

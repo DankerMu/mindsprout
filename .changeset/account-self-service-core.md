@@ -22,4 +22,6 @@ Add authenticated GET `/api/maps` and `/api/maps/{id}` on the shared account Pos
 
 Add authenticated PUT and DELETE `/api/maps/{id}` with the shared JSON media guard. PUT limits declared and streamed bodies to 1 MiB and validates the forest, version and path id before saving; invalid maps return 400 and oversized bodies return 413 without writing. DELETE is idempotent for absent or other-user maps. Both return empty 204 responses on success; browser storage cutover is not included.
 
+Add GET `/api/admin/users` and POST `/api/admin/users/{id}/password-reset` through the shared account services. Only administrators can list public accounts in oldest-first order or reset credentials. Missing sessions return 401; reset requires JSON media type before authorization and rejects malformed or unknown target ids with 404. The temporary password appears only in the successful response body; no admin response changes cookies, including self-reset.
+
 Serialize development role bootstrap through a shared maintenance-database lock while keeping per-database migrations concurrent. Scratch database setup retains LOGIN credentials, role safety flags and application grants without racing updates to the cluster-wide role catalog.

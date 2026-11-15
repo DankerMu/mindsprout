@@ -1,6 +1,7 @@
 import type { NextResponse } from 'next/server';
 import postgres from 'postgres';
 import type { MapRepository } from '@/contexts/account/acl/map';
+import { listUsers, resetPassword } from '@/contexts/account/application/admin';
 import { register, resolveSession, signIn, signOut } from '@/contexts/account/application/auth';
 import { AccountError, type User } from '@/contexts/account/domain/account';
 import { CryptoTokenSource, ScryptPasswordHasher } from '@/contexts/account/infrastructure/crypto';
@@ -73,6 +74,14 @@ export function registerAccount(input: Parameters<typeof register>[0]) {
 
 export function signInAccount(input: Parameters<typeof signIn>[0]) {
   return signIn(input, accountResources().ports);
+}
+
+export function listAccounts(actor: User): Promise<User[]> {
+  return listUsers(actor, accountResources().ports);
+}
+
+export function resetAccountPassword(actor: User, userId: string): Promise<string> {
+  return resetPassword(actor, userId, accountResources().ports);
 }
 
 function requestToken(request: Request): string | undefined {
