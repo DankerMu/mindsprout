@@ -86,6 +86,14 @@ describe('HTTP save transport', () => {
       },
       { input: path, init: { method: 'GET' } },
     ]);
+    for (const { input } of server.requests) {
+      if (typeof input !== 'string') throw new Error('expected a relative URL string');
+      const resolved = new URL(input, 'https://app.example/base/');
+      expect(resolved.origin).toBe('https://app.example');
+      expect(resolved.pathname).toBe(input === '/api/maps' ? '/api/maps' : path);
+      expect(resolved.search).toBe('');
+      expect(resolved.hash).toBe('');
+    }
   });
 
   it('serializes a save envelope only once', async () => {
@@ -141,5 +149,19 @@ describe('HTTP read transport', () => {
     await bob.delete(map.id);
     expect(await alice.get(map.id)).toStrictEqual(map);
     expect(await bob.get(map.id)).toBeUndefined();
+  });
+});
+
+describe.each(['get', 'put', 'delete'] as const)('HTTP %s path safety', (method) => {
+  it.each(['', '.', '..'])('rejects id %j before issuing a request', async (id) => {
+    const server = new MapFetch();
+    const repository = new HttpMapRepository(server.fetch);
+    const result =
+      method === 'put' ? repository.put({ ...mapOf(node('r')), id }) : repository[method](id);
+    const error: unknown = await result.catch((cause: unknown) => cause);
+    expect(error instanceof Error && error.constructor).toBe(Error);
+    expect(error).toHaveProperty('message', expect.stringContaining(method.toUpperCase()));
+    expect(error).toHaveProperty('message', expect.stringContaining(JSON.stringify(id)));
+    expect(server.requests).toStrictEqual([]);
   });
 });

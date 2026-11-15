@@ -17,6 +17,13 @@ const unsupportedSchema = z.object({
   found: z.number(),
 });
 
+function mapPath(id: MindMap['id'], method: string): string {
+  if (id === '' || id === '.' || id === '..') {
+    throw new Error(`${method} /api/maps cannot address map id ${JSON.stringify(id)}`);
+  }
+  return `/api/maps/${encodeURIComponent(id)}`;
+}
+
 function requireSuccess(response: Response, operation: string): void {
   if (!response.ok) throw new Error(`${operation} returned HTTP ${String(response.status)}`);
 }
@@ -46,7 +53,7 @@ export class HttpMapRepository implements MapRepository {
   }
 
   async get(id: MindMap['id']): Promise<MindMap | undefined> {
-    const path = `/api/maps/${encodeURIComponent(id)}`;
+    const path = mapPath(id, 'GET');
     const operation = `GET ${path} (map "${id}")`;
     const response = await this.request(path, { method: 'GET' });
     if (response.status === 404) return undefined;
@@ -66,8 +73,8 @@ export class HttpMapRepository implements MapRepository {
   }
 
   async put(map: MindMap): Promise<void> {
+    const path = mapPath(map.id, 'PUT');
     const body = JSON.stringify({ schemaVersion: 1, map });
-    const path = `/api/maps/${encodeURIComponent(map.id)}`;
     const response = await this.request(path, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -78,7 +85,7 @@ export class HttpMapRepository implements MapRepository {
   }
 
   async delete(id: MindMap['id']): Promise<void> {
-    const path = `/api/maps/${encodeURIComponent(id)}`;
+    const path = mapPath(id, 'DELETE');
     const response = await this.request(path, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
