@@ -288,3 +288,42 @@ header "Set-Cookie" contains "Max-Age=0"
 header "Set-Cookie" contains "HttpOnly"
 header "Set-Cookie" contains "SameSite=lax"
 header "Set-Cookie" contains "Path=/"
+
+# The second fresh account cannot be the first registrant, regardless of database contents.
+POST {{base_url}}/api/auth/register
+Content-Type: application/json
+{
+  "username": "smoke-second-{{newUuid}}",
+  "password": "smoke-password"
+}
+
+HTTP 201
+[Captures]
+second_username: jsonpath "$.username"
+[Asserts]
+jsonpath "$.username" startsWith "smoke-second-"
+jsonpath "$.isAdmin" == false
+header "Set-Cookie" contains "mindsprout_session="
+
+GET {{base_url}}/api/auth/session
+
+HTTP 200
+[Asserts]
+jsonpath "$.username" == "{{second_username}}"
+jsonpath "$.isAdmin" == false
+
+GET {{base_url}}/api/admin/users
+
+HTTP 403
+[Asserts]
+body == "{\"error\":\"forbidden\"}"
+header "Set-Cookie" not exists
+
+POST {{base_url}}/api/admin/users/{{newUuid}}/password-reset
+Content-Type: application/json
+{}
+
+HTTP 403
+[Asserts]
+body == "{\"error\":\"forbidden\"}"
+header "Set-Cookie" not exists

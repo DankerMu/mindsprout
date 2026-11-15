@@ -156,6 +156,15 @@ Blast radius: checking session/media/size too late can access another user's dat
 Selected risk packs: Auth/RLS mutation; Public API and refusal ordering; Streaming/body resource bounds; Parser/schema invariants; Error/log secrecy; Contract/smoke/gates. No browser/admin/store-schema change.
 Evidence floor: behavior red/green for session→media→declared/actual size→parse→envelope→store, every refusal has no write, PUT success and DELETE absent/foreign 204, exact 1MiB boundary, full unit/integration/contract/gates and live roundtrip. Preserve D4/D5.3/D5.4/D6 and all prior fixtures.
 
+## Issue #157 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: public admin authorization/password reset and composition on Critical Path)
+Blast radius: missing actor checks expose every account or permit credential replacement; malformed ids reaching reset waste token/hash work; logging a temporary password compromises the target; a second pool or wrong error mapping breaks production composition.
+Selected risk packs: Admin authorization; Credential/session revocation; Public API and UUID refusal ordering; Secret/log handling; Composition/pool lifecycle; Contract/smoke/gates. No admin UI or map changes.
+Evidence floor: behavior red/green for401/403/404/415 and no admin use-case on refusal, non-UUID404 before target work, ordered public list and one-time200 temporaryPassword without logs/cookies, same-pool composition, complete contract and two-random-user403 smoke, full unit/integration/contract/gates. Preserve D2.2/D3/D5/D6 and all prior fixtures.
+
 ## Impact
 
 - **New code:**

@@ -360,6 +360,108 @@ paths:
                 $ref: "#/components/schemas/Error"
               example:
                 error: internal
+  /api/admin/users:
+    get:
+      summary: List accounts as the administrator
+      responses:
+        "200":
+          description: Public accounts in creation-time ascending order; no credentials
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PublicUser"
+        "401":
+          description: The session is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: unauthenticated
+        "403":
+          description: The signed-in user is not the administrator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: forbidden
+        "500":
+          description: An unexpected internal failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal
+  /api/admin/users/{id}/password-reset:
+    post:
+      summary: Reset an account password as the administrator
+      description: Ends all target sessions atomically; no response sets or clears a cookie, including self-reset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        description: Canonical empty object; no payload fields are consumed
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+            example: {}
+      responses:
+        "200":
+          description: The temporary password appears only in this response body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordReset"
+        "401":
+          description: The session is missing or invalid; checked before media type and target
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: unauthenticated
+        "403":
+          description: The signed-in user is not the administrator; checked before target validation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: forbidden
+        "404":
+          description: The target account is absent or the id is not a canonical hyphenated UUID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: not-found
+        "415":
+          description: Content-Type is not application/json; checked before administrator authorization or target access
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: unsupported-media-type
+        "500":
+          description: An unexpected internal failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal
 components:
   headers:
     SessionCookie:
@@ -400,6 +502,31 @@ components:
           type: string
         isAdmin:
           type: boolean
+    PublicUser:
+      type: object
+      additionalProperties: false
+      required: [id, username, isAdmin, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        isAdmin:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    PasswordReset:
+      type: object
+      additionalProperties: false
+      required: [temporaryPassword]
+      properties:
+        temporaryPassword:
+          type: string
+          minLength: 16
+          maxLength: 16
+          pattern: "^[A-Za-z0-9_-]{16}$"
     Error:
       type: object
       additionalProperties: false
