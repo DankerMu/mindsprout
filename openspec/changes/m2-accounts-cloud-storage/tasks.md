@@ -286,7 +286,7 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
   - Verify (gate): `pnpm test:guardrails` passes and the PR flags the workflow edit.
   - Verify `pnpm dead-code` without exported database keys; its static-only fixture URLs must preserve Playwright plugin discovery and fail-fast runtime validation.
   - Verify native JSON stdout and file reports contain neither source nor derived URLs, usernames, passwords or unique secret markers for both package entrypoints. The real launched child must still receive both derived app_e2e URLs; missing keys prevent launch, child failures remain nonzero and Playwright teardown leaves no owned server.
-- [ ] 6.4 Add the declared expected-response helper for e2e (design D13). Depends on 6.3.
+- [x] 6.4 Add the declared expected-response helper for e2e (design D13). Depends on 6.3. (#161; 20 focused and 115 full browser tests, full Semgrep, and static gates pass.)
   - Add `e2e/support/expected-responses.ts`. A test declares each expected non-2xx response as a URL pattern and a status; the helper records page responses through `page.on('response')` and exports the console-noise collector.
   - The collector drops a `Failed to load resource` console message only when its URL and status match a declaration that was observed as a response with that URL and status. It reports every other console error or warning, every page error, every failed load without a matching declaration, and every declaration that was never observed.
   - A spec adopts the collector in the task that first declares a response in it (6.8, 8.2, 9.1). Specs without declarations keep their current collectors.

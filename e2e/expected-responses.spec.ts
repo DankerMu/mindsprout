@@ -1,10 +1,31 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { ConsoleMessage, Page, Response } from '@playwright/test';
 import { collectExpectedResponses } from './support/expected-responses';
 import type { ExpectedResponse } from './support/expected-responses';
 
 const RESOURCE_ERROR =
   'Failed to load resource: the server responded with a status of 401 (Unauthorized)';
+
+type EventPage = Page & {
+  emit(
+    event: 'console',
+    message: Pick<ConsoleMessage, 'type' | 'text' | 'args' | 'location'>,
+  ): boolean;
+  emit(event: 'response', response: Pick<Response, 'url' | 'status'>): boolean;
+};
+
+function emitResourceConsole(page: Page, url: string) {
+  (page as EventPage).emit('console', {
+    type: () => 'error',
+    text: () => RESOURCE_ERROR,
+    args: () => [],
+    location: () => ({ url, line: 0, column: 0, lineNumber: 0, columnNumber: 0 }),
+  });
+}
+
+function emitSessionResponse(page: Page, url: string) {
+  (page as EventPage).emit('response', { url: () => url, status: () => 401 });
+}
 
 async function fetchSession(page: Page, path = '/api/auth/session') {
   const target = new URL(path, page.url());
@@ -141,6 +162,18 @@ test('request fragment preserves unmatched full-URL resource noise', async ({ pa
   await page.goto('/api/healthz');
   const responseUrl = new URL('/api/auth/session?observed=true', page.url()).href;
   const consoleUrl = new URL('/api/auth/session?observed=true#observed', page.url()).href;
+  const arrivals: ('response' | 'console')[] = [];
+  page.on('response', (response) => {
+    if (response.url() === responseUrl && response.status() === 401) arrivals.push('response');
+  });
+  page.on('console', (message) => {
+    if (
+      message.type() === 'error' &&
+      message.location().url === consoleUrl &&
+      message.text() === RESOURCE_ERROR
+    )
+      arrivals.push('console');
+  });
   const responseObserved = page.waitForEvent('response', {
     predicate: (response) => response.url() === responseUrl && response.status() === 401,
   });
@@ -162,11 +195,14 @@ test('request fragment preserves unmatched full-URL resource noise', async ({ pa
   expect(response.url()).not.toBe(resourceError.location().url);
   expect(response.status()).toBe(401);
   expect(resourceError.type()).toBe('error');
-  expect(await collector.noise()).toEqual([
-    `error: ${RESOURCE_ERROR}`,
-    'outstanding expected response: 401 /api/auth/session (missing console event)',
-    'outstanding expected response: 401 /api/auth/session (missing response event)',
-  ]);
+  expect(arrivals).toHaveLength(2);
+  expect(arrivals).toEqual(expect.arrayContaining(['response', 'console']));
+  const outstanding = arrivals.map((event) =>
+    event === 'response'
+      ? 'outstanding expected response: 401 /api/auth/session (missing console event)'
+      : 'outstanding expected response: 401 /api/auth/session (missing response event)',
+  );
+  expect(await collector.noise()).toEqual([`error: ${RESOURCE_ERROR}`, ...outstanding]);
 });
 
 test('warnings and uncaught page errors beside a declared 401 remain ordered noise', async ({
@@ -199,14 +235,15 @@ test('warnings and uncaught page errors beside a declared 401 remain ordered noi
 });
 
 test('duplicate session responses do not consume a declared regex', async ({ page }) => {
-  const collector = collectExpectedResponses(page, [
-    { url: /\/api\/auth\/session/gy, status: 401 },
-  ]);
+  const pattern = /\/api\/auth\/session/gy;
+  pattern.lastIndex = 7;
+  const collector = collectExpectedResponses(page, [{ url: pattern, status: 401 }]);
   await page.goto('/api/healthz');
   await fetchSession(page);
   await fetchSession(page);
   expect(await collector.noise()).toEqual([]);
   expect(await collector.noise()).toEqual([]);
+  expect(pattern.lastIndex).toBe(7);
 });
 
 test('reading at the first session event reconciles response and console', async ({ page }) => {
@@ -244,4 +281,42 @@ test('reading at the first session event reconciles response and console', async
   await Promise.all([responseObserved, consoleObserved]);
   expect(noise).toEqual([]);
   test.info().annotations.push({ type: 'resource-event-order', description: order.join(' -> ') });
+});
+
+test('console-first event contract keeps the same read pending until its response', async ({
+  page,
+}) => {
+  await page.goto('/api/healthz');
+  const collector = collectExpectedResponses(page, [{ url: '/api/auth/session', status: 401 }]);
+  const sessionUrl = new URL('/api/auth/session', page.url()).href;
+  emitResourceConsole(page, sessionUrl);
+  let settled = false;
+  const read = collector.noise().then((noise) => {
+    settled = true;
+    return noise;
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(settled).toBe(false);
+
+  emitSessionResponse(page, sessionUrl);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(settled).toBe(true);
+  expect(await read).toEqual([]);
+});
+
+test('console-first fragment event contract preserves outstanding observation order', async ({
+  page,
+}) => {
+  await page.goto('/api/healthz');
+  const collector = collectExpectedResponses(page, [{ url: '/api/auth/session', status: 401 }]);
+  const responseUrl = new URL('/api/auth/session?observed=true', page.url()).href;
+  const consoleUrl = new URL('/api/auth/session?observed=true#observed', page.url()).href;
+  emitResourceConsole(page, consoleUrl);
+  emitSessionResponse(page, responseUrl);
+  expect(await collector.noise()).toEqual([
+    `error: ${RESOURCE_ERROR}`,
+    'outstanding expected response: 401 /api/auth/session (missing response event)',
+    'outstanding expected response: 401 /api/auth/session (missing console event)',
+  ]);
 });

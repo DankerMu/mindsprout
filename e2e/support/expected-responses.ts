@@ -29,16 +29,18 @@ function pathname(url: string, base: string): string {
 
 function declarationMatcher(declaration: ExpectedResponse, page: Page) {
   const pattern = declaration.url;
-  const regex =
-    pattern instanceof RegExp
-      ? new RegExp(`^(?:${pattern.source})$`, pattern.flags.replace(/[gy]/g, ''))
-      : null;
   return (url: string, status: number) => {
     if (status !== declaration.status) return false;
     const path = pathname(url, page.url());
     if (typeof pattern === 'string') return path === pathname(pattern, page.url());
-    const match = regex?.exec(path);
-    return match?.index === 0 && match[0] === path;
+    const lastIndex = pattern.lastIndex;
+    try {
+      pattern.lastIndex = 0;
+      const match = pattern.exec(path);
+      return match?.index === 0 && match[0] === path;
+    } finally {
+      pattern.lastIndex = lastIndex;
+    }
   };
 }
 
