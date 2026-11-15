@@ -147,6 +147,15 @@ Blast radius: authenticating after store access or using a global store leaks ma
 Selected risk packs: Auth/RLS tenant isolation; Public map API; Schema/version forward compatibility; Error/log secrecy; Composition/pool lifecycle; Contract ordering; Gates. No write/body/parser/browser yet.
 Evidence floor: behavior red/green, requireUser before params/store, per-user store same pool, list contract order and newer-version tolerance via store, get200/404/409 found/500, real fresh-user empty list and absent404, full unit/integration/contract/gates. Preserve D4/D4.1/D5/D6 and all prior fixtures.
 
+## Issue #156 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: public map writes, untrusted body streaming and RLS mutation on Critical Path)
+Blast radius: checking session/media/size too late can access another user's data or consume unbounded bodies; trusting Content-Length or writing before full validation corrupts maps; wrong DELETE absence behavior leaks existence.
+Selected risk packs: Auth/RLS mutation; Public API and refusal ordering; Streaming/body resource bounds; Parser/schema invariants; Error/log secrecy; Contract/smoke/gates. No browser/admin/store-schema change.
+Evidence floor: behavior red/green for session→media→declared/actual size→parse→envelope→store, every refusal has no write, PUT success and DELETE absent/foreign 204, exact 1MiB boundary, full unit/integration/contract/gates and live roundtrip. Preserve D4/D5.3/D5.4/D6 and all prior fixtures.
+
 ## Impact
 
 - **New code:**

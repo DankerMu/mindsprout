@@ -259,6 +259,107 @@ paths:
                 $ref: "#/components/schemas/Error"
               example:
                 error: internal
+    put:
+      summary: Create or replace one of the current user's maps
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Version-one envelope whose map id equals the path id; at most 1048576 bytes, checked by Content-Length and actual bytes read
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MapEnvelope"
+      responses:
+        "204":
+          description: The caller's map was created or replaced; no response body
+        "400":
+          description: Malformed JSON, invalid map, schemaVersion other than 1 or embedded id differing from the path; nothing written
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: invalid-map
+        "401":
+          description: The session is missing or invalid; checked before media type or body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: unauthenticated
+        "413":
+          description: Declared or actual body size exceeds 1048576 bytes; nothing written
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: too-large
+        "415":
+          description: Content-Type is not application/json; nothing written
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: unsupported-media-type
+        "500":
+          description: An unexpected internal failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal
+    delete:
+      summary: Delete one of the current user's maps
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Canonical empty object; no payload fields are consumed
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+            example: {}
+      responses:
+        "204":
+          description: The caller's map was deleted or was absent, including an id held only by another user; no response body
+        "401":
+          description: The session is missing or invalid; checked before media type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: unauthenticated
+        "415":
+          description: Content-Type is not application/json; nothing deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: unsupported-media-type
+        "500":
+          description: An unexpected internal failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal
 components:
   headers:
     SessionCookie:
