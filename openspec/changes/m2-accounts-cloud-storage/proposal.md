@@ -192,6 +192,15 @@ Blast radius: a target or environment mismatch can reset developer data or verif
 Selected risk packs: Database isolation; Environment precedence/secrecy; Shared URL derivation; Server/output ownership; CI gate integrity; Runtime evidence.
 Evidence floor: target/config subprocess red→green; isolated file-only/exported-wins/each-missing-key cases with a no-server-launch sentinel; failing e2e CLI output redaction; disposable Postgres absent-target and app_dev sentinel proof; unchanged full e2e alongside dev3000; guardrails/integration/default build/static checks. Preserve D1/D11 and decisions0020/0023; only6.3a completes, not6.3b/#175.
 
+## Issue #161 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: shared public browser-console/error filtering contract; narrow e2e-only scope and no persistence/CI change)
+Blast radius: matching loosely, trusting a declaration without its observed response, or suppressing unrelated console/page errors can hide a real browser failure; an unused declaration must not silently widen acceptance.
+Selected risk packs: Shared test API; URL/status error correlation; Negative error evidence; Runtime browser/response ordering. No auth/API/persistence/config/dependency change.
+Evidence floor: real Chromium self-test against signed-out `/api/healthz` and `/api/auth/session` 401 covers matched, undeclared, wrong-status, truncated-path and query/fragment cases, unused declaration, unrelated console.error/warn/pageerror. Register response+console waiters before fetch and reconcile either event order with no fixed sleep. Full e2e and `pnpm decisions:check`/`pnpm dead-code` must pass. Preserve D13, existing collectors, D11.2 private credential transport and decision0020; decision0024 ships in this PR. Only6.4, no existing-spec adoption.
+
 ## Impact
 
 - **New code:**
