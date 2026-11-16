@@ -14,7 +14,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const { user, token } = await signInAccount(await readCredentials(request));
     const response = NextResponse.json({ username: user.username, isAdmin: user.isAdmin });
-    setSessionCookie(response, token);
+    setSessionCookie(response, token, user.username);
     return response;
   } catch (error) {
     if (error instanceof AccountError) {

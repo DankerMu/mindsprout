@@ -23,11 +23,16 @@ jsonpath "$.username" startsWith "smoke-"
 jsonpath "$.isAdmin" isBoolean
 jsonpath "$.password" not exists
 jsonpath "$.token" not exists
-header "Set-Cookie" contains "mindsprout_session="
-header "Set-Cookie" contains "HttpOnly"
-header "Set-Cookie" contains "SameSite=lax"
-header "Set-Cookie" contains "Path=/"
-header "Set-Cookie" contains "Max-Age=2592000"
+header "Set-Cookie" nth 0 contains "mindsprout_session="
+header "Set-Cookie" nth 0 contains "HttpOnly"
+header "Set-Cookie" nth 0 contains "SameSite=lax"
+header "Set-Cookie" nth 0 contains "Path=/"
+header "Set-Cookie" nth 0 contains "Max-Age=2592000"
+header "Set-Cookie" nth 1 contains "mindsprout_session_binding="
+header "Set-Cookie" nth 1 contains "SameSite=lax"
+header "Set-Cookie" nth 1 contains "Path=/"
+header "Set-Cookie" nth 1 contains "Max-Age=2592000"
+header "Set-Cookie" nth 1 not contains "HttpOnly"
 
 GET {{base_url}}/api/auth/session
 
@@ -129,17 +134,22 @@ Content-Type: application/json
 
 HTTP 200
 [Captures]
-session_token: header "Set-Cookie" regex "mindsprout_session=([^;]+);" redact
+session_token: header "Set-Cookie" nth 0 regex "mindsprout_session=([^;]+);" redact
 [Asserts]
 jsonpath "$.username" == "{{username}}"
 jsonpath "$.isAdmin" == {{is_admin}}
 jsonpath "$.password" not exists
 jsonpath "$.token" not exists
-header "Set-Cookie" contains "mindsprout_session="
-header "Set-Cookie" contains "HttpOnly"
-header "Set-Cookie" contains "SameSite=lax"
-header "Set-Cookie" contains "Path=/"
-header "Set-Cookie" contains "Max-Age=2592000"
+header "Set-Cookie" nth 0 contains "mindsprout_session="
+header "Set-Cookie" nth 0 contains "HttpOnly"
+header "Set-Cookie" nth 0 contains "SameSite=lax"
+header "Set-Cookie" nth 0 contains "Path=/"
+header "Set-Cookie" nth 0 contains "Max-Age=2592000"
+header "Set-Cookie" nth 1 contains "mindsprout_session_binding="
+header "Set-Cookie" nth 1 contains "SameSite=lax"
+header "Set-Cookie" nth 1 contains "Path=/"
+header "Set-Cookie" nth 1 contains "Max-Age=2592000"
+header "Set-Cookie" nth 1 not contains "HttpOnly"
 
 GET {{base_url}}/api/auth/session
 
@@ -254,11 +264,16 @@ Content-Type: application/json
 HTTP 204
 [Asserts]
 body == ""
-header "Set-Cookie" startsWith "mindsprout_session=;"
-header "Set-Cookie" contains "Max-Age=0"
-header "Set-Cookie" contains "HttpOnly"
-header "Set-Cookie" contains "SameSite=lax"
-header "Set-Cookie" contains "Path=/"
+header "Set-Cookie" nth 0 startsWith "mindsprout_session=;"
+header "Set-Cookie" nth 0 contains "Max-Age=0"
+header "Set-Cookie" nth 0 contains "HttpOnly"
+header "Set-Cookie" nth 0 contains "SameSite=lax"
+header "Set-Cookie" nth 0 contains "Path=/"
+header "Set-Cookie" nth 1 startsWith "mindsprout_session_binding=;"
+header "Set-Cookie" nth 1 contains "Max-Age=0"
+header "Set-Cookie" nth 1 contains "SameSite=lax"
+header "Set-Cookie" nth 1 contains "Path=/"
+header "Set-Cookie" nth 1 not contains "HttpOnly"
 
 GET {{base_url}}/api/auth/session
 
@@ -283,11 +298,16 @@ Content-Type: application/json
 HTTP 204
 [Asserts]
 body == ""
-header "Set-Cookie" startsWith "mindsprout_session=;"
-header "Set-Cookie" contains "Max-Age=0"
-header "Set-Cookie" contains "HttpOnly"
-header "Set-Cookie" contains "SameSite=lax"
-header "Set-Cookie" contains "Path=/"
+header "Set-Cookie" nth 0 startsWith "mindsprout_session=;"
+header "Set-Cookie" nth 0 contains "Max-Age=0"
+header "Set-Cookie" nth 0 contains "HttpOnly"
+header "Set-Cookie" nth 0 contains "SameSite=lax"
+header "Set-Cookie" nth 0 contains "Path=/"
+header "Set-Cookie" nth 1 startsWith "mindsprout_session_binding=;"
+header "Set-Cookie" nth 1 contains "Max-Age=0"
+header "Set-Cookie" nth 1 contains "SameSite=lax"
+header "Set-Cookie" nth 1 contains "Path=/"
+header "Set-Cookie" nth 1 not contains "HttpOnly"
 
 # The second fresh account cannot be the first registrant, regardless of database contents.
 POST {{base_url}}/api/auth/register
@@ -303,7 +323,7 @@ second_username: jsonpath "$.username"
 [Asserts]
 jsonpath "$.username" startsWith "smoke-second-"
 jsonpath "$.isAdmin" == false
-header "Set-Cookie" contains "mindsprout_session="
+header "Set-Cookie" nth 0 contains "mindsprout_session="
 
 GET {{base_url}}/api/auth/session
 

@@ -51,7 +51,7 @@ On a database with no users, the first account to complete registration SHALL be
 
 ### Requirement: Sign in and sign out
 
-A user SHALL sign in with their exact username and password. Any wrong username or password SHALL get the same refusal "用户名或密码错误", whichever part was wrong. A successful sign-in SHALL create a server-side session valid for 30 days from creation, referenced by an HttpOnly cookie. Sign-out SHALL end that session and clear the cookie, and SHALL succeed even when there is no session.
+A user SHALL sign in with their exact username and password. Any wrong username or password SHALL get the same refusal "用户名或密码错误", whichever part was wrong. A successful sign-in SHALL create a server-side session valid for 30 days from creation, referenced by an HttpOnly authentication cookie. It SHALL also set a non-HttpOnly `mindsprout_session_binding` cookie containing the base64url UTF-8 encoding of the exact username with the same lifetime, path, SameSite and production-Secure scope; this binding is not an authentication credential. Registration SHALL establish the same pair. Sign-out SHALL end that session and clear both cookies, and SHALL succeed even when there is no session.
 
 #### Scenario: Sign in
 
@@ -75,8 +75,34 @@ A user SHALL sign in with their exact username and password. Any wrong username 
 
 #### Scenario: Session cookie attributes
 
-- **WHEN** a sign-in succeeds
-- **THEN** the session cookie is HttpOnly and SameSite=Lax, and is Secure in production
+- **WHEN** a sign-in or registration succeeds
+- **THEN** the authentication cookie is HttpOnly and the binding cookie is not HttpOnly; both are Path=/ and SameSite=Lax with matching 30-day lifetime, and both are Secure in production
+- **WHEN** sign-out succeeds
+- **THEN** both cookies are cleared with Max-Age=0 and their original scope
+
+### Requirement: Deferred map operations remain bound to the invoking account
+
+The first-party HTTP map repository SHALL capture the current Session binding and send it as `x-mindsprout-session-binding` on every map request. If the binding cookie is absent or empty, the default provider SHALL use an empty but present header value so the server rejects the operation instead of silently entering direct-API compatibility. The server SHALL compare a present binding with the authenticated exact username and SHALL answer 401 `unauthenticated` before map access when it differs. A missing binding header retains the existing direct-API behavior only for explicit unbound clients. The browser provider SHALL key its cached repository by the current binding so a different account receives a new adapter on the next open. Reauthenticating the same account SHALL retain the binding and pending-edit recovery; changing accounts SHALL NOT allow an older queued operation to write under the new account.
+
+#### Scenario: Same-document account switch rejects a queued save
+
+- **WHEN** Alice has a queued map PUT behind an unsettled request, signs out, signs in as Bob in the same document, and the predecessor then settles
+- **THEN** Alice's queued PUT is rejected by the binding comparison, nothing from Alice enters Bob's store, and Bob's own adapter can save and read maps
+
+#### Scenario: New-tab account switch rejects the original tab's queued save
+
+- **WHEN** Alice has a queued map PUT in an original editor tab, Bob signs in through another tab sharing the browser cookie jar, and the predecessor then settles
+- **THEN** the original tab's queued PUT is rejected by the binding comparison and nothing from Alice enters Bob's store
+
+#### Scenario: Credential-only legacy session fails closed before recovery
+
+- **WHEN** Alice has a valid authentication session but no binding cookie and the default provider attempts a map operation
+- **THEN** the request carries an empty but present binding header, receives 401 before map access, and same-account reauthentication establishes the binding before normal editing resumes
+
+#### Scenario: Same-account re-login preserves pending recovery
+
+- **WHEN** Alice signs in again and receives a new authentication session for the same exact username
+- **THEN** the Session binding remains equal and her pending map operations retain the existing recovery behavior
 
 ### Requirement: Sign-in is required except on public surfaces
 

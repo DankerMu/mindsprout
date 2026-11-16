@@ -539,7 +539,7 @@ describe('HTTP save failure recovery', () => {
     expect(store.getState().notice).toBeNull();
   });
 
-  it('keeps newer failed edits pending when an older successful save finishes later', async () => {
+  it('keeps newer failed edits pending after an older queued save succeeds', async () => {
     const { server, store } = httpSaving();
     const older = heldResult<Response>();
     server.respondNext(() => older.promise);
@@ -547,10 +547,12 @@ describe('HTTP save failure recovery', () => {
     const firstSave = store.getState().flush();
     server.respondNext(() => new Response(null, { status: 401 }));
     store.getState().dispatch({ op: 'update_node', id: 'b', text: '较新的修改' });
-    await store.getState().flush();
-    expect(server.requests).toHaveLength(2);
+    const secondSave = store.getState().flush();
+    const requestsBeforeRelease = server.requests.length;
     older.resolve(new Response(null, { status: 204 }));
-    await firstSave;
+    await Promise.all([firstSave, secondSave]);
+    expect(requestsBeforeRelease).toBe(1);
+    expect(server.requests).toHaveLength(2);
     expect(store.getState().notice).toBe('登录已过期，请在新标签页重新登录后继续编辑');
 
     await store.getState().flush();

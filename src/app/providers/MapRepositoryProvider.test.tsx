@@ -1,11 +1,12 @@
-import 'fake-indexeddb/auto';
 import { act, render, screen } from '@testing-library/react';
 import { StrictMode, type ReactElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { mapOf, node } from '../../../tests/support/map-domain';
+import { MapFetch } from '../../../tests/support/map-fetch';
 import { StorageUnavailableError } from '../../contexts/map/domain/errors';
 import type { MapRepository } from '../../contexts/map/domain/map-repository';
+import { HttpMapRepository } from '../../contexts/map/infrastructure/persistence/http-map-repository';
 import { InMemoryMapRepository } from '../../contexts/map/infrastructure/persistence/in-memory-map-repository';
 import {
   MapRepositoryProvider,
@@ -14,10 +15,18 @@ import {
   type RepositoryState,
 } from './MapRepositoryProvider';
 
-// Design "Fixture — issue #16": the session repository context, through Testing Library with an
-// injected open; openSessionRepository itself runs against fake-indexeddb (jsdom has no indexedDB).
+// The default session shares one HTTP server; injected opens cover failure and fallback paths.
 
 failOnConsoleNoise();
+
+const server = new MapFetch();
+beforeEach(() => {
+  vi.stubGlobal('fetch', server.fetch);
+});
+afterEach(() => {
+  document.cookie = 'mindsprout_session_binding=; Path=/; Max-Age=0';
+  vi.unstubAllGlobals();
+});
 
 interface Deferred {
   promise: Promise<MapRepository>;
@@ -168,6 +177,8 @@ describe('MapRepositoryProvider', () => {
   });
 
   it('opens the session repository by default', async () => {
+    server.authenticateAs('Alice');
+    document.cookie = 'mindsprout_session_binding=QWxpY2U; Path=/';
     const seen = renderProvider();
 
     expect(shownState()).toBe('opening');
@@ -176,6 +187,7 @@ describe('MapRepositoryProvider', () => {
 
     expect(shownState()).toBe('ready');
     expect(lastRepository(seen)).toBe(session.repository);
+    expect(session.repository).toBeInstanceOf(HttpMapRepository);
     expect(session.storageUnavailable).toBe(false);
   });
 
@@ -191,13 +203,18 @@ describe('MapRepositoryProvider', () => {
 
 describe('openSessionRepository', () => {
   it('returns one promise per session, resolving to a working repository', async () => {
+    server.authenticateAs('Alice');
+    document.cookie = 'mindsprout_session_binding=QWxpY2U; Path=/';
     const first = openSessionRepository();
     const second = openSessionRepository();
     const map = { ...mapOf(node('r', [node('a')])), id: 'session-map', title: '会话' };
 
     expect(second).toBe(first);
     const { repository } = await first;
+    expect(repository).toBeInstanceOf(HttpMapRepository);
+    expect(server.requests).toEqual([]);
     await repository.put(map);
     expect(await repository.get('session-map')).toStrictEqual(map);
+    expect(server.requests.map(({ init }) => init?.method)).toEqual(['PUT', 'GET']);
   });
 });

@@ -1,10 +1,12 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 import { StorageUnavailableError } from '../../contexts/map/domain/errors';
 import type { MapRepository } from '../../contexts/map/domain/map-repository';
-import { openIndexedDbMapRepository } from '../../contexts/map/infrastructure/persistence/indexed-db-map-repository';
+import { HttpMapRepository } from '../../contexts/map/infrastructure/persistence/http-map-repository';
 import { InMemoryMapRepository } from '../../contexts/map/infrastructure/persistence/in-memory-map-repository';
+import { readCookie, SESSION_BINDING_COOKIE } from '../../shared/session-binding';
 
 interface ReadyRepository {
   repository: MapRepository;
@@ -14,7 +16,13 @@ interface ReadyRepository {
 export type RepositoryState =
   { status: 'opening' } | ({ status: 'ready' } & ReadyRepository) | { status: 'failed' };
 
-let session: Promise<ReadyRepository> | undefined;
+let session: { binding: string | undefined; promise: Promise<ReadyRepository> } | undefined;
+
+function documentBinding(): string | undefined {
+  return typeof document === 'undefined'
+    ? undefined
+    : readCookie(document.cookie, SESSION_BINDING_COOKIE);
+}
 
 async function openRepository(open: () => Promise<MapRepository>): Promise<ReadyRepository> {
   try {
@@ -25,22 +33,36 @@ async function openRepository(open: () => Promise<MapRepository>): Promise<Ready
   }
 }
 
-// Effect-only open: SSR never touches IndexedDB. The chosen repository (or failure) lasts
-// for this document session, including provider remounts and client-side navigation.
+// Effect-only open: SSR issues no request. Remounts share the repository until the account changes.
 export function openSessionRepository(): Promise<ReadyRepository> {
-  session ??= openRepository(openIndexedDbMapRepository);
-  return session;
+  const binding = documentBinding();
+  if (!session || session.binding !== binding) {
+    session = {
+      binding,
+      promise: openRepository(() =>
+        Promise.resolve(new HttpMapRepository(undefined, binding ?? '')),
+      ),
+    };
+  }
+  return session.promise;
 }
 
 const RepositoryContext = createContext<RepositoryState | null>(null);
 
-export function MapRepositoryProvider({
-  children,
-  open,
-}: {
+interface ProviderProps {
   children: ReactNode;
   open?: () => Promise<MapRepository>;
-}) {
+}
+
+export function MapRepositoryProvider(props: ProviderProps) {
+  // Shared layouts do not rerender for changed route children; subscribe to navigation.
+  usePathname();
+  const binding = props.open === undefined ? documentBinding() : undefined;
+  // Reset before child effects can use another account's ready repository (decision 0028).
+  return <RepositoryProvider key={binding} {...props} />;
+}
+
+function RepositoryProvider({ children, open }: ProviderProps) {
   const [state, setState] = useState<RepositoryState>({ status: 'opening' });
   useEffect(() => {
     let cancelled = false;

@@ -1,7 +1,10 @@
+import { setImmediate as drainMacrotask } from 'node:timers/promises';
 import { describe, expect, it, vi } from 'vitest';
 import { mapOf, node } from '../../../../../tests/support/map-domain';
 import { MapFetch } from '../../../../../tests/support/map-fetch';
+import { heldResult } from '../../../../../tests/support/map-library';
 import { describeMapRepositoryContract } from '../../../../../tests/support/map-repository-contract';
+import { StorageUnauthorizedError } from '../../domain/errors';
 import { HttpMapRepository } from './http-map-repository';
 
 describeMapRepositoryContract('HTTP', () => new HttpMapRepository(new MapFetch().fetch));
@@ -163,5 +166,145 @@ describe.each(['get', 'put', 'delete'] as const)('HTTP %s path safety', (method)
     expect(error).toHaveProperty('message', expect.stringContaining(method.toUpperCase()));
     expect(error).toHaveProperty('message', expect.stringContaining(JSON.stringify(id)));
     expect(server.requests).toStrictEqual([]);
+  });
+});
+
+describe('HTTP session ordering', () => {
+  it.each(['put', 'delete'] as const)(
+    'keeps a later %s after an older save commits',
+    async (method) => {
+      const server = new MapFetch();
+      const repository = new HttpMapRepository(server.fetch);
+      const older = mapOf(node('r'));
+      const newer = { ...older, title: 'Renamed', roots: [node('r', [], { text: 'Edited' })] };
+      const held = heldResult<undefined>();
+      server.beforeNextMutation(() => held.promise);
+      const first = repository.put(older);
+      const settled = vi.fn();
+      const later = (method === 'put' ? repository.put(newer) : repository.delete(older.id)).then(
+        settled,
+      );
+      await drainMacrotask();
+      const beforeRelease = {
+        requests: server.requests.length,
+        settled: settled.mock.calls.length,
+      };
+      held.resolve(undefined);
+      await Promise.all([first, later]);
+
+      expect
+        .soft(await repository.get(older.id))
+        .toStrictEqual(method === 'put' ? newer : undefined);
+      expect.soft(beforeRelease).toStrictEqual({ requests: 1, settled: 0 });
+      expect(server.requests.map(({ init }) => init?.method)).toStrictEqual([
+        'PUT',
+        method.toUpperCase(),
+        'GET',
+      ]);
+    },
+  );
+
+  it.each(['list', 'get'] as const)('waits for a pending save before %s', async (method) => {
+    const server = new MapFetch();
+    const repository = new HttpMapRepository(server.fetch);
+    const older = mapOf(node('r'));
+    await repository.put(older);
+    const newer = { ...older, title: 'Renamed', roots: [node('r', [], { text: 'Edited' })] };
+    const held = heldResult<undefined>();
+    server.beforeNextMutation(() => held.promise);
+    const first = repository.put(newer);
+    const settled = vi.fn();
+    const later = (method === 'list' ? repository.list() : repository.get(older.id)).then(
+      (value) => {
+        settled();
+        return value;
+      },
+    );
+    await drainMacrotask();
+    const beforeRelease = { requests: server.requests.length, settled: settled.mock.calls.length };
+    held.resolve(undefined);
+    const [, result] = await Promise.all([first, later]);
+
+    expect
+      .soft(result)
+      .toStrictEqual(
+        method === 'list'
+          ? [{ id: newer.id, title: 'Renamed', updatedAt: newer.updatedAt }]
+          : newer,
+      );
+    expect.soft(beforeRelease).toStrictEqual({ requests: 2, settled: 0 });
+    expect(await repository.get(older.id)).toStrictEqual(newer);
+  });
+
+  it('persists a queued save after a predecessor rejects with a network error', async () => {
+    const server = new MapFetch();
+    const repository = new HttpMapRepository(server.fetch);
+    const older = mapOf(node('r'));
+    const newer = { ...older, title: 'Retry' };
+    const held = heldResult<undefined>();
+    const cause = new TypeError('connection ended');
+    server.beforeNextMutation(() => held.promise);
+    const first = repository.put(older).catch((error: unknown) => error);
+    const settled = vi.fn();
+    const later = repository.put(newer).then(settled);
+    await drainMacrotask();
+    const beforeRelease = { requests: server.requests.length, settled: settled.mock.calls.length };
+    held.reject(cause);
+    const [error] = await Promise.all([first, later]);
+
+    expect.soft(beforeRelease).toStrictEqual({ requests: 1, settled: 0 });
+    expect(error instanceof Error && error.constructor).toBe(Error);
+    expect(error).toHaveProperty('message', `PUT /api/maps/${older.id} request failed`);
+    expect(error).toHaveProperty('cause', cause);
+    expect(await repository.get(older.id)).toStrictEqual(newer);
+  });
+});
+
+describe('HTTP account binding', () => {
+  it('rejects Alice queued content after Bob authenticates and lets Bob save', async () => {
+    const server = new MapFetch();
+    server.authenticateAs('Alice');
+    const alice = new HttpMapRepository(server.fetch, 'QWxpY2U');
+    const older = { ...mapOf(node('r')), title: 'Alice private predecessor' };
+    const sensitive = { ...older, title: 'Alice sensitive queued content' };
+    const held = heldResult<undefined>();
+    server.beforeNextMutation(() => held.promise);
+    const first = alice.put(older).catch((error: unknown) => error);
+    const queued = alice.put(sensitive).catch((error: unknown) => error);
+    try {
+      await drainMacrotask();
+      expect(server.requests).toHaveLength(1);
+      server.authenticateAs('Bob');
+    } finally {
+      held.resolve(undefined);
+    }
+    const results = await Promise.all([first, queued]);
+    const bob = new HttpMapRepository(server.fetch, 'Qm9i');
+    expect.soft(await bob.get(older.id)).toBeUndefined();
+    for (const result of results) expect.soft(result).toBeInstanceOf(StorageUnauthorizedError);
+    const own = { ...older, title: 'Bob own map' };
+    await bob.put(own);
+    expect(await bob.get(own.id)).toStrictEqual(own);
+  });
+
+  it('keeps same-account reauthentication and binds every operation', async () => {
+    const server = new MapFetch();
+    const repository = new HttpMapRepository(server.fetch, 'QWxpY2U');
+    const map = mapOf(node('r'));
+    const held = heldResult<undefined>();
+    server.beforeNextMutation(() => held.promise);
+    const saving = repository.put(map);
+    try {
+      server.authenticateAs('Alice');
+    } finally {
+      held.resolve(undefined);
+    }
+    await saving;
+    expect(await repository.get(map.id)).toStrictEqual(map);
+    expect(await repository.list()).toHaveLength(1);
+    await repository.delete(map.id);
+    for (const { init } of server.requests) {
+      expect(new Headers(init?.headers).get('x-mindsprout-session-binding')).toBe('QWxpY2U');
+    }
   });
 });

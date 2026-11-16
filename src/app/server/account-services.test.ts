@@ -97,6 +97,26 @@ afterEach(() => {
 });
 
 describe('request session composition', () => {
+  it.each([undefined, 'QWxpY2U', 'Qm9i', ''])(
+    'requires a present binding %j to match the authenticated account',
+    async (binding) => {
+      const { requireUser } = await import('./account-services');
+      mocks.resolve.mockResolvedValue(user);
+      const input = request(`mindsprout_session=${token}`);
+      if (binding !== undefined) input.headers.set('x-mindsprout-session-binding', binding);
+      const result = await requireUser(input);
+      if (binding === undefined || binding === 'QWxpY2U') {
+        expect(result).toBe(user);
+      } else {
+        expect(result).toBeInstanceOf(Response);
+        if (!(result instanceof Response)) throw new Error('Expected binding refusal');
+        expect(result.status).toBe(401);
+        expect(await result.json()).toEqual({ error: 'unauthenticated' });
+        expect(mocks.forUser).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   it('lazily shares one five-connection pool and complete account ports', async () => {
     const { resolveRequestUser, requireUser } = await import('./account-services');
     expect(mocks.postgres).not.toHaveBeenCalled();
@@ -266,29 +286,31 @@ describe('session response cookies', () => {
       const { setSessionCookie, clearSessionCookie } = await import('./account-services');
       const response = NextResponse.json({});
       const set = vi.spyOn(response.cookies, 'set');
-      setSessionCookie(response, token);
+      setSessionCookie(response, token, 'Alice');
       const secure = environment === 'production';
-      expect(set).toHaveBeenLastCalledWith('mindsprout_session', token, {
+      expect(set).toHaveBeenNthCalledWith(1, 'mindsprout_session', token, {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
         maxAge: 2592000,
         secure,
       });
-      expect(response.headers.get('set-cookie')).toBe(
+      expect(response.headers.getSetCookie()).toEqual([
         `mindsprout_session=${token}; Path=/; Expires=Mon, 14 Dec 2026 00:00:00 GMT; Max-Age=2592000;${secure ? ' Secure;' : ''} HttpOnly; SameSite=lax`,
-      );
+        `mindsprout_session_binding=QWxpY2U; Path=/; Expires=Mon, 14 Dec 2026 00:00:00 GMT; Max-Age=2592000;${secure ? ' Secure;' : ''} SameSite=lax`,
+      ]);
       clearSessionCookie(response);
-      expect(set).toHaveBeenLastCalledWith('mindsprout_session', '', {
+      expect(set).toHaveBeenNthCalledWith(3, 'mindsprout_session', '', {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
         maxAge: 0,
         secure,
       });
-      expect(response.headers.get('set-cookie')).toBe(
+      expect(response.headers.getSetCookie()).toEqual([
         `mindsprout_session=; Path=/; Max-Age=0;${secure ? ' Secure;' : ''} HttpOnly; SameSite=lax`,
-      );
+        `mindsprout_session_binding=; Path=/; Max-Age=0;${secure ? ' Secure;' : ''} SameSite=lax`,
+      ]);
       expect(mocks.postgres).not.toHaveBeenCalled();
     },
   );

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SESSION_BINDING_HEADER } from '@/shared/session-binding';
 import { StorageUnauthorizedError, UnsupportedSchemaVersionError } from '../../domain/errors';
 import { parseMindMap } from '../../domain/parse-mind-map';
 import type { MapRepository, MapSummary } from '../../domain/map-repository';
@@ -39,7 +40,12 @@ async function readJson(response: Response, operation: string): Promise<unknown>
 }
 
 export class HttpMapRepository implements MapRepository {
-  constructor(private readonly fetchMap: typeof fetch = globalThis.fetch.bind(globalThis)) {}
+  #tail: Promise<void> | undefined;
+
+  constructor(
+    private readonly fetchMap: typeof fetch = globalThis.fetch.bind(globalThis),
+    private readonly binding?: string,
+  ) {}
 
   async list(): Promise<MapSummary[]> {
     const operation = 'GET /api/maps';
@@ -94,7 +100,25 @@ export class HttpMapRepository implements MapRepository {
     requireSuccess(response, `DELETE ${path}`);
   }
 
-  private async request(path: string, init: RequestInit): Promise<Response> {
+  private request(path: string, init: RequestInit): Promise<Response> {
+    if (this.binding !== undefined) {
+      const headers = new Headers(init.headers);
+      headers.set(SESSION_BINDING_HEADER, this.binding);
+      init.headers = headers;
+    }
+    const response =
+      this.#tail === undefined
+        ? this.fetchResponse(path, init)
+        : this.#tail.then(() => this.fetchResponse(path, init));
+    const release = (): void => {
+      if (this.#tail === tail) this.#tail = undefined;
+    };
+    const tail = response.then(release, release);
+    this.#tail = tail;
+    return response;
+  }
+
+  private async fetchResponse(path: string, init: RequestInit): Promise<Response> {
     const operation = `${String(init.method)} ${path}`;
     let response: Response;
     try {

@@ -52,6 +52,30 @@ Each stored map SHALL be held, and transferred between browser and server, as `{
 
 ## ADDED Requirements
 
+### Requirement: Same-session persistence operations retain invocation order
+
+Within one browser document session, the HTTP map repository SHALL preserve mutation invocation order and SHALL NOT let a later read bypass an earlier pending mutation. An idle `put` SHALL invoke fetch synchronously. When an earlier operation is pending, later operations SHALL wait for it to settle; a rejected operation SHALL NOT prevent later queued operations from running. Every deferred operation SHALL retain its adapter's Session binding and follow account-auth "Deferred map operations remain bound to the invoking account"; queue release SHALL NOT bypass that account check. Cross-device editing remains last-write-wins, and unload delivery remains best-effort.
+
+#### Scenario: An older save cannot overwrite a newer edit or rename
+
+- **WHEN** an older PUT is held before its backing-store mutation, a newer PUT for the same map is invoked, and the older PUT is then released
+- **THEN** the newer PUT does not reach the backing store before the older operation settles, and a subsequent read returns the newer map
+
+#### Scenario: A delayed save cannot resurrect a deleted map
+
+- **WHEN** a PUT is held before its backing-store mutation, deletion of that map is invoked, and the PUT is then released
+- **THEN** deletion runs after the PUT and a subsequent read reports the map as absent
+
+#### Scenario: Navigation reads wait for a flushed mutation
+
+- **WHEN** a PUT is held before its backing-store mutation and a list or get is invoked through the same session repository
+- **THEN** the read waits for the PUT instead of returning stale pre-write state
+
+#### Scenario: A failed operation does not poison the session queue
+
+- **WHEN** a queued predecessor rejects and a later mutation is pending
+- **THEN** the later mutation still runs and retains the existing error taxonomy
+
 ### Requirement: Save failures are visible
 
 A save that fails for any reason other than an ended session SHALL show the error notice "保存失败" and SHALL never be swallowed. Examples are a network failure, a server error or a refused payload. The edit SHALL stay in the editor and remain pending until the next edit or flush retries it. Network failures SHALL NOT switch the editor to a different store.

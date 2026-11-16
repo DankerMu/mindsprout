@@ -149,7 +149,7 @@ paths:
                 error: internal
   /api/auth/logout:
     post:
-      summary: End the current session and clear its cookie
+      summary: End the current session and clear both cookies
       requestBody:
         description: Canonical empty object; no payload fields are consumed
         required: true
@@ -160,14 +160,14 @@ paths:
             example: {}
       responses:
         "204":
-          description: The session ended or was absent; the cookie is cleared
+          description: The session ended or was absent; both cookies are cleared
           headers:
             Set-Cookie:
-              description: Empty mindsprout_session cookie; Max-Age=0, HttpOnly, SameSite=Lax, Path=/, Secure in production
+              description: Two Set-Cookie fields clear mindsprout_session and mindsprout_session_binding; Max-Age=0, SameSite=Lax, Path=/, Secure in production; only mindsprout_session is HttpOnly
               schema:
                 type: string
         "415":
-          description: Content-Type is not application/json; session and cookie are unchanged
+          description: Content-Type is not application/json; session and both cookies are unchanged
           content:
             application/json:
               schema:
@@ -175,7 +175,7 @@ paths:
               example:
                 error: unsupported-media-type
         "500":
-          description: An unexpected internal failure; the cookie is not cleared
+          description: An unexpected internal failure; neither cookie is cleared
           content:
             application/json:
               schema:
@@ -183,6 +183,8 @@ paths:
               example:
                 error: internal
   /api/maps:
+    parameters:
+      - $ref: "#/components/parameters/SessionBinding"
     get:
       summary: List the current user's maps
       responses:
@@ -211,6 +213,8 @@ paths:
               example:
                 error: internal
   /api/maps/{id}:
+    parameters:
+      - $ref: "#/components/parameters/SessionBinding"
     get:
       summary: Read one of the current user's maps
       parameters:
@@ -463,9 +467,17 @@ paths:
               example:
                 error: internal
 components:
+  parameters:
+    SessionBinding:
+      name: x-mindsprout-session-binding
+      in: header
+      required: false
+      description: Optional opaque base64url UTF-8 exact-username binding captured by the first-party map adapter. A present value differing from the authenticated account returns 401 unauthenticated before map access. Omission preserves direct-API behavior. This is not an authentication credential.
+      schema:
+        type: string
   headers:
     SessionCookie:
-      description: mindsprout_session cookie; HttpOnly, SameSite=Lax, Path=/, Max-Age=2592000, Secure in production
+      description: Two Set-Cookie fields set mindsprout_session (HttpOnly) and mindsprout_session_binding (non-HttpOnly base64url UTF-8 exact username); both SameSite=Lax, Path=/, Max-Age=2592000, Secure in production
       schema:
         type: string
   schemas:
