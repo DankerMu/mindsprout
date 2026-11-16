@@ -228,6 +228,15 @@ Blast radius: malformed credential transport or error mapping blocks account acc
 Selected risk packs: Credential/session transport; Open-redirect/path safety; Error-state selection; Browser/e2e evidence; Gate integrity. No API/schema/proxy/header/dependency change.
 Evidence floor: failing-first component/helper/e2e tests, then full unit coverage and build; real register→session and isolated-register→login→session Playwright walks; `/login` smoke with zero console errors/screenshot; `pnpm test:guardrails`, duplicate/dead-code and static gates. D8, account-auth requirements and decision 0023 govern; no new decision record.
 
+## Issue #174 Fixture Triage
+
+Issue type: test
+Fixture level: expanded
+Upstream suggested level: expanded (agree: required native probe seam and two runtime modes, although this PR edits scripts only and no Critical Path)
+Blast radius: stale source anchors or a disappearing persistence assertion can make the required native HMR gate fail during the later cloud cut-over, or hide a real autosave failure.
+Selected risk packs: Native HMR source-seam integrity; Browser/cache state compatibility; Persistence-notice evidence; Runtime and CI proof. No application/UI behavior, workflow, database-lifecycle, sign-in or documentation change.
+Evidence floor: failing-first sourceStimulus tests, `pnpm native:browser:test`, no `未保存到浏览器` in `scripts/native-hmr.mjs`, local `source-change` and `restored-lifecycle` against an owned `pnpm db:setup` database with unchanged deadlines/noise/no-retry rules, then both installed-native CI legs and the `Linux x64 GNU native repair` candidate qualification required by decision 0027. Static/guardrail/docs checks. Existing development-navigation requirements and decisions 0021/0027 govern; no new decision record or changeset.
+
 ## Impact
 
 - **New code:**

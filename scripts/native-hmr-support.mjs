@@ -390,14 +390,15 @@ export function assertQuiet(events) {
 export function sourceStimulus(original, { mode, probe, valueA, valueB, variable }) {
   const anchor =
     mode === 'source-change'
-      ? '      <EditorView storageUnavailable={storageUnavailable} />'
-      : '  return <RepositoryContext value={state}>{children}</RepositoryContext>;';
+      ? '    <EditorSession map={loaded.map} repository={repository}>'
+      : "  const [state, setState] = useState<RepositoryState>({ status: 'opening' });";
   const text = original.toString('utf8');
   assert.equal(text.split(anchor).length, 2, 'Qualified source seam changed; refusing edit');
+  // Declarative children keep the env probe in SSR and client chunks on home and editor routes.
   const replacement =
     mode === 'source-change'
-      ? `      <output data-testid="${probe}">${valueA}</output>\n${anchor}`
-      : `  return <RepositoryContext value={state}><output data-testid="${probe}">{process.env.${variable}}</output>{children}</RepositoryContext>;`;
+      ? `${anchor}\n      <output data-testid="${probe}">${valueA}</output>`
+      : `${anchor}\n  children = (\n    <>\n      <output data-testid="${probe}">{process.env.${variable}}</output>\n      {children}\n    </>\n  );`;
   const stimulated = Buffer.from(text.replace(anchor, replacement));
   const stimulatedB = Buffer.from(
     stimulated.toString().replace(`>${valueA}</output>`, `>${valueB}</output>`),

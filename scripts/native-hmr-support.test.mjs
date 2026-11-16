@@ -8,6 +8,7 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { setImmediate as nextTurn, setTimeout as sleep } from 'node:timers/promises';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import * as nativeSupport from './native-hmr-support.mjs';
 import {
   assertSourceProof,
@@ -19,10 +20,71 @@ import {
   firstNavigationGate,
   processGroup,
   publicMap,
+  sourceStimulus,
   stopOwnedProcessGroup,
   visibleWithin,
   waitForEmitted,
 } from './native-hmr-support.mjs';
+
+const root = fileURLToPath(new URL('../', import.meta.url));
+const editorSource = fs.readFileSync(path.join(root, 'src/app/maps/[id]/MapEditor.tsx'));
+const providerSource = fs.readFileSync(
+  path.join(root, 'src/app/providers/MapRepositoryProvider.tsx'),
+);
+const probeOptions = { probe: 'native-probe', valueA: 'A', valueB: 'B', variable: 'NATIVE_PROBE' };
+const sourceOptions = { ...probeOptions, mode: 'source-change' };
+const lifecycleOptions = { ...probeOptions, mode: 'restored-lifecycle' };
+const editorAnchor = '    <EditorSession map={loaded.map} repository={repository}>';
+const providerAnchor =
+  "  const [state, setState] = useState<RepositoryState>({ status: 'opening' });";
+const outputA = '      <output data-testid="native-probe">A</output>';
+const outputB = '      <output data-testid="native-probe">B</output>';
+const editorView = '<EditorView storageUnavailable={storageUnavailable} />';
+
+test('source-change inserts A immediately inside EditorSession and replaces it with B', () => {
+  const sibling = Buffer.from(
+    editorSource.toString().replace(editorAnchor, `${editorAnchor}\n      <span />`),
+  );
+  for (const source of [editorSource, sibling]) {
+    const { stimulated, stimulatedB } = sourceStimulus(source, sourceOptions);
+    assert.ok(stimulated.includes(`${editorAnchor}\n${outputA}`));
+    assert.doesNotMatch(stimulated.toString(), />B<\/output>/);
+    assert.ok(stimulatedB.includes(`${editorAnchor}\n${outputB}`));
+    assert.doesNotMatch(stimulatedB.toString(), />A<\/output>/);
+  }
+});
+
+test('source-change survives removal of the EditorView storage flag', () => {
+  const source = Buffer.from(editorSource.toString().replace(editorView, '<EditorView />'));
+  const { stimulated } = sourceStimulus(source, sourceOptions);
+  assert.ok(stimulated.includes(`${editorAnchor}\n${outputA}\n      <EditorView />`));
+});
+
+test('restored-lifecycle preserves env and children across provider cut-over', () => {
+  const before = '  return <RepositoryContext value={state}>{children}</RepositoryContext>;';
+  const formattedReturn =
+    '  return (\n    <RepositoryContext value={state}>\n      {children}\n    </RepositoryContext>\n  );';
+  const opening = providerSource.toString().replace('openRepository(open)', 'open()');
+  const source = Buffer.from(opening.replace(before, formattedReturn));
+  const { stimulated, stimulatedB } = sourceStimulus(source, lifecycleOptions);
+  const fragment =
+    '  children = (\n    <>\n      <output data-testid="native-probe">{process.env.NATIVE_PROBE}</output>\n      {children}\n    </>\n  );';
+  assert.ok(stimulated.includes(`${providerAnchor}\n${fragment}`));
+  assert.ok(stimulated.includes(formattedReturn));
+  assert.ok(stimulated.includes('open === undefined ? openSessionRepository() : open()'));
+  assert.equal(stimulated.toString().split('data-testid="native-probe"').length, 2);
+  assert.deepEqual(stimulatedB, stimulated);
+});
+
+test('source stimuli refuse duplicate provider seams and a missing editor seam', () => {
+  const duplicate = Buffer.from(
+    providerSource.toString().replace(providerAnchor, `${providerAnchor}\n${providerAnchor}`),
+  );
+  const missing = Buffer.from(editorSource.toString().replace(editorAnchor, ''));
+  const refusal = /Qualified source seam changed; refusing edit/;
+  assert.throws(() => sourceStimulus(duplicate, lifecycleOptions), refusal);
+  assert.throws(() => sourceStimulus(missing, sourceOptions), refusal);
+});
 
 function registrationContext({
   registerStatus = 201,

@@ -345,7 +345,7 @@ async function visitEditor(state, action, expectedPath) {
     await guard(action());
     await guard(readiness(state, start, 'public-navigation', expectedPath));
     assert.equal(
-      await state.page.getByText('未保存到浏览器', { exact: true }).count(),
+      await state.page.getByText('保存失败', { exact: true }).count(),
       0,
       'Map must be persisted',
     );
