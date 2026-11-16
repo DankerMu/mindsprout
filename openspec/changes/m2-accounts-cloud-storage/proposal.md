@@ -300,6 +300,14 @@ Blast radius: incorrect load-state handling can expose account data during 401/4
 Selected risk packs: Admin authorization/data secrecy; Session-expiry navigation; StrictMode/live-effect delivery; API order/time fidelity; Gate integrity; Component and real-browser evidence.
 Evidence floor: TDD RED→GREEN for 200 list/order/time/admin badge, 403 refusal+home link/no data, exact 401 document redirect/no data, generic failures and discarded responses; thin page mounts SessionMenu with no8.2 button. Add `/admin` to constraints and an adminPage smoke walk plus relative-order two-registration e2e. Amend existing decision0025 to cover the third fresh-document call (no new record). Full unit/coverage, full e2e, build, `pnpm test:guardrails`, `pnpm decisions:check`, static/dead-code/duplicate checks and strict OpenSpec validation pass; update the existing account changeset. The PR flags the constraints edit and supplies full `risk-adaptive-cross-review` with reviewer+verifier covering every diff line plus owner functional-acceptance evidence from the real admin/regular walks and screenshots. No reset action, API/schema/dependency.
 
+## Issue #171 Fixture Triage
+
+Issue type: feature
+Fixture level: compact
+Upstream suggested level: compact (agree: additive admin UI over the tested reset API; no persistence/entrypoint change, with secret/session risk explicitly reviewed)
+Blast radius: confirmation mistakes can reset the wrong account or fire twice; expired/non-200 handling can expose stale account data or lose the redirect; temporary-password retention/logging can leak a credential; incomplete declarations can hide unexpected browser failures.
+Selected risk packs: Confirmation/target/pending integrity; Session revocation and fresh-document navigation; One-time secret lifetime/copy; Reset failure fidelity; D13 response/console correlation; Two-context browser evidence.
+Evidence floor: TDD RED→GREEN for per-row confirm/cancel/exact JSON/no duplicate, success copy/close/reopen clearing, exact401 redirect, generic failures and retained list state. Reuse one admin redirect call site and amend decision0025 wording without adding an exception. Real two-user-context+admin e2e proves one-time masked secret, both sessions revoked, old password401 and temporary-password login, with every session/maps/login401 declared+observed and zero other noise. Full unit/coverage, build, e2e125/125, decisions/static/dead-code/duplicate checks and strict OpenSpec validation pass; update the existing account changeset. No API/schema/dependency/password-change/recovery flow or new decision record.
 ## Issue #172 Fixture Triage
 
 Issue type: test
