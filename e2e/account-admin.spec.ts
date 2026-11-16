@@ -80,6 +80,38 @@ function expected401(page: Page, path: string, method: string) {
 }
 
 test.describe('account-admin: one-time reset credential', () => {
+  let previousNoCopyPrompt: string | undefined;
+  let resetCredential: string | undefined;
+
+  test.beforeAll(() => {
+    previousNoCopyPrompt = process.env.PLAYWRIGHT_NO_COPY_PROMPT;
+    // Suppress teardown ARIA snapshots only while this describe owns the credential.
+    process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
+  });
+
+  test.afterAll(() => {
+    // Test fixtures run didFinishTest before afterAll; afterEach is too early to restore.
+    if (previousNoCopyPrompt === undefined) delete process.env.PLAYWRIGHT_NO_COPY_PROMPT;
+    else process.env.PLAYWRIGHT_NO_COPY_PROMPT = previousNoCopyPrompt;
+  });
+
+  test.afterEach(async ({ adminPage }, testInfo) => {
+    try {
+      for (const error of testInfo.errors) {
+        delete error.errorContext;
+        if (resetCredential) {
+          if (error.message)
+            error.message = error.message.replaceAll(resetCredential, '[REDACTED]');
+          if (error.stack) error.stack = error.stack.replaceAll(resetCredential, '[REDACTED]');
+        }
+      }
+      // A test timeout can leave the test body's finally block pending.
+      await adminPage.close();
+    } finally {
+      resetCredential = undefined;
+    }
+  });
+
   test('Reset signs the user out and issues a temporary password', async ({
     adminPage,
     browser,
@@ -146,6 +178,7 @@ test.describe('account-admin: one-time reset credential', () => {
         expect(response.request().method()).toBe('POST');
         expect(response.status()).toBe(200);
         const { temporaryPassword } = (await response.json()) as { temporaryPassword: string };
+        resetCredential = temporaryPassword;
         expect(typeof temporaryPassword === 'string' && temporaryPassword.length > 0).toBe(true);
         const dialog = adminPage.getByRole('dialog', { name: '临时密码' });
         const input = dialog.getByRole('textbox', { name: '临时密码' });
