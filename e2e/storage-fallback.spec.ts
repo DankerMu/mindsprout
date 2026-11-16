@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './support/session';
 import * as fs from 'node:fs';
 import { MAP_STORE } from '../src/contexts/map/infrastructure/persistence/indexed-db-map-repository';
 import { envelopeOf, readRecord, seedRecords } from './support/seed';

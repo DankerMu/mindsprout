@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './support/session';
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { envelopeOf, seedRecords } from './support/seed';
