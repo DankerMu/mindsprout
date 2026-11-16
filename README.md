@@ -40,9 +40,12 @@
 ## Known Limitations
 
 - **无 AI**：暂不支持 AI 生成、展开或对话改图，导图需手动编辑。
+- **多设备编辑**：同一导图在多台设备同时编辑时以最后一次成功保存为准，不提供实时协同或冲突合并。
 - **保存窗口**：最后一次已提交的编辑后等待 500 ms 触发自动保存，连续编辑会重置计时；立即刷新可能丢失自上次成功保存以来的全部待保存修改，包括早于 500 ms 的修改。页面卸载时仅尽力保存，不保证成功；未提交的编辑草稿或保存失败的修改不保证保留。
 - **仅 LR 布局**：只支持从左向右排列，不能切换布局方向。
 - **无导出**：暂不支持 PNG、SVG、Markdown 或 OPML 导出。
+- **密码修改与找回**：不支持用户自助修改或找回密码，只能由管理员重置；管理员密码遗忘后无法恢复。
+- **登录限流**：登录与注册没有频率限制或锁定策略。
 - **开发热更新**：原生修复的平台范围与独立的 SPA-only HMR 限制见 [原生开发说明](docs/engineering/native-hmr.md#known-limitations)。
 
 ## 开发
@@ -54,6 +57,7 @@ cd mindsprout
 
 启动 `pnpm dev` 前，执行[开发工作流](AGENTS.md#development-workflow)中的完整本地 setup；环境配置与日常命令也以该页为准。
 原生 HMR 修复的构建、验证、安装和故障处理见 [原生开发说明](docs/engineering/native-hmr.md)。
+数据库角色、迁移、部署与 smoke 顺序见 [数据库与部署](docs/engineering/database.md)。
 依赖补丁（pnpm `patchedDependencies`）的维护与移除见 [依赖补丁说明](docs/engineering/dependency-patches.md)。
 
 ### E2E

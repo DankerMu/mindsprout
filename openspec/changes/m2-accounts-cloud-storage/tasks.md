@@ -400,7 +400,7 @@ Minimal mergeable slice: 8.1 - the read-only list merges alone once 5.6 and 7.3 
     - map-library "Only the user's own maps" and "Another user's map";
     - account-admin "Admin opens another user's map" (`e2e-admin` gets the not-found state for a user's map URL);
     - screenshots in `.run/ui-evidence/`, and zero console errors apart from the responses declared through the design D13 helper: the `PUT /api/maps/{id}` 401 of the re-login walk and the `GET /api/maps/{id}` 404s of "Another user's map" and "Admin opens another user's map". Each declaration is observed.
-- [ ] 9.2 Close the documentation.
+- [x] 9.2 Close the documentation. (#173; README seven normative limitations plus retained entries, implemented TECH layout, database/deployment guide and deployment-target metrics downgrade; docs gate12 files, guardrails85/85, format and strict OpenSpec validation pass.)
   - Update README `## Known Limitations` so it contains the seven items of map-library "Published canvas limitations" and keeps every other existing entry that is still true, including the `开发热更新` entry that links to `docs/engineering/native-hmr.md#known-limitations`.
   - Add `docs/engineering/database.md` covering roles and URLs, `db:migrate` and `db:setup`, backup before migrating, the deployment procedure (create the `mindsprout_app` login with a strong password, migrate, start, and register the owner first) and the smoke-on-fresh-dev-database caveat (design D11, D12).
   - Update TECH §7 to the implemented layout, including the account context, `db/` and the new routes.
