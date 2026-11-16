@@ -255,7 +255,7 @@ describe('MapEditor', () => {
     await repository.storage.put(peer);
     const { unmount } = editorOver(() => Promise.resolve(repository), map.id);
     expect(await screen.findByTestId('map-editor-ready')).toBeTruthy();
-    expect(nodeWrapper('root').textContent).toBe('编辑前内容');
+    expect((await screen.findByTestId('rf__node-root')).textContent).toBe('编辑前内容');
     expect(repository.puts).toStrictEqual([]);
 
     vi.useFakeTimers({ now: new Date('2026-11-07T12:00:00.000Z') });
