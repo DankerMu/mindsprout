@@ -237,6 +237,15 @@ Blast radius: stale source anchors or a disappearing persistence assertion can m
 Selected risk packs: Native HMR source-seam integrity; Browser/cache state compatibility; Persistence-notice evidence; Runtime and CI proof. No application/UI behavior, workflow, database-lifecycle, sign-in or documentation change.
 Evidence floor: failing-first sourceStimulus tests, `pnpm native:browser:test`, no `未保存到浏览器` in `scripts/native-hmr.mjs`, local `source-change` and `restored-lifecycle` against an owned `pnpm db:setup` database with unchanged deadlines/noise/no-retry rules, then both installed-native CI legs and the `Linux x64 GNU native repair` candidate qualification required by decision 0027. Static/guardrail/docs checks. Existing development-navigation requirements and decisions 0021/0027 govern; no new decision record or changeset.
 
+## Issue #175 Fixture Triage
+
+Issue type: test
+Fixture level: expanded
+Upstream suggested level: expanded (agree: shared authenticated fixture, first-admin lifecycle and browser-context state; no src or Critical Path edit)
+Blast radius: wrong setup order loses the only admin; registering in the wrong context produces false signed-in coverage or leaks cookies across users; adopting the fixture accidentally would invalidate signed-out auth/error specs.
+Selected risk packs: First-account/admin lifecycle; Session cookie/context isolation; Signed-out compatibility; Secret/evidence hygiene; Full-suite proof. No production/API/e2e seeding/dependency/workflow change and no fixture adoption beyond its self-test.
+Evidence floor: failing-first fixture self-test spec, then two focused tests proving fresh `u-<random>` session and `e2e-admin` session/admin flag in separate contexts, including regular-session preservation after admin authentication; full existing suite unchanged plus those two tests with zero skips/console regressions. Verify globalSetup registers only `e2e-admin` first on fresh `app_e2e`, context/request disposal and static/dead-code gates. D11, account-auth and decisions 0020/0023/0026 govern; no new decision record or changeset.
+
 ## Impact
 
 - **New code:**
