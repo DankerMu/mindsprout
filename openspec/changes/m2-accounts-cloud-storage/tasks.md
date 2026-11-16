@@ -358,7 +358,7 @@ Minimal mergeable slice: 6.1 - the HTTP adapter is fully contract-tested and unu
   - Verify (e2e), proving only these THEN parts:
     - "Register and land signed in": the visitor lands on `/`, and `GET /api/auth/session` answers 200 with `alice`. The header THEN is proved in 7.3;
     - "Sign in": she lands on `/`, and `GET /api/auth/session` answers 200 with her username. "Her maps are listed" is proved in 9.1, after the flip.
-- [ ] 7.2 Add `src/proxy.ts` (design D8). Depends on 6.5 (every spec except the signed-out ones signed in), 6.6 (the native HMR probe signs in) and 7.1.
+- [x] 7.2 Add `src/proxy.ts` (design D8). Depends on 6.5 (every spec except the signed-out ones signed in), 6.6 (the native HMR probe signs in) and 7.1. (#166;35 proxy tests, full unit1679/1679, build, focused10/10 and full e2e128/128, guardrails85/85 pass.)
   - The matcher excludes `/_next/static`, `/_next/image`, `/icon.svg`, `/api/`, `/login` and `/register`.
   - When the session cookie is missing it redirects 307 to `/login?next=<path+query>`. It checks only that the cookie exists.
   - Add `src/proxy.ts` to the `AGENTS.md` Critical Paths table, trimming existing prose so the file stays within the instruction-guard limits, as 1.1 does.

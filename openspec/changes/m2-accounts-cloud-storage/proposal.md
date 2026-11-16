@@ -255,6 +255,15 @@ Blast radius: adopting the wrong runtime test removes signed-in coverage before 
 Selected risk packs: Authenticated browser coverage; Signed-out exclusions; Fixture/context lifecycle; Full-suite evidence; Import-only diff integrity. No production, seeding, API, dependency, workflow or persistence behavior change.
 Evidence floor: enumerate every spec and change only runtime `test` imports in the14 non-excluded files; keep `account-auth.spec.ts` and `expected-responses.spec.ts` on base Playwright and `session.spec.ts` unchanged. Full real `pnpm e2e` passes127/127 with zero skipped/unexpected/flaky/errors or unexpected console errors, excluded signed-out cases stay green, and diff audit proves no assertion/test-body edits. D10/D11.5 and account-auth govern; no new decision record or changeset.
 
+## Issue #166 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: new Critical Path gates every page and constructs a redirect target)
+Blast radius: an incomplete matcher or cookie check can expose pages, break public auth/API/static routes or cause redirect loops; an unsafe return target can create an open redirect; importing account composition would put DB work on every page prefetch.
+Selected risk packs: Public-route/matcher fail-closed behavior; Redirect origin/path/query safety; Session-cookie optimistic checks versus data verification; Browser redirect/session lifecycle; Critical Path instruction-gate integrity; Full-suite regression evidence.
+Evidence floor: vertical RED→GREEN unit tests for307 same-origin path+query redirects, existence-only cookie pass and exact public/protected matcher boundaries; real Next build and full unit coverage; owned-map register→seed→clear-cookie→login→editor Playwright walk with no404/console errors; full e2e128/128, `pnpm test:guardrails`, AGENTS byte/line measurements, static/dead-code/duplicate checks and existing changeset. Preserve D6/D8/D13 and all existing fixtures; no new decision record.
+
 ## Impact
 
 - **New code:**
