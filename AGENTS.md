@@ -211,8 +211,7 @@ Full clauses (layering table, aggregates, repositories, domain events, cadence, 
 
 ## Critical Paths
 
-Agents check this table before editing.
-Touching a listed path requires the `risk-adaptive-cross-review` pass at full depth (reviewer + verifier subagents, every diff line) plus the owner's functional acceptance.
+Touching a listed path requires full `risk-adaptive-cross-review` (reviewer + verifier subagents, every diff line) plus the owner's functional acceptance.
 Everywhere else gray-box review (contracts + runtime evidence) is sufficient. The owner does not read diffs (decision 0001).
 
 | Path                                                               | Risk class                   | Requirement                                                        |
@@ -220,6 +219,7 @@ Everywhere else gray-box review (contracts + runtime evidence) is sufficient. Th
 | `src/contexts/account/`, `db/migrations/`                          | auth, data loss, key leakage | full cross-review + integration evidence against a real DB         |
 | `src/contexts/ai/infrastructure/providers/` and quota logic        | billing, key handling        | full cross-review + mock-provider tests; never a real key in tests |
 | `src/app/api/`, `src/app/server/`                                  | public API, shared auth      | full cross-review + `schemas/openapi.yaml` update + smoke entry    |
+| `src/proxy.ts`                                                     | auth, open redirects         | full cross-review + `pnpm test:guardrails` evidence                |
 | `.github/workflows/`, `.husky/`, `.git-hooks/`, `constraints.yaml` | gate integrity               | full cross-review + `pnpm test:guardrails` evidence                |
 
 ## Observability

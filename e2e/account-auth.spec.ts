@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { createMindMap } from '../src/contexts/map/domain/create-mind-map';
+import { envelopeOf, seedRecords } from './support/seed';
 
 test('account-auth: Register and land signed in', async ({ page }) => {
   const username = `alice-${randomUUID()}`;
@@ -29,6 +31,50 @@ test('account-auth: Sign in', async ({ page, request }) => {
   const session = await page.request.get('/api/auth/session');
   expect(session.status()).toBe(200);
   expect(await session.json()).toMatchObject({ username });
+});
+
+test('account-auth: Signed-out visit returns after sign-in', async ({ page }) => {
+  const missing: string[] = [];
+  const noise: string[] = [];
+  page.on('response', (response) => {
+    if (response.status() === 404) missing.push(response.url());
+  });
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') {
+      noise.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on('pageerror', (error) => {
+    noise.push(`pageerror: ${String(error)}`);
+  });
+
+  const username = `return-${randomUUID()}`;
+  const password = `pw-${randomUUID()}`;
+  await page.goto('/register');
+  await page.getByLabel('用户名').fill(username);
+  await page.getByLabel('密码').fill(password);
+  await page.getByRole('button', { name: '注册' }).click();
+  await expect(page).toHaveURL('/');
+  await expect(page.getByTestId('app-ready')).toBeVisible();
+  const map = createMindMap({
+    id: 'abc',
+    rootId: 'root',
+    title: '返回我的导图',
+    rootText: '我的想法',
+  });
+  await seedRecords(page, [envelopeOf(map)]);
+  await page.context().clearCookies();
+  await page.goto('/maps/abc');
+  await expect(page).toHaveURL('/login?next=%2Fmaps%2Fabc');
+  await page.getByLabel('用户名').fill(username);
+  await page.getByLabel('密码').fill(password);
+  await page.getByRole('button', { name: '登录' }).click();
+  await expect(page).toHaveURL('/maps/abc');
+  await expect(page.getByTestId('map-editor-ready')).toBeVisible();
+  await expect(page.getByTestId('editor-title')).toHaveText('返回我的导图');
+  await page.screenshot({ path: '.run/ui-evidence/account-sign-in-return.png' });
+  expect(missing).toEqual([]);
+  expect(noise).toEqual([]);
 });
 
 for (const mode of ['login', 'register'] as const) {
