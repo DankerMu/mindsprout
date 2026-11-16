@@ -392,7 +392,7 @@ Minimal mergeable slice: 8.1 - the read-only list merges alone once 5.6 and 7.3 
 
 ## 9. M2 acceptance and documentation closure
 
-- [ ] 9.1 Add the M2 acceptance walk `e2e/m2-acceptance.spec.ts` with two browser contexts. Depends on 6.9 (and so on the 6.4 helper).
+- [x] 9.1 Add the M2 acceptance walk `e2e/m2-acceptance.spec.ts` with two browser contexts. Depends on 6.9 (and so on the 6.4 helper). (#172; focused1/1 and full e2e125/125 with zero skipped/flaky/unexpected, six inspected screenshots and three observed D13 declarations; typecheck/lint/format pass.)
   - Verify (e2e):
     - cloud-map-storage "Open on a second device";
     - account-auth "Sign in", the "her maps are listed" THEN: after signing in on `/login`, the library lists the map she created in the other context;
