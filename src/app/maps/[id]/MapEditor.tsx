@@ -3,10 +3,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { EditorSession } from '../../../components/editor/EditorSession';
 import { EditorView } from '../../../components/editor/EditorView';
-import { StorageUnavailableBanner } from '../../../components/StorageUnavailableBanner';
 import {
   StorageUnauthorizedError,
-  StorageUnavailableError,
   UnsupportedSchemaVersionError,
 } from '../../../contexts/map/domain/errors';
 import type { MapRepository } from '../../../contexts/map/domain/map-repository';
@@ -15,8 +13,7 @@ import { useMapRepository } from '../../providers/MapRepositoryProvider';
 import { MapStatus, type MapStatusKind } from './MapStatus';
 
 // A failed read never means not-found and never selects a different repository.
-type Loaded =
-  { status: MapStatusKind; storageUnavailable?: boolean } | { status: 'ready'; map: MindMap };
+type Loaded = { status: MapStatusKind } | { status: 'ready'; map: MindMap };
 
 function statusOf(error: unknown): MapStatusKind {
   return error instanceof UnsupportedSchemaVersionError ? 'future-version' : 'error';
@@ -25,12 +22,10 @@ function statusOf(error: unknown): MapStatusKind {
 function StoredMap({
   id,
   repository,
-  storageUnavailable,
   header,
 }: {
   id: string;
   repository: MapRepository;
-  storageUnavailable: boolean;
   header?: ReactNode;
 }) {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
@@ -57,7 +52,6 @@ function StoredMap({
         }
         setLoaded({
           status: statusOf(error),
-          storageUnavailable: error instanceof StorageUnavailableError,
         });
       },
     );
@@ -65,18 +59,10 @@ function StoredMap({
       cancelled = true;
     };
   }, [id, repository]);
-  if (loaded.status !== 'ready')
-    return (
-      <>
-        <StorageUnavailableBanner
-          storageUnavailable={storageUnavailable || loaded.storageUnavailable === true}
-        />
-        <MapStatus kind={loaded.status} />
-      </>
-    );
+  if (loaded.status !== 'ready') return <MapStatus kind={loaded.status} />;
   return (
     <EditorSession map={loaded.map} repository={repository}>
-      <EditorView storageUnavailable={storageUnavailable} header={header} />
+      <EditorView header={header} />
     </EditorSession>
   );
 }
@@ -85,13 +71,5 @@ export function MapEditor({ id, header }: { id: string; header?: ReactNode }) {
   const repository = useMapRepository();
   if (repository.status === 'opening') return <MapStatus kind="loading" />;
   if (repository.status === 'failed') return <MapStatus kind="error" />;
-  return (
-    <StoredMap
-      key={id}
-      id={id}
-      repository={repository.repository}
-      storageUnavailable={repository.storageUnavailable}
-      header={header}
-    />
-  );
+  return <StoredMap key={id} id={id} repository={repository.repository} header={header} />;
 }

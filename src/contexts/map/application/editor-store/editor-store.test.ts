@@ -70,7 +70,7 @@ describe('createEditorStore: initial state and load', () => {
   it('load sets the map with an empty history, the default viewport and no notice', () => {
     const store = createEditorStore();
     store.getState().setViewport({ x: 5, y: 6, zoom: 2 });
-    store.getState().showNotice('未保存到浏览器');
+    store.getState().showNotice('保存失败');
     const map = sampleMap();
     store.getState().load(map);
     expect(mapOfStore(store)).toBe(map);

@@ -1,6 +1,6 @@
 import type { MapRepository } from '../../src/contexts/map/domain/map-repository';
 import { HttpMapRepository } from '../../src/contexts/map/infrastructure/persistence/http-map-repository';
-import { InMemoryMapRepository } from '../../src/contexts/map/infrastructure/persistence/in-memory-map-repository';
+import { InMemoryMapRepository } from './in-memory-map-repository';
 import { parseMindMap } from '../../src/contexts/map/domain/parse-mind-map';
 
 // Models the browser's current account and isolated stores; no request reaches the network.

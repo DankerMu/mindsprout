@@ -14,7 +14,11 @@ export default defineConfig({
     projects: [
       {
         extends: true,
-        test: { name: 'node', include: ['src/**/*.test.ts'], environment: 'node' },
+        test: {
+          name: 'node',
+          include: ['src/**/*.test.ts', 'tests/support/**/*.test.ts'],
+          environment: 'node',
+        },
       },
       {
         extends: true,

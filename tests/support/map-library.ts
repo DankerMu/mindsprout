@@ -1,6 +1,6 @@
 import type { MapRepository } from '../../src/contexts/map/domain/map-repository';
 import type { MindMap } from '../../src/contexts/map/domain/types';
-import { InMemoryMapRepository } from '../../src/contexts/map/infrastructure/persistence/in-memory-map-repository';
+import { InMemoryMapRepository } from './in-memory-map-repository';
 
 // Component tests consume the repository port; adapter construction stays outside src/components.
 export function memoryLibrary(): MapRepository {

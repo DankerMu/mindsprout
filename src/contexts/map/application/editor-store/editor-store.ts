@@ -27,7 +27,7 @@ export { AUTOSAVE_DELAY_MS } from './autosave';
 // change, and node creation is one History group owned by the inline edit until commit / cancel.
 // Autosave (design D7, "Fixture — issue #13") runs only when a repository is injected: it writes
 // the stable map (state.map observed while no group is open) after a change of identity, treats
-// load as a new baseline, and reports failures through storageUnavailable and the notice.
+// load as a new baseline, and reports failures through the notice.
 
 export interface Viewport {
   readonly x: number;
@@ -57,7 +57,6 @@ export interface EditorState extends SelectionSlice {
   readonly groupOpen: boolean;
   readonly viewport: Viewport;
   readonly notice: string | null;
-  readonly storageUnavailable: boolean;
   load(map: MindMap): void;
   dispatch(op: TreeOp): void;
   undo(): void;
@@ -100,8 +99,7 @@ const CREATION_LABEL = 'add node';
 const SAVE_FAILED = '保存失败';
 export const SESSION_EXPIRED = '登录已过期，请在新标签页重新登录后继续编辑';
 
-// Feeds the autosave every stable map the store publishes. Session state, not map state:
-// storageUnavailable survives load, and a repeated failure does not republish the notice.
+// Feeds the autosave every stable map the store publishes; repeated failures do not republish notices.
 function attachAutosave(
   api: StoreApi<EditorState>,
   repository: MapRepository,
@@ -110,9 +108,6 @@ function attachAutosave(
   const autosave = createAutosave({
     repository,
     now,
-    onUnavailable: () => {
-      api.setState({ storageUnavailable: true });
-    },
     onUnauthorized: () => {
       if (api.getState().notice !== SESSION_EXPIRED) api.setState({ notice: SESSION_EXPIRED });
     },
@@ -259,7 +254,6 @@ export function createEditorStore(
       groupOpen: false,
       viewport: DEFAULT_VIEWPORT,
       notice: null,
-      storageUnavailable: false,
       ...EMPTY_SLICE,
 
       // Not an edit: a pending save of the previous map starts first, then map is the baseline.

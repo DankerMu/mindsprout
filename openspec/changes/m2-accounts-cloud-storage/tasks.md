@@ -340,10 +340,10 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
   - Delete `e2e/storage-fallback.spec.ts` and the e2e cases listed in 6.7.
   - Remove the "browser-only storage" README limitation.
   - Verify (e2e): the full suite passes against the cloud store with assertions unchanged apart from those two declarations, including map-persistence "Reload after edits" and "Edits older than the save window survive reload", and map-library "Stale link". Both declared 404s are observed, and no other console error appears. Verify (gate): `pnpm dead-code` and `pnpm licenses:check` pass, and the lockfile guard passes.
-- [ ] 6.9 Remove the browser-storage leftovers (design D10 step 4).
+- [x] 6.9 Remove the browser-storage leftovers (design D10 step 4). (#169; full unit77 files/1668 tests including the moved13 contract cases, full e2e122/122, native support55/55, dead-code/static gates and the exact acceptance grep pass.)
   - Delete `StorageUnavailableError`, the storage-unavailable banner, every `storageUnavailable` flag and the autosave `onUnavailable` path.
-  - Move `InMemoryMapRepository` into `tests/support/` as the contract suite's in-memory double, keeping the contract suite running against it.
-  - Verify: `pnpm test:unit`, `pnpm dead-code` and `pnpm e2e` pass. `grep -rE "StorageUnavailable|storageUnavailable|未保存到浏览器|indexedDB" src e2e scripts` finds nothing (the backstop for 6.6's `scripts/native-hmr.mjs` change).
+  - Move `InMemoryMapRepository` into `tests/support/` as the contract suite's in-memory double, keeping the contract suite running against it. Add `tests/support/**/*.test.ts` to the existing node project in `vitest.config.ts`; do not create another test tier.
+  - Verify: `pnpm test:unit`, `pnpm dead-code` and `pnpm e2e` pass. The unit report must name `tests/support/in-memory-map-repository.test.ts` and execute its contract cases; a green run that omits the moved file is not evidence. `grep -rE "StorageUnavailable|storageUnavailable|未保存到浏览器|indexedDB" src e2e scripts` finds nothing (the backstop for 6.6's `scripts/native-hmr.mjs` change).
 
 Suggested fixture level: expanded - cross-module cut-over of the persisted-state boundary with e2e infrastructure and CI workflow edits (layer7 and the required native HMR job); a slip loses user edits.
 Minimal mergeable slice: 6.1 - the HTTP adapter is fully contract-tested and unused by the UI until the flip; 6.2 depends on 6.1; 6.3 depends on 5.2, and 6.4 and 6.5 each on 6.3; 6.6 depends on 5.2; 6.7 depends on nothing in this change; the 6.8 flip depends on 6.1–6.7, 7.1 and 7.2; the 6.9 removal depends on 6.8.

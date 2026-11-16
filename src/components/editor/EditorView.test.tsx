@@ -6,7 +6,6 @@ import { failOnConsoleNoise, nodeWrapper } from '../../../tests/support/canvas';
 import { mapOf, node } from '../../../tests/support/map-domain';
 import { httpRepository, MapFetch } from '../../../tests/support/map-fetch';
 import { RecordingRepository } from '../../../tests/support/map-repository-stub';
-import { StorageUnavailableError } from '../../contexts/map/domain/errors';
 import { EditorSession, selectMap, useEditorStoreApi } from './EditorSession';
 import { EditorView } from './EditorView';
 
@@ -54,45 +53,6 @@ describe('EditorView', () => {
     expect(nodeWrapper('a').querySelector('[aria-pressed="true"]')).not.toBeNull();
     expect(nodeWrapper('r').querySelector('[aria-pressed="true"]')).toBeNull();
   });
-
-  it.each([false, true])(
-    'shows one persistent banner after an unavailable put (provider=%s)',
-    async (providerUnavailable) => {
-      const repository = new RecordingRepository();
-      repository.rejectNext(new StorageUnavailableError('connection unavailable'));
-      let store: StoreApi<EditorState> | undefined;
-      function Probe() {
-        store = useEditorStoreApi();
-        return null;
-      }
-      render(
-        <EditorSession map={MAP} repository={repository}>
-          <Probe />
-          <EditorView storageUnavailable={providerUnavailable} />
-        </EditorSession>,
-      );
-      fireEvent.doubleClick(nodeWrapper('a'));
-      fireEvent.change(screen.getByLabelText('节点标题'), { target: { value: '会话中的改名' } });
-      fireEvent.keyDown(screen.getByLabelText('节点标题'), { key: 'Enter' });
-      await act(async () => {
-        await store?.getState().flush();
-      });
-      expect(screen.getAllByText('未保存到浏览器')).toHaveLength(1);
-      expect(screen.queryByText('保存失败')).toBeNull();
-      expect(nodeWrapper('a').textContent).toBe('会话中的改名');
-      expect(repository.puts).toHaveLength(1);
-      act(() => {
-        store?.getState().startEdit('a');
-        store?.getState().commitTitle('仍用原仓库');
-      });
-      await act(async () => {
-        await store?.getState().flush();
-      });
-      expect(repository.puts).toHaveLength(2);
-      expect(repository.puts[1]?.roots[0]?.children[0]?.text).toBe('仍用原仓库');
-      expect(screen.getAllByText('未保存到浏览器')).toHaveLength(1);
-    },
-  );
 
   it('keeps a renamed canvas node after session expiry and offers re-login in a new tab', async () => {
     vi.useFakeTimers();
@@ -153,7 +113,6 @@ describe('EditorView', () => {
     expect(nodeWrapper('a').textContent).toBe('第一次修改');
     expect(screen.getByText(notice)).toBeTruthy();
     expect(screen.queryByRole('link', { name: '重新登录' }) !== null).toBe(status === 401);
-    expect(screen.queryByText('未保存到浏览器')).toBeNull();
 
     fireEvent.doubleClick(nodeWrapper('r'));
     fireEvent.change(screen.getByLabelText('节点标题'), { target: { value: '第二次修改' } });
@@ -208,7 +167,6 @@ describe('EditorView', () => {
     });
     expect(screen.getByRole('alert').textContent).toContain('保存失败');
     expect(nodeWrapper('a').textContent).toBe('未丢失的文字');
-    expect(screen.queryByText('未保存到浏览器')).toBeNull();
     act(() => {
       store?.getState().showNotice('主根不能删除');
     });

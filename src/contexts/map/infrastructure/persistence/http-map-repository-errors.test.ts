@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mapOf, node } from '../../../../../tests/support/map-domain';
 import { MapFetch } from '../../../../../tests/support/map-fetch';
-import {
-  StorageUnauthorizedError,
-  StorageUnavailableError,
-  UnsupportedSchemaVersionError,
-} from '../../domain/errors';
+import { StorageUnauthorizedError, UnsupportedSchemaVersionError } from '../../domain/errors';
 import type { MapRepository } from '../../domain/map-repository';
 import { HttpMapRepository } from './http-map-repository';
 
@@ -63,7 +59,6 @@ describe.each(operations)('$method $path failures', ({ method, call, path }) => 
   it.each([
     new TypeError('network down'),
     new StorageUnauthorizedError('transport is not an HTTP 401'),
-    new StorageUnavailableError('unavailable transport'),
     new UnsupportedSchemaVersionError(2, 1),
   ])('wraps a fetch rejection as a plain error: $name', async (cause) => {
     const server = new MapFetch();

@@ -1,8 +1,7 @@
-import { describe, expect, expectTypeOf, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
 import {
   StorageUnauthorizedError,
-  StorageUnavailableError,
   TreeOpError,
   UnsupportedSchemaVersionError,
   type TreeOpErrorCode,
@@ -33,28 +32,6 @@ describe('TreeOpError', () => {
   });
 });
 
-describe('StorageUnavailableError', () => {
-  it('carries its name and message and is an Error without a cause by default', () => {
-    const error = new StorageUnavailableError('IndexedDB could not be opened');
-
-    expect(error).toBeInstanceOf(Error);
-    expect(error).toBeInstanceOf(StorageUnavailableError);
-    expect(error.name).toBe('StorageUnavailableError');
-    expect(error.message).toBe('IndexedDB could not be opened');
-    expect('cause' in error).toBe(false);
-  });
-
-  it('passes the underlying failure through as its cause', () => {
-    const cause = new Error('SecurityError: the operation is insecure');
-    const error = new StorageUnavailableError('IndexedDB could not be opened', { cause });
-
-    expect(error.cause).toBe(cause);
-    expectTypeOf(StorageUnavailableError).constructorParameters.toEqualTypeOf<
-      [message: string, options?: ErrorOptions]
-    >();
-  });
-});
-
 describe('UnsupportedSchemaVersionError', () => {
   it('carries the found and supported versions and names both in its message', () => {
     const error = new UnsupportedSchemaVersionError(2, 1);
@@ -79,10 +56,9 @@ describe('UnsupportedSchemaVersionError', () => {
 });
 
 describe('StorageUnauthorizedError', () => {
-  it('identifies an ended session without classifying storage as unavailable', () => {
+  it('identifies an ended session', () => {
     const error = new StorageUnauthorizedError('GET /api/maps returned HTTP 401');
     expect(error).toBeInstanceOf(Error);
-    expect(error).not.toBeInstanceOf(StorageUnavailableError);
     expect(error.name).toBe('StorageUnauthorizedError');
     expect(error.message).toBe('GET /api/maps returned HTTP 401');
   });

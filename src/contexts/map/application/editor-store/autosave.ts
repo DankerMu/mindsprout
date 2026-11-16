@@ -1,4 +1,4 @@
-import { StorageUnauthorizedError, StorageUnavailableError } from '../../domain/errors';
+import { StorageUnauthorizedError } from '../../domain/errors';
 import type { MapRepository } from '../../domain/map-repository';
 import type { MindMap } from '../../domain/types';
 
@@ -12,8 +12,6 @@ export const AUTOSAVE_DELAY_MS = 500;
 interface AutosaveOptions {
   readonly repository: MapRepository;
   readonly now: () => Date;
-  // A put rejected with StorageUnavailableError (the store became unusable mid-session).
-  readonly onUnavailable: () => void;
   readonly onUnauthorized: () => void;
   // A put rejected with anything else (quota, a dropped connection, ...).
   readonly onFailed: () => void;
@@ -29,7 +27,7 @@ export interface Autosave {
 }
 
 export function createAutosave(options: AutosaveOptions): Autosave {
-  const { repository, now, onUnavailable, onUnauthorized, onFailed } = options;
+  const { repository, now, onUnauthorized, onFailed } = options;
   // Pending = the stable map is not the map the last write started with (identity, never deep
   // equality: only a new map object is a change).
   let stable: MindMap | null = null;
@@ -52,8 +50,7 @@ export function createAutosave(options: AutosaveOptions): Autosave {
       await repository.put({ ...sent, updatedAt: now().toISOString() });
     } catch (error) {
       if (stable === sent) written = null;
-      if (error instanceof StorageUnavailableError) onUnavailable();
-      else if (error instanceof StorageUnauthorizedError) onUnauthorized();
+      if (error instanceof StorageUnauthorizedError) onUnauthorized();
       else onFailed();
     }
   };
