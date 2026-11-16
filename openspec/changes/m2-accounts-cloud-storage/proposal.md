@@ -300,6 +300,15 @@ Blast radius: incorrect load-state handling can expose account data during 401/4
 Selected risk packs: Admin authorization/data secrecy; Session-expiry navigation; StrictMode/live-effect delivery; API order/time fidelity; Gate integrity; Component and real-browser evidence.
 Evidence floor: TDD RED→GREEN for 200 list/order/time/admin badge, 403 refusal+home link/no data, exact 401 document redirect/no data, generic failures and discarded responses; thin page mounts SessionMenu with no8.2 button. Add `/admin` to constraints and an adminPage smoke walk plus relative-order two-registration e2e. Amend existing decision0025 to cover the third fresh-document call (no new record). Full unit/coverage, full e2e, build, `pnpm test:guardrails`, `pnpm decisions:check`, static/dead-code/duplicate checks and strict OpenSpec validation pass; update the existing account changeset. The PR flags the constraints edit and supplies full `risk-adaptive-cross-review` with reviewer+verifier covering every diff line plus owner functional-acceptance evidence from the real admin/regular walks and screenshots. No reset action, API/schema/dependency.
 
+## Issue #172 Fixture Triage
+
+Issue type: test
+Fixture level: compact
+Upstream suggested level: compact (agree: one acceptance spec over finished behavior; no production/API/config surface)
+Blast radius: a weak walk can claim cross-device persistence while missing saved topology/position, ownership isolation, pending-edit recovery or observed browser errors; shared cookies can make the admin/other-user checks vacuous.
+Selected risk packs: Cross-context identity/isolation; pending-edit/session recovery; persisted map fidelity; D13 observation completeness; screenshot/runtime evidence. Auth/RLS/API/config/packaging are covered by the finished implementation and are not changed here.
+Evidence floor: one real Playwright acceptance spec with exactly two explicitly owned browser contexts, deterministic saved-state assertions, screenshots under `.run/ui-evidence/`, all three declared responses observed, every page's unexpected console/page errors asserted empty, focused `pnpm e2e e2e/m2-acceptance.spec.ts` GREEN then full `pnpm e2e`, both with exact totals and zero skipped/flaky/unexpected results; no production, helper, config, dependency or gate edits.
+
 ## Impact
 
 - **New code:**
