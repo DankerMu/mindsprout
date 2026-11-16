@@ -37,3 +37,5 @@ Add public `/login` and `/register` pages sharing a credentials form that posts 
 Requests to protected pages without a `mindsprout_session` cookie redirect with 307 to same-origin `/login`, preserving the requested path and query in `next`. The proxy checks only cookie presence; session validity remains checked at the data. Sign-in, registration, API routes and reserved static/image assets bypass the proxy.
 
 Show the signed-in username and sign-out action on the home and editor pages, with administrator navigation visible only to the admin. Each menu mount loads its session once, including StrictMode replay. Successful sign-out returns to `/login`; request failures keep the menu visible with an inline error.
+
+Add a read-only `/admin` page with the session menu, exact account usernames and creation times in API order, and an administrator badge. Refused users see a home link without account data; expired loads open a fresh login document returning to `/admin`. Other load failures show an error, and discarded loads cannot publish data or redirect.

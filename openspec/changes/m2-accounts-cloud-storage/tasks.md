@@ -378,7 +378,7 @@ Minimal mergeable slice: 7.1 - the public sign-in and registration pages work al
 
 ## 8. Admin page
 
-- [ ] 8.1 Add `/admin`, listing users via `GET /api/admin/users` (username, creation time, 管理员 badge, oldest first), with "无权访问" on 403 (design D9). Depends on 5.6 and 7.3.
+- [x] 8.1 Add `/admin`, listing users via `GET /api/admin/users` (username, creation time, 管理员 badge, oldest first), with "无权访问" on 403 (design D9). Depends on 5.6 and 7.3. (#170; component15/15, full unit78 files/1683 tests, real build, guardrails85/85, full e2e124/124 and both admin browser paths pass; decision0025 covers the third document-navigation call.)
   - Mount the header session menu from 7.3 on `/admin`.
   - On a 401 the page calls `window.location.assign('/login?next=%2Fadmin')`.
   - Add `/admin` to `constraints.yaml` `key_ui_paths` and to the `e2e/smoke.spec.ts` walk. The walk opens `/admin` with `adminPage`, because the default `page` is not the admin and would receive a 403.

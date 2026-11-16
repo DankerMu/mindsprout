@@ -291,6 +291,15 @@ Blast radius: leaving a dormant fallback or flag preserves a second storage conv
 Selected risk packs: Atomic legacy deletion; Autosave/read failure fidelity; Repository-contract coverage; Native source-seam compatibility; Dead-code/canonicality; Full browser regression evidence.
 Evidence floor: delete the unavailable error, banner, flags and callback plus their dedicated tests; trim only unavailable legs/assertions from mixed tests while preserving plain-Error/401 cases and the unrelated load-clears-notice test with a surviving notice payload. Move the in-memory implementation and contract-suite invocation to `tests/support/`, update every consumer and add that support test glob to the existing node unit project—no new test tier. Preserve 401 saves' session-expiry notice/pending edits/recovery, generic saves' `保存失败`/pending-edit recovery, live editor/library 401 login redirects and discarded-effect 401 suppression, plus generic get/list/provider-open error states. Full unit with per-file coverage must explicitly report the moved support contract file and cases; dead-code, native support tests and full real e2e pass, exact acceptance grep over `src e2e scripts` is empty and strict OpenSpec validation passes. No new runtime behavior, dependency, API, migration, README closure or decision record.
 
+## Issue #170 Fixture Triage
+
+Issue type: feature
+Fixture level: compact
+Upstream suggested level: compact (agree: read-only UI over the already-tested admin API; the `constraints.yaml` Critical Path edit separately requires full-depth reviewer+verifier scrutiny)
+Blast radius: incorrect load-state handling can expose account data during 401/403, redirect from a discarded StrictMode effect, lose oldest-first order/timestamps, or declare `/admin` covered without exercising it as the administrator.
+Selected risk packs: Admin authorization/data secrecy; Session-expiry navigation; StrictMode/live-effect delivery; API order/time fidelity; Gate integrity; Component and real-browser evidence.
+Evidence floor: TDD RED→GREEN for 200 list/order/time/admin badge, 403 refusal+home link/no data, exact 401 document redirect/no data, generic failures and discarded responses; thin page mounts SessionMenu with no8.2 button. Add `/admin` to constraints and an adminPage smoke walk plus relative-order two-registration e2e. Amend existing decision0025 to cover the third fresh-document call (no new record). Full unit/coverage, full e2e, build, `pnpm test:guardrails`, `pnpm decisions:check`, static/dead-code/duplicate checks and strict OpenSpec validation pass; update the existing account changeset. The PR flags the constraints edit and supplies full `risk-adaptive-cross-review` with reviewer+verifier covering every diff line plus owner functional-acceptance evidence from the real admin/regular walks and screenshots. No reset action, API/schema/dependency.
+
 ## Impact
 
 - **New code:**

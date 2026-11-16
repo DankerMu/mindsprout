@@ -53,3 +53,19 @@ for (const route of routes) {
     expect(consoleErrors, `console errors on ${route.path}`).toEqual([]);
   });
 }
+
+test('route /admin renders without console errors', async ({ adminPage }) => {
+  const consoleErrors: string[] = [];
+  adminPage.on('console', (msg) => {
+    if (msg.type() === 'error') consoleErrors.push(msg.text());
+  });
+  adminPage.on('pageerror', (err) => consoleErrors.push(String(err)));
+  const response = await adminPage.goto('/admin');
+  expect(response?.ok(), 'HTTP status for /admin').toBe(true);
+  await expect(adminPage.getByTestId('admin-ready')).toBeVisible();
+  await expect(adminPage.getByTestId('session-username')).toHaveText('e2e-admin');
+  await expect(adminPage.getByRole('link', { name: '管理后台' })).toHaveAttribute('href', '/admin');
+  await expect(adminPage.getByRole('list', { name: '用户列表' })).toBeVisible();
+  await adminPage.screenshot({ path: '.run/ui-evidence/admin.png', fullPage: true });
+  expect(consoleErrors, 'console errors on /admin').toEqual([]);
+});
