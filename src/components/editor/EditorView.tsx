@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { SESSION_EXPIRED } from '../../contexts/map/application/editor-store/editor-store';
 import { findNode, visibleIds } from '../../contexts/map/application/editor-store/selection';
 import { MindMapCanvas } from '../canvas/MindMapCanvas';
@@ -11,7 +11,13 @@ import styles from './EditorView.module.css';
 // The editor page body (design "Fixture — issue #16"): a header with the map title, never the
 // primary root text, and the canvas over the store's map. data-testid="map-editor-ready" and
 // data-testid="editor-title" are read by the e2e walks and later tasks.
-export function EditorView({ storageUnavailable = false }: { storageUnavailable?: boolean }) {
+export function EditorView({
+  storageUnavailable = false,
+  header,
+}: {
+  storageUnavailable?: boolean;
+  header?: ReactNode;
+}) {
   const selection = useEditorStore((state) => state);
   const map = selectMap(selection);
   const store = useEditorStoreApi();
@@ -70,6 +76,7 @@ export function EditorView({ storageUnavailable = false }: { storageUnavailable?
         <h1 data-testid="editor-title" className={styles.title}>
           {map.title}
         </h1>
+        {header}
       </header>
       <StorageUnavailableBanner
         storageUnavailable={storageUnavailable || selection.storageUnavailable}

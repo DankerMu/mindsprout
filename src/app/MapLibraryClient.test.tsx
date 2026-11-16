@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../tests/support/canvas';
 import { heldResult } from '../../tests/support/map-library';
 import { StorageUnavailableError } from '../contexts/map/domain/errors';
@@ -10,8 +10,10 @@ import HomePage from './page';
 import { MapRepositoryProvider } from './providers/MapRepositoryProvider';
 
 failOnConsoleNoise();
+afterEach(() => vi.unstubAllGlobals());
 
 function renderHome(open: () => Promise<MapRepository>) {
+  vi.stubGlobal('fetch', vi.fn().mockReturnValue(heldResult<Response>().promise));
   const router = {
     push: vi.fn(),
     replace: vi.fn(),

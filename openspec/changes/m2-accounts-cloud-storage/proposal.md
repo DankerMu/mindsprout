@@ -264,6 +264,15 @@ Blast radius: an incomplete matcher or cookie check can expose pages, break publ
 Selected risk packs: Public-route/matcher fail-closed behavior; Redirect origin/path/query safety; Session-cookie optimistic checks versus data verification; Browser redirect/session lifecycle; Critical Path instruction-gate integrity; Full-suite regression evidence.
 Evidence floor: vertical RED→GREEN unit tests for307 same-origin path+query redirects, existence-only cookie pass and exact public/protected matcher boundaries; real Next build and full unit coverage; owned-map register→seed→clear-cookie→login→editor Playwright walk with no404/console errors; full e2e128/128, `pnpm test:guardrails`, AGENTS byte/line measurements, static/dead-code/duplicate checks and existing changeset. Preserve D6/D8/D13 and all existing fixtures; no new decision record.
 
+## Issue #167 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree for shared session state and two page mounts; this slice is UI-only and not a Critical Path)
+Blast radius: StrictMode can double session requests or drop the live effect's result; stale module memo can show the wrong identity after navigation/login; incorrect role/mount handling exposes admin navigation or breaks signed-out/native console gates; an editor-slot edit can silently break native source-seam fixtures.
+Selected risk packs: Session identity/admin visibility; StrictMode/request lifecycle; Sign-out cookie revocation; Mount/layout compatibility; Native source-seam integrity; Browser/component evidence.
+Evidence floor: vertical component RED→GREEN proving per-mount one GET under StrictMode with live-effect delivery and fresh remount, regular/admin link split, exact logout JSON/router navigation and failure/no-unhandled paths; home/editor mount tests plus native source-seam self-test; real register header and isolated old-cookie sign-out e2e; full unit coverage, build, e2e129/129 with zero unexpected console errors and home/editor screenshots. Static/dead-code/duplicate checks and existing changeset; no new decision record.
+
 ## Impact
 
 - **New code:**

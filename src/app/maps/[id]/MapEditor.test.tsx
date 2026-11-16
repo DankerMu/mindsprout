@@ -125,6 +125,19 @@ async function rejectGetWith(error: Error): Promise<ScriptedGetRepository> {
 }
 
 describe('MapEditor', () => {
+  it('places the supplied header after the map title', async () => {
+    const repository = new InMemoryMapRepository();
+    await repository.put(SEEDED);
+    render(
+      <MapRepositoryProvider open={() => Promise.resolve(repository)}>
+        <MapEditor id={SEEDED.id} header={<span>会话内容</span>} />
+      </MapRepositoryProvider>,
+    );
+    const title = await screen.findByTestId('editor-title');
+    expect(title.nextElementSibling?.textContent).toBe('会话内容');
+    expect(title.parentElement?.tagName).toBe('HEADER');
+  });
+
   it('shows the loading state while the repository opens', () => {
     editorOver(() => new Promise<MapRepository>(() => undefined), 'm1');
 
