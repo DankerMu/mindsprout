@@ -273,6 +273,15 @@ Blast radius: StrictMode can double session requests or drop the live effect's r
 Selected risk packs: Session identity/admin visibility; StrictMode/request lifecycle; Sign-out cookie revocation; Mount/layout compatibility; Native source-seam integrity; Browser/component evidence.
 Evidence floor: vertical component RED→GREEN proving per-mount one GET under StrictMode with live-effect delivery and fresh remount, regular/admin link split, exact logout JSON/router navigation and failure/no-unhandled paths; home/editor mount tests plus native source-seam self-test; real register header and isolated old-cookie sign-out e2e; full unit coverage, build, e2e129/129 with zero unexpected console errors and home/editor screenshots. Static/dead-code/duplicate checks and existing changeset; no new decision record.
 
+## Issue #168 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: atomic persisted-state cut-over; a partial flip loses or misattributes user edits)
+Blast radius: provider/seed mismatch makes maps vanish, wrong-cookie/API requests cross users, deleting replacements prematurely removes corruption/identity coverage, and incomplete dependency/lockfile removal breaks canonicality or native installation.
+Selected risk packs: Cloud persistence/RLS identity; Autosave and read/write fidelity; Atomic legacy deletion; Declared404/browser noise; Dependency/lockfile/native integrity; Documentation/release-note truth.
+Evidence floor: RED→GREEN provider tests and API-seeded browser path before atomic flip; one HttpMapRepository per document with SSR/effect-only and remount identity; unchanged seed signatures via page.request PUT/GET404; exactly two observed declared404s with no other noise; delete11 superseded/fallback browser tests and full remaining118/118; full unit/build/native support+both local native modes/CI. `pnpm dead-code`, `pnpm licenses:check`, native-lockfile/frozen-lockfile+CI lockfile guard, docs/static/duplicate checks. Remove only the README browser limitation and correct all three contradictory changeset absence claims. No6.9 scope or new decision record.
+
 ## Impact
 
 - **New code:**

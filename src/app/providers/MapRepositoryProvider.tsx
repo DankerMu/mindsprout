@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { StorageUnavailableError } from '../../contexts/map/domain/errors';
 import type { MapRepository } from '../../contexts/map/domain/map-repository';
-import { openIndexedDbMapRepository } from '../../contexts/map/infrastructure/persistence/indexed-db-map-repository';
+import { HttpMapRepository } from '../../contexts/map/infrastructure/persistence/http-map-repository';
 import { InMemoryMapRepository } from '../../contexts/map/infrastructure/persistence/in-memory-map-repository';
 
 interface ReadyRepository {
@@ -25,10 +25,10 @@ async function openRepository(open: () => Promise<MapRepository>): Promise<Ready
   }
 }
 
-// Effect-only open: SSR never touches IndexedDB. The chosen repository (or failure) lasts
+// Effect-only open: SSR issues no request. The chosen repository (or failure) lasts
 // for this document session, including provider remounts and client-side navigation.
 export function openSessionRepository(): Promise<ReadyRepository> {
-  session ??= openRepository(openIndexedDbMapRepository);
+  session ??= openRepository(() => Promise.resolve(new HttpMapRepository()));
   return session;
 }
 

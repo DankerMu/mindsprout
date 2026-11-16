@@ -3,17 +3,16 @@ import { test } from './support/session';
 import * as fs from 'node:fs';
 import { envelopeOf, readRecord, seedRecords, type RawRecord } from './support/seed';
 import { edgeGeometry, expectEdgesOnHandles, type Box } from './support/canvas-geometry';
+import { collectExpectedResponses } from './support/expected-responses';
 
 // The /maps/[id] editor route against `pnpm dev` (design "Fixture — issue #16"). Maps are seeded
-// as raw records through the browser's real IndexedDB; every scenario fails on any console error
-// or warning (React Flow's dev warnings go to console.warn) and on any uncaught page error.
+// through the signed-in map API; every scenario rejects unexpected console errors,
+// warnings (including React Flow's dev warnings) and uncaught page errors.
 
 const EVIDENCE = '.run/ui-evidence';
 fs.mkdirSync(EVIDENCE, { recursive: true });
 
 const NOT_FOUND = '找不到这张导图';
-const FUTURE_VERSION = '此导图由更新版本创建';
-const UNREADABLE = '无法打开这张导图';
 const BACK = '返回导图列表';
 const CREATED_AT = '2026-11-05T09:00:00.000Z';
 const UPDATED_AT = '2026-11-05T10:00:00.000Z';
@@ -58,12 +57,6 @@ const FAR = mapOf('far', '远方', [
     position: { x: 1600, y: 900 },
     children: [leaf('fc', '远方子节点')],
   },
-]);
-
-// A floating root without a position: layoutForest throws while the canvas renders.
-const CORRUPT = mapOf('corrupt', '损坏', [
-  { id: 'root', text: '根', children: [] },
-  { id: 'lost', text: '无位置', children: [] },
 ]);
 
 interface ConsoleRecord {
@@ -176,7 +169,9 @@ async function wheelUntilStable(page: Page, deltaY: number): Promise<number> {
 
 test.describe('map editor route /maps/[id]', () => {
   test('stale link shows not-found with a link back to the library', async ({ page }) => {
-    const log = watchConsole(page);
+    const expected = collectExpectedResponses(page, [
+      { url: '/api/maps/does-not-exist', status: 404 },
+    ]);
 
     await page.goto('/maps/does-not-exist');
     await expect(page.getByText(NOT_FOUND)).toBeVisible();
@@ -185,20 +180,7 @@ test.describe('map editor route /maps/[id]', () => {
 
     await expect(page).toHaveURL('/');
     await expect(page.getByTestId('app-ready')).toBeVisible();
-    expect(log.noise).toStrictEqual([]);
-  });
-
-  test('future version shows its message and leaves the record untouched', async ({ page }) => {
-    const log = watchConsole(page);
-    const record = envelopeOf({ ...mapOf('v2', '新版本导图', [leaf('root', '根')]) }, 2);
-
-    await openSeeded(page, [record], 'v2');
-    await expect(page.getByText(FUTURE_VERSION)).toBeVisible();
-    await expect(page.getByRole('link', { name: BACK })).toHaveAttribute('href', '/');
-    await capture(page, 'map-editor-future-version');
-
-    await expectUnmodified(page, record);
-    expect(log.noise).toStrictEqual([]);
+    expect(await expected.noise()).toStrictEqual([]);
   });
 
   test('seeded render shows the map as stored, measured and unmodified', async ({ page }) => {
@@ -291,85 +273,5 @@ test.describe('map editor route /maps/[id]', () => {
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(0);
     await capture(page, 'map-editor-space-drag-pan');
     expect(log.noise).toStrictEqual([]);
-  });
-
-  test('mismatched map identity shows the error state and preserves source and peer records', async ({
-    page,
-  }) => {
-    const log = watchConsole(page);
-    const source = {
-      ...envelopeOf(mapOf('identity-b', '来源导图', [leaf('source-root', '来源内容')]), 1),
-      key: 'identity-a',
-    };
-    const peer = envelopeOf(mapOf('identity-b', '独立导图', [leaf('peer-root', '独立内容')]), 1);
-
-    await openSeeded(page, [source, peer], source.key);
-    await expect(page.getByText(UNREADABLE)).toBeVisible();
-    await expect(page.getByRole('link', { name: BACK })).toHaveAttribute('href', '/');
-    await expect(page.getByText(NOT_FOUND)).toHaveCount(0);
-    await expect(page.getByTestId('map-editor-ready')).toHaveCount(0);
-    await capture(page, 'map-editor-mismatched-identity');
-
-    await expectUnmodified(page, source);
-    await expectUnmodified(page, peer);
-    await page.getByRole('link', { name: BACK }).click();
-    await expect(page).toHaveURL('/');
-    await expect(page.getByTestId('app-ready')).toBeVisible();
-    await expectUnmodified(page, source);
-    await expectUnmodified(page, peer);
-    expect(log.noise).toStrictEqual([]);
-  });
-
-  test('matching map identity autosaves a node title under its own key and preserves its peer', async ({
-    page,
-  }) => {
-    const log = watchConsole(page);
-    const map = mapOf('matching-a', '编辑导图', [leaf('root', '编辑前内容')]);
-    const record = envelopeOf(map, 1);
-    const peer = envelopeOf(mapOf('matching-b', '独立导图', [leaf('peer-root', '独立内容')]), 1);
-
-    await openSeeded(page, [record, peer], map.id);
-    await expectEditorReady(page, '编辑导图');
-    await nodeAt(page, 'root').dblclick();
-    const input = page.getByRole('textbox', { name: '节点标题' });
-    await expect(input).toBeFocused();
-    await input.fill('自动保存后的内容');
-    await input.press('Enter');
-    await expect(input).toHaveCount(0);
-    await expect(nodeAt(page, 'root')).toHaveText('自动保存后的内容');
-    await expect(page.getByTestId('editor-title')).toHaveText('编辑导图');
-    await expect
-      .poll(() => readRecord(page, record.key))
-      .toStrictEqual({
-        schemaVersion: 1,
-        map: {
-          id: 'matching-a',
-          title: '编辑导图',
-          roots: [{ id: 'root', text: '自动保存后的内容', children: [] }],
-          createdAt: CREATED_AT,
-          updatedAt: expect.any(String),
-        },
-      });
-    await expectUnmodified(page, peer);
-    await capture(page, 'map-editor-matching-identity-autosave');
-    expect(log.noise).toStrictEqual([]);
-  });
-
-  test('corrupt record shows the error state and leaves the record untouched', async ({ page }) => {
-    const log = watchConsole(page);
-    const record = envelopeOf(CORRUPT);
-
-    await openSeeded(page, [record], CORRUPT.id);
-    await expect(page.getByText(UNREADABLE)).toBeVisible();
-    await expect(page.getByRole('link', { name: BACK })).toHaveAttribute('href', '/');
-    await expect(page.getByText(NOT_FOUND)).toHaveCount(0);
-    await capture(page, 'map-editor-corrupt-record');
-
-    await expectUnmodified(page, record);
-    // Only the caught layout error may be reported, and it must have been.
-    const expected = (line: string) =>
-      line.startsWith('error: ') && line.includes('has no finite position');
-    expect(log.noise.filter((line) => !expected(line))).toStrictEqual([]);
-    expect(log.noise.some(expected)).toBe(true);
   });
 });

@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './support/session';
 import * as fs from 'node:fs';
 import { envelopeOf, readRecord, seedRecords } from './support/seed';
+import { collectExpectedResponses } from './support/expected-responses';
 
 const EVIDENCE = '.run/ui-evidence';
 const NOW = '2026-11-06T12:34:56.789Z';
@@ -186,7 +187,7 @@ test.describe('map-library', () => {
   });
 
   test('Delete with confirmation', async ({ page }) => {
-    const noise = watchConsole(page);
+    const expected = collectExpectedResponses(page, [{ url: '/api/maps/A', status: 404 }]);
     await seedRecords(page, [envelopeOf(TARGET), envelopeOf(PEER)]);
     await page.goto('/');
     const trigger = page.getByRole('button', { name: '删除 A', exact: true });
@@ -234,96 +235,6 @@ test.describe('map-library', () => {
       fullPage: true,
     });
     expect(await readRecord(page, 'B')).toStrictEqual(envelopeOf(PEER).value);
-    expect(noise).toEqual([]);
-  });
-
-  test('Future-version rename is refused and explicit deletion removes the raw record', async ({
-    page,
-  }) => {
-    const noise = watchConsole(page);
-    const future = {
-      key: 'future',
-      value: {
-        schemaVersion: 2,
-        map: { title: 'Future', updatedAt: EARLY, roots: 'future tree shape' },
-      },
-    };
-    await seedRecords(page, [future, envelopeOf(PEER)]);
-    await page.goto('/');
-    await page.getByRole('button', { name: '重命名 Future', exact: true }).click();
-    await page.getByRole('textbox', { name: '标题', exact: true }).fill('不得保存');
-    await page.getByRole('button', { name: '保存', exact: true }).click();
-    await expect(page.getByRole('form', { name: '重命名 Future' }).getByRole('alert')).toHaveText(
-      '此导图由更新版本创建',
-    );
-    await expect(page.getByRole('link', { name: 'Future', exact: true })).toBeVisible();
-    expect(await readRecord(page, future.key)).toStrictEqual(future.value);
-    expect(await readRecord(page, 'B')).toStrictEqual(envelopeOf(PEER).value);
-    await page.screenshot({
-      path: `${EVIDENCE}/map-library-future-rename-refused.png`,
-      fullPage: true,
-    });
-    await page.getByRole('button', { name: '取消', exact: true }).click();
-    await page.getByRole('button', { name: '删除 Future', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: '删除 Future', exact: true });
-    await dialog.getByRole('button', { name: '确认删除', exact: true }).click();
-    await expect(page.getByRole('listitem').getByRole('link')).toHaveText(['B']);
-    expect(await readRecord(page, future.key)).toBeUndefined();
-    expect(await readRecord(page, 'B')).toStrictEqual(envelopeOf(PEER).value);
-    await page.screenshot({ path: `${EVIDENCE}/map-library-future-deleted.png`, fullPage: true });
-    expect(noise).toEqual([]);
-  });
-
-  for (const version of ['1', 0]) {
-    test(`Odd-version ${JSON.stringify(version)} deletion does not interpret its content`, async ({
-      page,
-    }) => {
-      const noise = watchConsole(page);
-      const odd = {
-        key: 'odd',
-        value: { schemaVersion: version, map: { title: 'Odd', updatedAt: EARLY } },
-      };
-      const hidden = { key: 'hidden', value: { schemaVersion: version, map: { title: 42 } } };
-      await seedRecords(page, [odd, hidden, envelopeOf(PEER)]);
-      await page.goto('/');
-      await expect(page.getByRole('listitem').getByRole('link')).toHaveText(['B', 'Odd']);
-      await page.getByRole('button', { name: '删除 Odd', exact: true }).click();
-      await page
-        .getByRole('dialog', { name: '删除 Odd' })
-        .getByRole('button', { name: '确认删除' })
-        .click();
-      await expect(page.getByRole('listitem').getByRole('link')).toHaveText(['B']);
-      expect(await readRecord(page, odd.key)).toBeUndefined();
-      expect(await readRecord(page, hidden.key)).toStrictEqual(hidden.value);
-      expect(await readRecord(page, 'B')).toStrictEqual(envelopeOf(PEER).value);
-      await page.screenshot({
-        path: `${EVIDENCE}/map-library-odd-${String(version)}-deleted.png`,
-        fullPage: true,
-      });
-      expect(noise).toEqual([]);
-    });
-  }
-
-  test('Rename refuses a mismatched embedded ID without overwriting its peer', async ({ page }) => {
-    const noise = watchConsole(page);
-    const mismatched = {
-      key: 'selected',
-      value: { schemaVersion: 1, map: { ...PEER, title: 'Mismatched' } },
-    };
-    await seedRecords(page, [mismatched, envelopeOf(PEER)]);
-    await page.goto('/');
-    await page.getByRole('button', { name: '重命名 Mismatched' }).click();
-    await page.getByRole('textbox', { name: '标题', exact: true }).fill('不得覆盖');
-    await page.getByRole('button', { name: '保存', exact: true }).click();
-    await expect(
-      page.getByRole('form', { name: '重命名 Mismatched' }).getByRole('alert'),
-    ).toHaveText('保存失败，请重试');
-    expect(await readRecord(page, 'selected')).toStrictEqual(mismatched.value);
-    expect(await readRecord(page, 'B')).toStrictEqual(envelopeOf(PEER).value);
-    await page.screenshot({
-      path: `${EVIDENCE}/map-library-mismatched-rename-refused.png`,
-      fullPage: true,
-    });
-    expect(noise).toEqual([]);
+    expect(await expected.noise()).toEqual([]);
   });
 });

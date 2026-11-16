@@ -1,10 +1,11 @@
-import 'fake-indexeddb/auto';
 import { act, render, screen } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { renderToString } from 'react-dom/server';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { mapOf, node } from '../../../tests/support/map-domain';
+import { MapFetch } from '../../../tests/support/map-fetch';
+import { HttpMapRepository } from '../../contexts/map/infrastructure/persistence/http-map-repository';
 import {
   MapRepositoryProvider,
   openSessionRepository,
@@ -14,10 +15,13 @@ import {
 
 failOnConsoleNoise();
 
-it('shares the real-factory fallback promise and stored maps across replay and remount', async () => {
-  const open = vi.spyOn(indexedDB, 'open').mockImplementation(() => {
-    throw new DOMException('Private mode', 'SecurityError');
-  });
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+it('shares the HTTP repository promise and stored maps across replay and remount', async () => {
+  const server = new MapFetch();
+  vi.stubGlobal('fetch', server.fetch);
   const seen: RepositoryState[] = [];
   function Probe() {
     const state = useMapRepository();
@@ -32,14 +36,15 @@ it('shares the real-factory fallback promise and stored maps across replay and r
     </StrictMode>
   );
   expect(renderToString(tree)).toContain('opening');
-  expect(open).not.toHaveBeenCalled();
+  expect(server.requests).toEqual([]);
   const firstMount = render(tree);
   const promise = openSessionRepository();
   const session = await act(() => promise);
   expect(screen.getByText('ready')).toBeTruthy();
-  expect(session.storageUnavailable).toBe(true);
-  expect(await session.repository.list()).toStrictEqual([]);
-  const map = { ...mapOf(node('session-root')), id: 'private-map' };
+  expect(session.repository).toBeInstanceOf(HttpMapRepository);
+  expect(session.storageUnavailable).toBe(false);
+  expect(server.requests).toEqual([]);
+  const map = { ...mapOf(node('session-root')), id: 'session-map' };
   await session.repository.put(map);
   firstMount.unmount();
   render(tree);
@@ -51,8 +56,8 @@ it('shares the real-factory fallback promise and stored maps across replay and r
   expect(
     seen
       .filter((state) => state.status === 'ready')
-      .every((state) => state.repository === session.repository && state.storageUnavailable),
+      .every((state) => state.repository === session.repository && !state.storageUnavailable),
   ).toBe(true);
-  expect(await session.repository.get('private-map')).toStrictEqual(map);
-  expect(open).toHaveBeenCalledTimes(1);
+  expect(await session.repository.get('session-map')).toStrictEqual(map);
+  expect(server.requests.map(({ init }) => init?.method)).toEqual(['PUT', 'GET']);
 });
