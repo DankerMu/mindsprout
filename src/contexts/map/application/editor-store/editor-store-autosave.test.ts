@@ -19,13 +19,12 @@ import {
 import { httpRepository, MapFetch } from '../../../../../tests/support/map-fetch';
 import { heldResult } from '../../../../../tests/support/map-library';
 import { RecordingRepository } from '../../../../../tests/support/map-repository-stub';
-import { StorageUnavailableError } from '../../domain/errors';
 import type { TreeOp } from '../../domain/tree-op';
 import type { MindMap, NodeId } from '../../domain/types';
 import { AUTOSAVE_DELAY_MS, createEditorStore, type EditorState } from './editor-store';
 
 // Design "Fixture — issue #13" / D7, specs map-persistence "Autosave after every change", "Saves
-// stamp updatedAt", "Storage unavailable is visible" — through the createEditorStore public API
+// stamp updatedAt", "Save failures are visible" — through the createEditorStore public API
 // with a recording stub MapRepository and vi fake timers (Date included, so the injected clock
 // `() => new Date()` reads fake time: a put's updatedAt names the moment its write started).
 
@@ -371,17 +370,12 @@ describe('autosave flush', () => {
 });
 
 describe('a store without a repository', () => {
-  it('schedules no timer and keeps storageUnavailable false', () => {
+  it('schedules no timer', () => {
     const store = createEditorStore({ now: () => new Date() });
     store.getState().load(sampleMap());
     store.getState().dispatch(RENAME_A);
 
     expect(vi.getTimerCount()).toBe(0);
-    expect(store.getState().storageUnavailable).toBe(false);
-  });
-
-  it('a repository-backed store also starts with storageUnavailable false', () => {
-    expect(saving().store.getState().storageUnavailable).toBe(false);
   });
 });
 
@@ -400,20 +394,7 @@ describe('load while a save is pending', () => {
   });
 });
 
-describe('autosave failures (spec "Storage unavailable is visible")', () => {
-  it('StorageUnavailableError sets storageUnavailable only, which survives load', async () => {
-    const { store, repository } = saving();
-    repository.rejectNext(new StorageUnavailableError('store closed'));
-    store.getState().dispatch(RENAME_A);
-    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS);
-
-    expect(store.getState().storageUnavailable).toBe(true);
-    expect(store.getState().notice).toBeNull();
-    expect(currentMap(store)).toStrictEqual(applied(sampleMap(), [RENAME_A]));
-    store.getState().load(otherMap());
-    expect(store.getState().storageUnavailable).toBe(true);
-  });
-
+describe('autosave failures (spec "Save failures are visible")', () => {
   it.each([
     ['an Error', new Error('disk I/O')],
     ['a DOMException', new DOMException('quota', 'QuotaExceededError')],
@@ -424,7 +405,6 @@ describe('autosave failures (spec "Storage unavailable is visible")', () => {
     await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS);
 
     expect(store.getState().notice).toBe(SAVE_FAILED);
-    expect(store.getState().storageUnavailable).toBe(false);
     expect(currentMap(store)).toStrictEqual(applied(sampleMap(), [RENAME_A]));
   });
 
@@ -513,7 +493,6 @@ describe('HTTP save failure recovery', () => {
       server.respondNext(() => new Response(null, { status }));
       await store.getState().flush();
       expect(store.getState().notice).toBe(notice);
-      expect(store.getState().storageUnavailable).toBe(false);
     }
     expect(server.requests).toHaveLength(2);
     await store.getState().flush();

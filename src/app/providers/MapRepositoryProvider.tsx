@@ -2,15 +2,12 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
-import { StorageUnavailableError } from '../../contexts/map/domain/errors';
 import type { MapRepository } from '../../contexts/map/domain/map-repository';
 import { HttpMapRepository } from '../../contexts/map/infrastructure/persistence/http-map-repository';
-import { InMemoryMapRepository } from '../../contexts/map/infrastructure/persistence/in-memory-map-repository';
 import { readCookie, SESSION_BINDING_COOKIE } from '../../shared/session-binding';
 
 interface ReadyRepository {
   repository: MapRepository;
-  storageUnavailable: boolean;
 }
 
 export type RepositoryState =
@@ -25,12 +22,7 @@ function documentBinding(): string | undefined {
 }
 
 async function openRepository(open: () => Promise<MapRepository>): Promise<ReadyRepository> {
-  try {
-    return { repository: await open(), storageUnavailable: false };
-  } catch (error) {
-    if (!(error instanceof StorageUnavailableError)) throw error;
-    return { repository: new InMemoryMapRepository(), storageUnavailable: true };
-  }
+  return { repository: await open() };
 }
 
 // Effect-only open: SSR issues no request. Remounts share the repository until the account changes.

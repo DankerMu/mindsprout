@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mapOf, node, UPDATED_AT } from '../../../../../tests/support/map-domain';
 import { RecordingRepository } from '../../../../../tests/support/map-repository-stub';
-import { StorageUnavailableError } from '../../domain/errors';
 import type { MindMap } from '../../domain/types';
 import { AUTOSAVE_DELAY_MS, createAutosave } from './autosave';
 
@@ -17,16 +16,14 @@ function version(text: string): MindMap {
 
 function setup() {
   const repository = new RecordingRepository();
-  const onUnavailable = vi.fn<() => void>();
   const onFailed = vi.fn<() => void>();
   const autosave = createAutosave({
     repository,
     now: () => new Date(),
-    onUnavailable,
     onUnauthorized: vi.fn(),
     onFailed,
   });
-  return { repository, onUnavailable, onFailed, autosave };
+  return { repository, onFailed, autosave };
 }
 
 beforeEach(() => {
@@ -79,18 +76,13 @@ describe('createAutosave', () => {
     expect(repository.puts).toHaveLength(1);
   });
 
-  it('reports StorageUnavailableError as unavailable and any other rejection as failed', async () => {
-    const { repository, onUnavailable, onFailed, autosave } = setup();
+  it('reports a generic rejection as failed', async () => {
+    const { repository, onFailed, autosave } = setup();
     autosave.rebase(version('0'));
-    repository.rejectNext(new StorageUnavailableError('store closed'));
-    autosave.observe(version('1'));
-    await autosave.flush();
-    expect([onUnavailable.mock.calls.length, onFailed.mock.calls.length]).toStrictEqual([1, 0]);
-
     repository.rejectNext(new Error('disk I/O'));
     autosave.observe(version('2'));
     await autosave.flush();
-    expect([onUnavailable.mock.calls.length, onFailed.mock.calls.length]).toStrictEqual([1, 1]);
+    expect(onFailed).toHaveBeenCalledTimes(1);
   });
 
   it('leaves a failed write pending only while its map is still the current one', async () => {

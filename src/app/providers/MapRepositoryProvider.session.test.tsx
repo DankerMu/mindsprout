@@ -46,7 +46,6 @@ it('shares the HTTP repository promise and stored maps across replay and remount
   const session = await act(() => promise);
   expect(screen.getByText('ready')).toBeTruthy();
   expect(session.repository).toBeInstanceOf(HttpMapRepository);
-  expect(session.storageUnavailable).toBe(false);
   expect(server.requests).toEqual([]);
   const map = { ...mapOf(node('session-root')), id: 'session-map' };
   await session.repository.put(map);
@@ -60,7 +59,7 @@ it('shares the HTTP repository promise and stored maps across replay and remount
   expect(
     seen
       .filter((state) => state.status === 'ready')
-      .every((state) => state.repository === session.repository && !state.storageUnavailable),
+      .every((state) => state.repository === session.repository),
   ).toBe(true);
   expect(await session.repository.get('session-map')).toStrictEqual(map);
   expect(server.requests.map(({ init }) => init?.method)).toEqual(['PUT', 'GET']);

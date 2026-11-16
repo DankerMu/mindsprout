@@ -19,17 +19,6 @@ export class TreeOpError extends Error {
   }
 }
 
-// The backing store cannot be opened (design D7). Error contract: MapRepository in map-repository.ts.
-// An adapter attaches the underlying failure as `cause`. `public`: the constructor narrows Error's
-// optional message to a required one, which no-useless-constructor accepts only when marked public.
-export class StorageUnavailableError extends Error {
-  override readonly name = 'StorageUnavailableError';
-
-  public constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-  }
-}
-
 export class StorageUnauthorizedError extends Error {
   override readonly name = 'StorageUnauthorizedError';
 }

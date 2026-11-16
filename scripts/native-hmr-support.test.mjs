@@ -39,7 +39,7 @@ const providerAnchor =
   "  const [state, setState] = useState<RepositoryState>({ status: 'opening' });";
 const outputA = '      <output data-testid="native-probe">A</output>';
 const outputB = '      <output data-testid="native-probe">B</output>';
-const editorView = '<EditorView storageUnavailable={storageUnavailable} header={header} />';
+const editorView = '<EditorView header={header} />';
 
 test('source-change inserts A immediately inside EditorSession and replaces it with B', () => {
   const sibling = Buffer.from(

@@ -4,10 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { mapOf, node } from '../../../tests/support/map-domain';
 import { MapFetch } from '../../../tests/support/map-fetch';
-import { StorageUnavailableError } from '../../contexts/map/domain/errors';
 import type { MapRepository } from '../../contexts/map/domain/map-repository';
 import { HttpMapRepository } from '../../contexts/map/infrastructure/persistence/http-map-repository';
-import { InMemoryMapRepository } from '../../contexts/map/infrastructure/persistence/in-memory-map-repository';
+import { InMemoryMapRepository } from '../../../tests/support/in-memory-map-repository';
 import {
   MapRepositoryProvider,
   openSessionRepository,
@@ -15,7 +14,7 @@ import {
   type RepositoryState,
 } from './MapRepositoryProvider';
 
-// The default session shares one HTTP server; injected opens cover failure and fallback paths.
+// The default session shares one HTTP server; injected opens cover failure paths.
 
 failOnConsoleNoise();
 
@@ -96,20 +95,6 @@ describe('MapRepositoryProvider', () => {
 
     expect(shownState()).toBe('ready');
     expect(lastRepository(seen)).toBe(repository);
-    expect(seen.at(-1)).toMatchObject({ storageUnavailable: false });
-  });
-
-  it('uses an empty fallback when the injected open reports unavailable storage', async () => {
-    const seen = renderProvider(() => Promise.reject(new StorageUnavailableError('blocked')));
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(shownState()).toBe('ready');
-    expect(seen.at(-1)).toMatchObject({ storageUnavailable: true });
-    const repository = lastRepository(seen);
-    const map = mapOf(node('fallback-root'));
-    await repository?.put(map);
-    expect(await repository?.get(map.id)).toStrictEqual(map);
   });
 
   it('is failed when the open rejects with a plain Error', async () => {
@@ -137,12 +122,6 @@ describe('MapRepositoryProvider', () => {
       'rejects',
       (late: Deferred) => {
         late.reject(new Error('late failure of the discarded effect'));
-      },
-    ],
-    [
-      'rejects with unavailable storage',
-      (late: Deferred) => {
-        late.reject(new StorageUnavailableError('discarded unavailable open'));
       },
     ],
   ])('ignores a discarded StrictMode effect whose open %s late', async (_label, settleLate) => {
@@ -173,7 +152,6 @@ describe('MapRepositoryProvider', () => {
 
     expect(shownState()).toBe('ready');
     expect(lastRepository(seen)).toBe(live);
-    expect(seen.at(-1)).toMatchObject({ storageUnavailable: false });
   });
 
   it('opens the session repository by default', async () => {
@@ -188,7 +166,6 @@ describe('MapRepositoryProvider', () => {
     expect(shownState()).toBe('ready');
     expect(lastRepository(seen)).toBe(session.repository);
     expect(session.repository).toBeInstanceOf(HttpMapRepository);
-    expect(session.storageUnavailable).toBe(false);
   });
 
   it('throws when useMapRepository is used outside the provider', () => {

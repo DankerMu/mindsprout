@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { afterEach, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../tests/support/canvas';
-import { InMemoryMapRepository } from '../contexts/map/infrastructure/persistence/in-memory-map-repository';
+import { InMemoryMapRepository } from '../../tests/support/in-memory-map-repository';
 import HomePage from './page';
 import { MapRepositoryProvider } from './providers/MapRepositoryProvider';
 
