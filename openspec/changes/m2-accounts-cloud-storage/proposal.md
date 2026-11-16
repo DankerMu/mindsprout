@@ -246,6 +246,15 @@ Blast radius: wrong setup order loses the only admin; registering in the wrong c
 Selected risk packs: First-account/admin lifecycle; Session cookie/context isolation; Signed-out compatibility; Secret/evidence hygiene; Full-suite proof. No production/API/e2e seeding/dependency/workflow change and no fixture adoption beyond its self-test.
 Evidence floor: failing-first fixture self-test spec, then two focused tests proving fresh `u-<random>` session and `e2e-admin` session/admin flag in separate contexts, including regular-session preservation after admin authentication; full existing suite unchanged plus those two tests with zero skips/console regressions. Verify globalSetup registers only `e2e-admin` first on fresh `app_e2e`, context/request disposal and static/dead-code gates. D11, account-auth and decisions 0020/0023/0026 govern; no new decision record or changeset.
 
+## Issue #162 Fixture Triage
+
+Issue type: test
+Fixture level: expanded
+Upstream suggested level: expanded (agree: shared authenticated fixture adoption across the full browser suite, despite an imports-only diff)
+Blast radius: adopting the wrong runtime test removes signed-in coverage before the proxy lands or silently invalidates signed-out authentication/error specs; assertion edits could hide regressions during the mechanical cut-over.
+Selected risk packs: Authenticated browser coverage; Signed-out exclusions; Fixture/context lifecycle; Full-suite evidence; Import-only diff integrity. No production, seeding, API, dependency, workflow or persistence behavior change.
+Evidence floor: enumerate every spec and change only runtime `test` imports in the14 non-excluded files; keep `account-auth.spec.ts` and `expected-responses.spec.ts` on base Playwright and `session.spec.ts` unchanged. Full real `pnpm e2e` passes127/127 with zero skipped/unexpected/flaky/errors or unexpected console errors, excluded signed-out cases stay green, and diff audit proves no assertion/test-body edits. D10/D11.5 and account-auth govern; no new decision record or changeset.
+
 ## Impact
 
 - **New code:**

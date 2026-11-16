@@ -301,7 +301,7 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
     - Truncated path mismatch reports resource error and unused declaration; relative/absolute equivalent paths and documented query/fragment cases report none.
     - Page warning and uncaught pageerror beside the matched 401 remain reported.
   - Verify (gate): `pnpm decisions:check` and `pnpm dead-code` pass.
-- [ ] 6.5 Switch every e2e spec to the signed-in `test` fixture from `e2e/support/session.ts`, except the specs that test signed-out behaviour. This is a mechanical import change with no assertion edits.
+- [x] 6.5 Switch every e2e spec to the signed-in `test` fixture from `e2e/support/session.ts`, except the specs that test signed-out behaviour. This is a mechanical import change with no assertion edits. (#162;14 imports, full e2e127/127 and focused exclusions/session31/31 pass.)
   - Excluded by name: `e2e/expected-responses.spec.ts` (6.4), and any other spec that tests signed-out behaviour, such as the 7.1 register and sign-in walks if they have landed. They keep the base Playwright `test`, signed out by design.
   - Verify (e2e): the full suite passes with zero skips and zero console errors, and the excluded specs still run signed out.
 - [x] 6.6 Give the native HMR probe a database and a signed-in user (design D11). Depends on 5.2; merges before 7.2 and 6.8.

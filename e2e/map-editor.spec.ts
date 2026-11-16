@@ -1,4 +1,5 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
+import { test } from './support/session';
 import * as fs from 'node:fs';
 import { envelopeOf, readRecord, seedRecords, type RawRecord } from './support/seed';
 import { edgeGeometry, expectEdgesOnHandles, type Box } from './support/canvas-geometry';
