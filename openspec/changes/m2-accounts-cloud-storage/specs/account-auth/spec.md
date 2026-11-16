@@ -82,7 +82,7 @@ A user SHALL sign in with their exact username and password. Any wrong username 
 
 ### Requirement: Deferred map operations remain bound to the invoking account
 
-The first-party HTTP map repository SHALL capture the current Session binding and send it as `x-mindsprout-session-binding` on every map request. The server SHALL compare a present binding with the authenticated exact username and SHALL answer 401 `unauthenticated` before map access when it differs. A missing binding header retains the existing direct-API behavior. The browser provider SHALL key its cached repository by the current binding so a different account receives a new adapter on the next open. Reauthenticating the same account SHALL retain the binding and pending-edit recovery; changing accounts SHALL NOT allow an older queued operation to write under the new account.
+The first-party HTTP map repository SHALL capture the current Session binding and send it as `x-mindsprout-session-binding` on every map request. If the binding cookie is absent or empty, the default provider SHALL use an empty but present header value so the server rejects the operation instead of silently entering direct-API compatibility. The server SHALL compare a present binding with the authenticated exact username and SHALL answer 401 `unauthenticated` before map access when it differs. A missing binding header retains the existing direct-API behavior only for explicit unbound clients. The browser provider SHALL key its cached repository by the current binding so a different account receives a new adapter on the next open. Reauthenticating the same account SHALL retain the binding and pending-edit recovery; changing accounts SHALL NOT allow an older queued operation to write under the new account.
 
 #### Scenario: Same-document account switch rejects a queued save
 
@@ -93,6 +93,11 @@ The first-party HTTP map repository SHALL capture the current Session binding an
 
 - **WHEN** Alice has a queued map PUT in an original editor tab, Bob signs in through another tab sharing the browser cookie jar, and the predecessor then settles
 - **THEN** the original tab's queued PUT is rejected by the binding comparison and nothing from Alice enters Bob's store
+
+#### Scenario: Credential-only legacy session fails closed before recovery
+
+- **WHEN** Alice has a valid authentication session but no binding cookie and the default provider attempts a map operation
+- **THEN** the request carries an empty but present binding header, receives 401 before map access, and same-account reauthentication establishes the binding before normal editing resumes
 
 #### Scenario: Same-account re-login preserves pending recovery
 

@@ -24,6 +24,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', server.fetch);
 });
 afterEach(() => {
+  document.cookie = 'mindsprout_session_binding=; Path=/; Max-Age=0';
   vi.unstubAllGlobals();
 });
 
@@ -176,6 +177,8 @@ describe('MapRepositoryProvider', () => {
   });
 
   it('opens the session repository by default', async () => {
+    server.authenticateAs('Alice');
+    document.cookie = 'mindsprout_session_binding=QWxpY2U; Path=/';
     const seen = renderProvider();
 
     expect(shownState()).toBe('opening');
@@ -200,6 +203,8 @@ describe('MapRepositoryProvider', () => {
 
 describe('openSessionRepository', () => {
   it('returns one promise per session, resolving to a working repository', async () => {
+    server.authenticateAs('Alice');
+    document.cookie = 'mindsprout_session_binding=QWxpY2U; Path=/';
     const first = openSessionRepository();
     const second = openSessionRepository();
     const map = { ...mapOf(node('r', [node('a')])), id: 'session-map', title: '会话' };

@@ -307,3 +307,124 @@ for (const transition of ['same-document', 'new-tab'] as const) {
     }
   });
 }
+
+for (const transition of ['same-document', 'new-tab'] as const) {
+  test(`account-auth: Credential-only legacy session fails closed and recovers before ${transition} login`, async ({
+    page,
+    request,
+  }) => {
+    const alice = `legacy-alice-${randomUUID()}`;
+    const bob = `legacy-bob-${randomUUID()}`;
+    expect(
+      (
+        await request.post('/api/auth/register', { data: { username: bob, password: 'pw' } })
+      ).status(),
+    ).toBe(201);
+    expect(
+      (
+        await page.request.post('/api/auth/register', { data: { username: alice, password: 'pw' } })
+      ).status(),
+    ).toBe(201);
+    const map = createMindMap({
+      id: 'legacy-alice-private',
+      rootId: 'r',
+      title: 'Legacy Alice private',
+      rootText: 'Legacy Alice seed',
+    });
+    const path = `/api/maps/${map.id}`;
+    await seedRecords(page, [envelopeOf(map)]);
+    await page.context().clearCookies({ name: 'mindsprout_session_binding' });
+    expect((await page.context().cookies()).map(({ name }) => name)).toContain(
+      'mindsprout_session',
+    );
+    expect((await page.context().cookies()).map(({ name }) => name)).not.toContain(
+      'mindsprout_session_binding',
+    );
+    const expected = collectExpectedResponses(page, [{ url: path, status: 401 }]);
+    const initialRequest = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === path && response.request().method() === 'GET',
+    );
+    await page.goto(`/maps/${map.id}`);
+    const initial = await initialRequest;
+    if (initial.status() === 200) {
+      await expect(page.getByTestId('map-editor-ready')).toBeVisible();
+      await page.screenshot({
+        path: `.run/ui-evidence/account-legacy-${transition}-exposed.png`,
+      });
+    }
+    expect(initial.status()).toBe(401);
+    expect(initial.request().headers()['x-mindsprout-session-binding']).toBe('');
+    await expect(page).toHaveURL(`/login?next=${encodeURIComponent(`/maps/${map.id}`)}`);
+    await expect(page.getByTestId('map-editor-ready')).toHaveCount(0);
+    await page.screenshot({ path: `.run/ui-evidence/account-legacy-${transition}-closed.png` });
+    await login(page, alice);
+    await expect(page.getByTestId('map-editor-ready')).toBeVisible();
+    const document = await page.evaluateHandle(() => window.document);
+    const edit = async (target: Page, text: string) => {
+      await target.locator('.react-flow__node').first().dblclick();
+      const input = target.getByRole('textbox', { name: '节点标题' });
+      await input.fill(text);
+      await input.press('Enter');
+      await target.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    };
+    const recoveredSave = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === path && response.request().method() === 'PUT',
+    );
+    await edit(page, 'Alice recovered legacy edit');
+    expect((await recoveredSave).status()).toBe(204);
+    expect(await readRecord(page, map.id)).toMatchObject({
+      map: { roots: [{ id: 'r', text: 'Alice recovered legacy edit' }] },
+    });
+    await page.screenshot({ path: `.run/ui-evidence/account-legacy-${transition}-recovered.png` });
+    const loginPage = transition === 'new-tab' ? await page.context().newPage() : page;
+    const loginNoise = loginPage === page ? undefined : collectExpectedResponses(loginPage, []);
+    try {
+      if (transition === 'same-document') {
+        await page.getByRole('button', { name: '退出登录' }).click();
+        await expect(page).toHaveURL('/login');
+      } else {
+        await loginPage.goto('/login');
+      }
+      await login(loginPage, bob);
+      expect(await document.evaluate((original) => original === window.document)).toBe(true);
+      if (transition === 'new-tab') {
+        const deniedSave = page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === path && response.request().method() === 'PUT',
+        );
+        await edit(page, 'Alice sensitive edit after Bob login');
+        expect((await deniedSave).status()).toBe(401);
+        await expect(page.getByRole('link', { name: '重新登录' })).toBeVisible();
+      }
+      expect(await readRecord(loginPage, map.id)).toBeUndefined();
+      expect(await (await loginPage.request.get('/api/maps')).json()).toEqual([]);
+      await expect(loginPage.getByTestId('app-ready')).toBeVisible();
+      await loginPage.getByRole('button', { name: '新建导图' }).click();
+      await expect(loginPage.getByTestId('map-editor-ready')).toBeVisible();
+      const ownId = new URL(loginPage.url()).pathname.split('/').at(-1);
+      if (!ownId) throw new Error('Bob editor has no map id');
+      const ownSave = loginPage.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === `/api/maps/${ownId}` &&
+          response.request().method() === 'PUT',
+      );
+      await edit(loginPage, 'Bob independent legacy recovery map');
+      expect((await ownSave).status()).toBe(204);
+      expect(await readRecord(loginPage, ownId)).toMatchObject({
+        map: { roots: [{ text: 'Bob independent legacy recovery map' }] },
+      });
+      await loginPage.reload();
+      await expect(loginPage.getByTestId('map-editor-ready')).toBeVisible();
+      await expect(loginPage.locator('.react-flow__node').first()).toContainText(
+        'Bob independent legacy recovery map',
+      );
+      await loginPage.screenshot({ path: `.run/ui-evidence/account-legacy-${transition}-bob.png` });
+      expect(await expected.noise()).toEqual([]);
+      if (loginNoise) expect(await loginNoise.noise()).toEqual([]);
+    } finally {
+      if (loginPage !== page) await loginPage.close();
+    }
+  });
+}

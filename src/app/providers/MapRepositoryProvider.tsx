@@ -39,7 +39,9 @@ export function openSessionRepository(): Promise<ReadyRepository> {
   if (!session || session.binding !== binding) {
     session = {
       binding,
-      promise: openRepository(() => Promise.resolve(new HttpMapRepository(undefined, binding))),
+      promise: openRepository(() =>
+        Promise.resolve(new HttpMapRepository(undefined, binding ?? '')),
+      ),
     };
   }
   return session.promise;
