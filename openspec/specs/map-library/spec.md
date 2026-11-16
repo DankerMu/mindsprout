@@ -88,6 +88,16 @@ Opening `/maps/<id>` for a stored map that cannot be read or rendered SHALL show
 - **WHEN** a record's embedded ID matches its requested route ID and the user edits a node title
 - **THEN** the editor opens normally and autosaves the intended change under that same ID, without changing a distinct peer record
 
+### Requirement: Matching-identity autosave verification readiness
+
+The matching-identity autosave acceptance walk SHALL establish that the actual root node is available for interaction after the editor becomes ready and before reading or manipulating that node. Editor-level readiness alone SHALL NOT be treated as proof of node-level availability, and the acceptance walk SHALL preserve every existing rename, autosave payload, matching-key and peer-preservation outcome.
+
+#### Scenario: Editor ready before root-node interaction
+
+- **WHEN** the acceptance walk opens a matching-identity map and observes the editor-ready state
+- **THEN** it waits for the actual root node before the original text assertion and double-click interaction
+- **AND** the renamed text, debounced save payload, matching storage key and unchanged peer record are still verified without a skipped or weakened assertion
+
 ### Requirement: Library works without storage
 
 When browser storage is unavailable the library SHALL show the same "未保存到浏览器" banner as the editor, list the maps created in this session from the shared in-memory repository, and 新建导图 SHALL still open a working editor; a full reload of such an editor URL SHALL show the not-found state together with the banner.
