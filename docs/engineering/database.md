@@ -19,8 +19,7 @@ Migration 会为不存在的 `mindsprout_app` 创建 `NOLOGIN` 角色，并拒�
 2. 确认 `.env` 中两个 URL 指向本地开发数据库，运行：
 
    ```bash
-   pnpm db:setup
-   pnpm dev
+   pnpm db:setup && pnpm dev
    ```
 
 `pnpm db:setup` 先执行全部未应用的 migration，再运行 `db/dev/app-role.sql` 设置开发角色的登录密码。它只在非 production 环境运行；不得对共享或生产数据库使用。Migration 已提交后，开发角色 bootstrap 失败不会回滚这些 migration；修正角色或权限问题后重新运行即可。
@@ -50,12 +49,10 @@ Migration 按文件名顺序执行并记录在 `schema_migrations`，已应用�
 在部署环境运行：
 
 ```bash
-pnpm db:migrate
-pnpm build
-pnpm start
+pnpm db:migrate && pnpm build && pnpm start
 ```
 
-生产环境禁止使用 `pnpm db:setup`：它会拒绝运行，且其开发 bootstrap 不应成为生产密码管理路径。
+任一命令失败都必须停止，不得继续启动或开放注册；修复失败原因后再从相应步骤继续。生产环境禁止使用 `pnpm db:setup`：它会拒绝运行，且其开发 bootstrap 不应成为生产密码管理路径。
 
 ### 4. 首先注册 owner
 

@@ -102,7 +102,7 @@ Password replacement and conditional issuance hold the same user-row `FOR UPDATE
 
 #### Known Limitations
 
-The crypto and Postgres adapters are not wired to production account services. HTTP routes and cookies require their own adapters and integration evidence. Map payload validation belongs to the route boundary, not the store; browser persistence is not switched by this adapter. Password migration/rehashing, expired-session purging and whole-operation timing equalisation are not provided. Login throttling is deferred until the first public deployment; see [decision 0023](../decisions/implemented/architecture/0023-self-hosted-accounts-on-postgres-rls.md).
+Map payload validation belongs to the route boundary, not the store. Password migration/rehashing, expired-session purging and whole-operation timing equalisation are not provided. Login throttling is deferred until the first public deployment; see [decision 0023](../decisions/implemented/architecture/0023-self-hosted-accounts-on-postgres-rls.md).
 
 ## 4. 树操作协议（AI 与画布的唯一接口）
 
@@ -246,12 +246,13 @@ src/
     map/
       domain/                   导图模型、TreeOp、MapRepository 端口与错误
       application/              编辑、历史、布局、菜单与自动保存用例
-      infrastructure/           HTTP MapRepository 适配器
+      infrastructure/
+        persistence/            HTTP MapRepository 适配器
     account/
       domain/                   账号、会话、错误与持久化端口
       application/              注册、登录、会话与管理员用例
-      infrastructure/           Postgres/RLS、凭证哈希与令牌实现
-      acl/                      MapRepository 端口实现
+      infrastructure/           PostgresMapStore、RLS、凭证哈希与令牌实现
+      acl/                      MapRepository 端口与类型的跨上下文再导出
     ai/                         提供方、提示词、路由与配额边界
     export/                     导图快照的纯序列化边界
   shared/                       环境配置、日志与数据库健康探测
