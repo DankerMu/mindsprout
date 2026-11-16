@@ -308,6 +308,7 @@ Upstream suggested level: compact (agree: additive admin UI over the tested rese
 Blast radius: confirmation mistakes can reset the wrong account or fire twice; expired/non-200 handling can expose stale account data or lose the redirect; temporary-password retention/logging can leak a credential; incomplete declarations can hide unexpected browser failures.
 Selected risk packs: Confirmation/target/pending integrity; Session revocation and fresh-document navigation; One-time secret lifetime/copy; Reset failure fidelity; D13 response/console correlation; Two-context browser evidence.
 Evidence floor: TDD RED→GREEN for per-row confirm/cancel/exact JSON/no duplicate, success copy/close/reopen clearing, exact401 redirect, generic failures and retained list state. Reuse one admin redirect call site and amend decision0025 wording without adding an exception. Real two-user-context+admin e2e proves one-time masked secret, both sessions revoked, old password401 and temporary-password login, with every session/maps/login401 declared+observed and zero other noise. Full unit/coverage, build, e2e125/125, decisions/static/dead-code/duplicate checks and strict OpenSpec validation pass; update the existing account changeset. No API/schema/dependency/password-change/recovery flow or new decision record.
+
 ## Issue #172 Fixture Triage
 
 Issue type: test
