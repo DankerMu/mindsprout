@@ -446,7 +446,7 @@ describe('editor load session expiry', () => {
     expect(assign).not.toHaveBeenCalled();
   });
 
-  it('ignores an expired prior-map load after a different map opens', async () => {
+  it('ignores an expired prior-map load before a queued different map opens', async () => {
     const assign = vi.fn();
     vi.stubGlobal('location', { pathname: '/maps/current', assign });
     const server = new MapFetch();
@@ -456,7 +456,7 @@ describe('editor load session expiry', () => {
     const open = () => Promise.resolve(repository);
     const view = editorOver(open, 'previous');
     await settled();
-    expect(server.requests).toHaveLength(1);
+    const initialRequests = server.requests.length;
     server.respondNext(() =>
       Response.json({ schemaVersion: 1, map: { ...SEEDED, id: 'current', title: '当前导图' } }),
     );
@@ -465,11 +465,14 @@ describe('editor load session expiry', () => {
         <MapEditor id="current" />
       </MapRepositoryProvider>,
     );
-    expect(await screen.findByTestId('map-editor-ready')).toBeTruthy();
+    const requestsBeforeRelease = server.requests.length;
     await act(async () => {
       stale.resolve(new Response(null, { status: 401 }));
       await stale.promise;
     });
+    expect(initialRequests).toBe(1);
+    expect(requestsBeforeRelease).toBe(1);
+    expect(await screen.findByTestId('map-editor-ready')).toBeTruthy();
     expect(assign).not.toHaveBeenCalled();
     expect(screen.getByTestId('editor-title').textContent).toBe('当前导图');
     expect(server.requests).toMatchObject([
@@ -490,12 +493,15 @@ describe('editor load session expiry', () => {
       'm1',
       (element) => <StrictMode>{element}</StrictMode>,
     );
-    expect(await screen.findByTestId('map-editor-ready')).toBeTruthy();
-    expect(server.requests).toHaveLength(2);
+    await settled();
+    const requestsBeforeRelease = server.requests.length;
     await act(async () => {
       discarded.resolve(new Response(null, { status: 401 }));
       await discarded.promise;
     });
+    expect(requestsBeforeRelease).toBe(1);
+    expect(await screen.findByTestId('map-editor-ready')).toBeTruthy();
+    expect(server.requests).toHaveLength(2);
     expect(assign).not.toHaveBeenCalled();
     expect(screen.getByTestId('editor-title').textContent).toBe('标题A');
   });

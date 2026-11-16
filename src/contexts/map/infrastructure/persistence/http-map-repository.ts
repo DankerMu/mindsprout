@@ -39,6 +39,8 @@ async function readJson(response: Response, operation: string): Promise<unknown>
 }
 
 export class HttpMapRepository implements MapRepository {
+  #tail: Promise<void> | undefined;
+
   constructor(private readonly fetchMap: typeof fetch = globalThis.fetch.bind(globalThis)) {}
 
   async list(): Promise<MapSummary[]> {
@@ -94,7 +96,20 @@ export class HttpMapRepository implements MapRepository {
     requireSuccess(response, `DELETE ${path}`);
   }
 
-  private async request(path: string, init: RequestInit): Promise<Response> {
+  private request(path: string, init: RequestInit): Promise<Response> {
+    const response =
+      this.#tail === undefined
+        ? this.fetchResponse(path, init)
+        : this.#tail.then(() => this.fetchResponse(path, init));
+    const release = (): void => {
+      if (this.#tail === tail) this.#tail = undefined;
+    };
+    const tail = response.then(release, release);
+    this.#tail = tail;
+    return response;
+  }
+
+  private async fetchResponse(path: string, init: RequestInit): Promise<Response> {
     const operation = `${String(init.method)} ${path}`;
     let response: Response;
     try {

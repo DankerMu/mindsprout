@@ -13,8 +13,9 @@ import type { MindMap } from '../../contexts/map/domain/types';
 // One editor store per opened map (design D7, "Fixture — issue #16"): created on mount with the
 // session repository, loaded with the stored map (load is not an edit, so opening writes nothing),
 // and flushed when the page is hidden or the editor unmounts. Client-side navigation fires no
-// pagehide (#10 handoff), hence the unmount flush. flush reaches repository.put synchronously, so
-// a later read in another transaction is ordered after the write (#11, #13 handoffs).
+// pagehide (#10 handoff), hence the unmount flush. flush reaches repository.put synchronously;
+// the same adapter's ordered queue keeps later reads behind that write (#11, #13 handoffs).
+// Only an idle queue starts the network request synchronously.
 
 const EditorStoreContext = createContext<StoreApi<EditorState> | null>(null);
 

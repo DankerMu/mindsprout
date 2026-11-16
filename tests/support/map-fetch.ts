@@ -8,6 +8,11 @@ export class MapFetch {
   readonly requests: { input: Parameters<typeof fetch>[0]; init?: RequestInit }[] = [];
   readonly #store = new InMemoryMapRepository();
   readonly #responses: (() => Response | Promise<Response>)[] = [];
+  #beforeMutation: (() => Promise<void>) | undefined;
+
+  beforeNextMutation(hook: () => Promise<void>): void {
+    this.#beforeMutation = hook;
+  }
 
   respondNext(response: () => Response | Promise<Response>): void {
     this.#responses.push(response);
@@ -50,8 +55,14 @@ export class MapFetch {
       if (envelope.schemaVersion !== 1 || map.id !== id) {
         return Response.json({ error: 'invalid-map' }, { status: 400 });
       }
+      const beforeMutation = this.#beforeMutation;
+      this.#beforeMutation = undefined;
+      await beforeMutation?.();
       await this.#store.put(map);
     } else if (method === 'DELETE') {
+      const beforeMutation = this.#beforeMutation;
+      this.#beforeMutation = undefined;
+      await beforeMutation?.();
       await this.#store.delete(id);
     } else {
       throw new Error(`Unsupported MapFetch method: ${String(method)}`);

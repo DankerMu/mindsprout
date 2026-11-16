@@ -429,7 +429,7 @@ describe('library load session expiry', () => {
     expect(assign).not.toHaveBeenCalled();
   });
 
-  it('ignores a discarded library load that returns HTTP 401 after the current list', async () => {
+  it('ignores a discarded library load returning HTTP 401 before the queued current list', async () => {
     const assign = vi.fn();
     vi.stubGlobal('location', { pathname: '/', assign });
     const server = new MapFetch();
@@ -441,12 +441,14 @@ describe('library load session expiry', () => {
         <MapLibrary repository={repository} navigate={vi.fn()} />
       </StrictMode>,
     );
-    expect(await screen.findByText('还没有导图')).toBeTruthy();
-    expect(server.requests).toHaveLength(2);
+    const requestsBeforeRelease = server.requests.length;
     await act(async () => {
       discarded.resolve(new Response(null, { status: 401 }));
       await discarded.promise;
     });
+    expect(requestsBeforeRelease).toBe(1);
+    expect(await screen.findByText('还没有导图')).toBeTruthy();
+    expect(server.requests).toHaveLength(2);
     expect(assign).not.toHaveBeenCalled();
     expect(screen.getByText('还没有导图')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
