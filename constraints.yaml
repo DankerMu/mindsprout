@@ -25,7 +25,7 @@ strictness_profile:
       reason: "owner's words: 本人只验收功能，不审核代码 — decision 0001"
     - control: metrics_collection
       profile_default: "required"
-      chosen: "deferred to M2"
+      chosen: "deferred until a deployment target exists"
       reason: "no deployment target exists yet to receive metrics; tracing is wired (src/instrumentation.ts)"
 
 # ── Generated Section Registry ─────────────────────────────────

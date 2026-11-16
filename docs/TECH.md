@@ -226,27 +226,42 @@ SSE 事件流 → 解析 op → dispatch 到 Zustand → React Flow 重算布局
 
 ```
 src/
-  app/                          路由与组合根
+  app/                          Next.js 路由与服务端组合根
     page.tsx                    导图库首页
+    login/  register/           登录与注册页面
+    admin/                      管理员用户列表与密码重置页面
     maps/[id]/                  编辑器路由、导图加载与状态展示
-    providers/                  会话级仓储选择、共享与内存回退
+    providers/                  会话级 MapRepository 绑定
+    server/                     账号、会话与 Postgres 服务组合
+    api/auth/                   register、login、logout、session
+    api/maps/                   导图列表、读取、保存与删除
+    api/admin/users/            用户列表与密码重置
     api/healthz/                健康检查
   components/
+    account/                    凭证表单、会话菜单与管理员用户列表
     canvas/                     React Flow 画布、节点、菜单与备注面板
-    editor/                     编辑器视图与会话组合、页面卸载保存监听
+    editor/                     编辑器视图、编辑会话与卸载保存监听
     library/                    导图库列表与新建、重命名、删除交互
-  contexts/map/
-    domain/                     导图模型、TreeOp schema/reducer、仓储端口
-    application/                导图重命名、删除与拖放用例
-      editor-store/             编辑状态、选择与自动保存
-      history/                  撤销/重做与操作分组
-      layout/                   森林布局与内容边界计算
-      menu/                     节点菜单动作注册
-    infrastructure/
-      persistence/              IndexedDB 与内存仓储适配器
+  contexts/
+    map/
+      domain/                   导图模型、TreeOp、MapRepository 端口与错误
+      application/              编辑、历史、布局、菜单与自动保存用例
+      infrastructure/           HTTP MapRepository 适配器
+    account/
+      domain/                   账号、会话、错误与持久化端口
+      application/              注册、登录、会话与管理员用例
+      infrastructure/           Postgres/RLS、凭证哈希与令牌实现
+      acl/                      MapRepository 端口实现
+    ai/                         提供方、提示词、路由与配额边界
+    export/                     导图快照的纯序列化边界
   shared/                       环境配置、日志与数据库健康探测
-docs/                           PRD、技术文档
+db/
+  migrations/                   顺序执行的 SQL 迁移
+  dev/                          仅限开发环境的应用角色 bootstrap
+docs/                           PRD、技术与工程文档
 ```
+
+数据库角色、RLS、迁移与部署见[数据库与部署](engineering/database.md)。
 
 ## 8. 安全与限流
 
