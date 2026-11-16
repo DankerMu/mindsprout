@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { EditorSession } from '../../../components/editor/EditorSession';
 import { EditorView } from '../../../components/editor/EditorView';
 import { StorageUnavailableBanner } from '../../../components/StorageUnavailableBanner';
@@ -26,10 +26,12 @@ function StoredMap({
   id,
   repository,
   storageUnavailable,
+  header,
 }: {
   id: string;
   repository: MapRepository;
   storageUnavailable: boolean;
+  header?: ReactNode;
 }) {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   useEffect(() => {
@@ -74,12 +76,12 @@ function StoredMap({
     );
   return (
     <EditorSession map={loaded.map} repository={repository}>
-      <EditorView storageUnavailable={storageUnavailable} />
+      <EditorView storageUnavailable={storageUnavailable} header={header} />
     </EditorSession>
   );
 }
 
-export function MapEditor({ id }: { id: string }) {
+export function MapEditor({ id, header }: { id: string; header?: ReactNode }) {
   const repository = useMapRepository();
   if (repository.status === 'opening') return <MapStatus kind="loading" />;
   if (repository.status === 'failed') return <MapStatus kind="error" />;
@@ -89,6 +91,7 @@ export function MapEditor({ id }: { id: string }) {
       id={id}
       repository={repository.repository}
       storageUnavailable={repository.storageUnavailable}
+      header={header}
     />
   );
 }

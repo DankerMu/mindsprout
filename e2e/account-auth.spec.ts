@@ -11,9 +11,42 @@ test('account-auth: Register and land signed in', async ({ page }) => {
   await page.getByRole('button', { name: '注册' }).click();
   await expect(page).toHaveURL('/');
   await expect(page.getByTestId('app-ready')).toBeVisible();
+  await expect(page.getByTestId('session-username')).toHaveText(username);
   const session = await page.request.get('/api/auth/session');
   expect(session.status()).toBe(200);
   expect(await session.json()).toMatchObject({ username });
+});
+
+test('account-auth: Sign out', async ({ page, playwright }) => {
+  const noise: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') noise.push(message.text());
+  });
+  page.on('pageerror', (error) => {
+    noise.push(String(error));
+  });
+  const username = `alice-${randomUUID()}`;
+  await page.goto('/register');
+  await page.getByLabel('用户名').fill(username);
+  await page.getByLabel('密码').fill('pw');
+  await page.getByRole('button', { name: '注册' }).click();
+  await expect(page.getByTestId('session-username')).toHaveText(username);
+  const cookie = (await page.context().cookies()).find(
+    (item) => item.name === 'mindsprout_session',
+  );
+  expect(cookie).toBeDefined();
+  await page.getByRole('button', { name: '退出登录' }).click();
+  await expect(page).toHaveURL('/login');
+  const replay = await playwright.request.newContext({
+    baseURL: new URL(page.url()).origin,
+    extraHTTPHeaders: { Cookie: `mindsprout_session=${cookie?.value ?? ''}` },
+  });
+  try {
+    expect((await replay.get('/api/auth/session')).status()).toBe(401);
+  } finally {
+    await replay.dispose();
+  }
+  expect(noise).toEqual([]);
 });
 
 test('account-auth: Sign in', async ({ page, request }) => {
@@ -72,6 +105,7 @@ test('account-auth: Signed-out visit returns after sign-in', async ({ page }) =>
   await expect(page).toHaveURL('/maps/abc');
   await expect(page.getByTestId('map-editor-ready')).toBeVisible();
   await expect(page.getByTestId('editor-title')).toHaveText('返回我的导图');
+  await expect(page.getByTestId('session-username')).toHaveText(username);
   await page.screenshot({ path: '.run/ui-evidence/account-sign-in-return.png' });
   expect(missing).toEqual([]);
   expect(noise).toEqual([]);

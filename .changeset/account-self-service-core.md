@@ -33,3 +33,5 @@ Preserve pending editor changes when an HTTP save reports session expiry, with a
 Add public `/login` and `/register` pages sharing a credentials form that posts exact usernames and passwords as JSON. Pending submissions disable the submit button; invalid input, incorrect credentials, taken usernames and request failures show inline errors without navigation. Successful authentication returns to a same-site `next` path or `/` when the target is absent or unsafe.
 
 Requests to protected pages without a `mindsprout_session` cookie redirect with 307 to same-origin `/login`, preserving the requested path and query in `next`. The proxy checks only cookie presence; session validity remains checked at the data. Sign-in, registration, API routes and reserved static/image assets bypass the proxy.
+
+Show the signed-in username and sign-out action on the home and editor pages, with administrator navigation visible only to the admin. Each menu mount loads its session once, including StrictMode replay. Successful sign-out returns to `/login`; request failures keep the menu visible with an inline error.

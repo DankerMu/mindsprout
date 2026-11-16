@@ -368,7 +368,7 @@ Minimal mergeable slice: 6.1 - the HTTP adapter is fully contract-tested and unu
     - it clears the session cookie and opens `/maps/abc`, and expects the redirect to `/login?next=%2Fmaps%2Fabc`;
     - it signs in and lands on the editor of `abc`, with no 404 response at any point and zero console errors, so it needs no design D13 declaration.
   - Verify (gate): `pnpm test:guardrails` passes, and the PR flags the `src/proxy.ts` and `AGENTS.md` edits.
-- [ ] 7.3 Add the header session menu in `src/components/account/` and mount it on `/` and `/maps/[id]` (design D8). Depends on 5.3, 6.5, 6.6 and 7.1: its `GET /api/auth/session` on a signed-out page logs a 401 console error, which the e2e and native HMR console assertions reject. Task 8.1 mounts it on `/admin`.
+- [x] 7.3 Add the header session menu in `src/components/account/` and mount it on `/` and `/maps/[id]` (design D8). Depends on 5.3, 6.5, 6.6 and 7.1: its `GET /api/auth/session` on a signed-out page logs a 401 console error, which the e2e and native HMR console assertions reject. Task 8.1 mounts it on `/admin`. (#167; full unit1690/1690, native55/55, focused11/11 and full e2e129/129 pass.)
   - It shows the username, a `管理后台` link for the admin only, and `退出登录`, which posts `{}` to logout.
   - Verify (unit/component): account-admin "Admin link visibility".
   - Verify (e2e): account-auth "Sign out", and the header THEN of "Register and land signed in" (after registering, the header shows `alice`).

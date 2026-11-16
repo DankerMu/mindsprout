@@ -1,14 +1,19 @@
 import { render, screen } from '@testing-library/react';
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../tests/support/canvas';
 import { InMemoryMapRepository } from '../contexts/map/infrastructure/persistence/in-memory-map-repository';
 import HomePage from './page';
 import { MapRepositoryProvider } from './providers/MapRepositoryProvider';
 
 failOnConsoleNoise();
+afterEach(() => vi.unstubAllGlobals());
 
 it('shows the true empty library with its create action and stable home marker', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue(Response.json({ username: 'alice', isAdmin: false })),
+  );
   const repository = new InMemoryMapRepository();
   const router = {
     push: vi.fn(),
@@ -28,6 +33,7 @@ it('shows the true empty library with its create action and stable home marker',
   );
 
   expect(await screen.findByText('还没有导图')).toBeTruthy();
+  expect((await screen.findByTestId('session-username')).textContent).toBe('alice');
   expect(screen.getByRole('button', { name: '新建导图' })).toBeTruthy();
   expect(screen.getByTestId('app-ready')).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'MindSprout' })).toBeTruthy();
