@@ -357,7 +357,10 @@ for (const transition of ['same-document', 'new-tab'] as const) {
     expect(initial.request().headers()['x-mindsprout-session-binding']).toBe('');
     await expect(page).toHaveURL(`/login?next=${encodeURIComponent(`/maps/${map.id}`)}`);
     await expect(page.getByTestId('map-editor-ready')).toHaveCount(0);
-    await page.screenshot({ path: `.run/ui-evidence/account-legacy-${transition}-closed.png` });
+    await page.screenshot({
+      path: `.run/ui-evidence/account-legacy-${transition}-closed.png`,
+      caret: 'initial',
+    });
     await login(page, alice);
     await expect(page.getByTestId('map-editor-ready')).toBeVisible();
     const document = await page.evaluateHandle(() => window.document);
