@@ -228,7 +228,7 @@ Everywhere else gray-box review (contracts + runtime evidence) is sufficient. Th
   Levels: `info` business events, `warn` recoverable anomalies, `error` failures; no `debug` in production.
   PII/secret redaction is wired (`REDACT_PATHS`); never log raw user input, tokens, or credentials.
 - **Distributed tracing (wired)**: OpenTelemetry initialised in `src/instrumentation.ts` (`@vercel/otel`); W3C trace context propagates on outbound calls; exporter from `OTEL_EXPORTER_OTLP_ENDPOINT`. Span names `<context>.<operation>` (e.g. `ai.streamOps`).
-- **Metrics (deferred)**: deferred to M2 (no deployment target yet) — recorded downgrade in `constraints.yaml`.
+- **Metrics (deferred)**: deferred until a deployment target exists — recorded downgrade in `constraints.yaml`.
 
 ## Agent Operating Rules
 
