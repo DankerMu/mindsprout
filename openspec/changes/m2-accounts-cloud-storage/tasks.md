@@ -265,9 +265,9 @@ Minimal mergeable slice: 5.1 - composition, session reading and `GET /api/auth/s
     - repeated failures and older204 after newer401 retain the current pending map; successful current saves stop duplicate flushes without dismissing notices;
     - current library/editor401 redirects to the encoded pathname; non401, discarded library401 and stale editor401 do not redirect.
   - Verify existing library/editor UI smoke with Playwright screenshots and zero unexpected console errors; no provider or e2e implementation changes.
-- [ ] 6.3 Prepare e2e for the database (design D11).
+- [x] 6.3 Prepare e2e for the database (design D11).
   - [x] 6.3a Isolate the e2e database, server and build output (#160; D11.2). Complete the lifecycle/environment evidence below without registration or signed-in fixtures.
-  - [ ] 6.3b Register e2e-admin and add signed-in fixtures (#175). The parent6.3 task completes only after both slices.
+  - [x] 6.3b Register first-account `e2e-admin` in globalSetup and add isolated regular/admin session fixtures (#175; D11.5). Two focused tests and full e2e 127/127 pass.
   - Add a Postgres service to CI layer7, plus `MIGRATION_DATABASE_URL` and `DATABASE_URL`. CI layer7 keeps running `pnpm e2e`.
   - Add `scripts/e2e-db.mjs`. It calls the task 1.1 reset helper for `app_e2e`, which creates the database if absent, resets it, migrates and applies the bootstrap. The `e2e` script becomes `node --env-file-if-exists=.env scripts/e2e-db.mjs && playwright test`, and `verify-ui` gets the same prefix, so the database exists before Playwright starts its `webServer`.
   - `next.config.ts` reads `distDir` from `NEXT_DIST_DIR`, defaulting to `.next`. Add `.next-e2e/` to `.gitignore` and to the knip, ESLint and Prettier ignores.

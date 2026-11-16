@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +30,9 @@ async function probe(
     if (file !== undefined) await writeFile(join(cwd, '.env'), file);
     await symlink(process.execPath, join(cwd, 'node'));
     await symlink(resolve('scripts'), join(cwd, 'scripts'), 'dir');
+    await mkdir(join(cwd, 'e2e/support'), { recursive: true });
+    await symlink(resolve('e2e/global-setup.ts'), join(cwd, 'e2e/global-setup.ts'));
+    await symlink(resolve('e2e/support/session.ts'), join(cwd, 'e2e/support/session.ts'));
     if (!options.spawnFailure) {
       await writeFile(
         join(cwd, 'pnpm'),

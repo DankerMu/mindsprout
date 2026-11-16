@@ -8,6 +8,8 @@ deriveTestDatabaseTarget('app_e2e', process.env);
 
 export default defineConfig({
   testDir: './e2e',
+  // Runs after the reset and webServer readiness, before any test registers a user.
+  globalSetup: './e2e/global-setup.ts',
   timeout: 30_000,
   retries: 0,
   reporter: [['list']],
