@@ -3,12 +3,33 @@ import { HttpMapRepository } from '../../src/contexts/map/infrastructure/persist
 import { InMemoryMapRepository } from '../../src/contexts/map/infrastructure/persistence/in-memory-map-repository';
 import { parseMindMap } from '../../src/contexts/map/domain/parse-mind-map';
 
-// Each instance represents one signed-in user's isolated store; no request reaches the network.
+// Models the browser's current account and isolated stores; no request reaches the network.
 export class MapFetch {
   readonly requests: { input: Parameters<typeof fetch>[0]; init?: RequestInit }[] = [];
-  readonly #store = new InMemoryMapRepository();
+  readonly #stores = new Map<string, InMemoryMapRepository>();
+  #username = 'Alice';
   readonly #responses: (() => Response | Promise<Response>)[] = [];
   #beforeMutation: (() => Promise<void>) | undefined;
+
+  authenticateAs(username: string): void {
+    this.#username = username;
+  }
+
+  private get store(): InMemoryMapRepository {
+    let store = this.#stores.get(this.#username);
+    if (!store) {
+      store = new InMemoryMapRepository();
+      this.#stores.set(this.#username, store);
+    }
+    return store;
+  }
+
+  private unauthorized(init: RequestInit): Response | undefined {
+    const binding = new Headers(init.headers).get('x-mindsprout-session-binding');
+    return binding !== null && binding !== Buffer.from(this.#username, 'utf8').toString('base64url')
+      ? Response.json({ error: 'unauthenticated' }, { status: 401 })
+      : undefined;
+  }
 
   beforeNextMutation(hook: () => Promise<void>): void {
     this.#beforeMutation = hook;
@@ -29,18 +50,27 @@ export class MapFetch {
   };
 
   private async serve(input: string, init: RequestInit): Promise<Response> {
+    const denied = this.unauthorized(init);
+    if (denied) return denied;
     const method = init.method ?? 'GET';
     if (input === '/api/maps' && method === 'GET') {
-      return Response.json(await this.#store.list());
+      return Response.json(await this.store.list());
     }
     const id = decodeURIComponent(input.slice('/api/maps/'.length));
     if (method === 'GET') {
-      const map = await this.#store.get(id);
+      const map = await this.store.get(id);
       return map === undefined
         ? Response.json({ error: 'not-found' }, { status: 404 })
         : Response.json({ schemaVersion: 1, map });
     }
     return this.write(id, init);
+  }
+
+  private async authorizeMutation(init: RequestInit): Promise<Response | undefined> {
+    const beforeMutation = this.#beforeMutation;
+    this.#beforeMutation = undefined;
+    await beforeMutation?.();
+    return this.unauthorized(init);
   }
 
   private async write(id: string, init: RequestInit): Promise<Response> {
@@ -55,15 +85,13 @@ export class MapFetch {
       if (envelope.schemaVersion !== 1 || map.id !== id) {
         return Response.json({ error: 'invalid-map' }, { status: 400 });
       }
-      const beforeMutation = this.#beforeMutation;
-      this.#beforeMutation = undefined;
-      await beforeMutation?.();
-      await this.#store.put(map);
+      const denied = await this.authorizeMutation(init);
+      if (denied) return denied;
+      await this.store.put(map);
     } else if (method === 'DELETE') {
-      const beforeMutation = this.#beforeMutation;
-      this.#beforeMutation = undefined;
-      await beforeMutation?.();
-      await this.#store.delete(id);
+      const denied = await this.authorizeMutation(init);
+      if (denied) return denied;
+      await this.store.delete(id);
     } else {
       throw new Error(`Unsupported MapFetch method: ${String(method)}`);
     }

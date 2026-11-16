@@ -45,9 +45,10 @@ describe('POST /api/auth/logout', () => {
       expect(response.status).toBe(204);
       expect(response.body).toBeNull();
       await expect(response.text()).resolves.toBe('');
-      expect(response.headers.get('set-cookie')).toBe(
+      expect(response.headers.getSetCookie()).toEqual([
         `mindsprout_session=; Path=/; Max-Age=0;${environment === 'production' ? ' Secure;' : ''} HttpOnly; SameSite=lax`,
-      );
+        `mindsprout_session_binding=; Path=/; Max-Age=0;${environment === 'production' ? ' Secure;' : ''} SameSite=lax`,
+      ]);
       expect(errorLog).not.toHaveBeenCalled();
     },
   );

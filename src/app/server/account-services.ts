@@ -12,7 +12,13 @@ import {
 } from '@/contexts/account/infrastructure/postgres';
 import { loadEnv } from '@/shared/env';
 
-const SESSION_COOKIE = 'mindsprout_session';
+import {
+  SESSION_COOKIE,
+  SESSION_BINDING_COOKIE,
+  SESSION_BINDING_HEADER,
+  readCookie,
+  sessionBinding,
+} from '@/shared/session-binding';
 // Match HTTP tokens and quoted parameter values, not JSON suffixes or a second media type.
 const JSON_MEDIA_TYPE =
   /^[\t ]*application\/json[\t ]*(?:;[\t ]*[!#$%&'*+.^_`|~0-9a-z-]+=(?:[!#$%&'*+.^_`|~0-9a-z-]+|"(?:[\t !#-[\]-~\x80-\xff]|\\[\t !-~\x80-\xff])*")[\t ]*)*$/i;
@@ -85,14 +91,7 @@ export function resetAccountPassword(actor: User, userId: string): Promise<strin
 }
 
 function requestToken(request: Request): string | undefined {
-  // First exact-name nonempty value wins; opaque values are never trimmed or decoded.
-  for (const pair of (request.headers.get('cookie') ?? '').split(';')) {
-    const separator = pair.indexOf('=');
-    if (separator < 0 || pair.slice(0, separator).trim() !== SESSION_COOKIE) continue;
-    const value = pair.slice(separator + 1);
-    if (value !== '') return value;
-  }
-  return undefined;
+  return readCookie(request.headers.get('cookie') ?? '', SESSION_COOKIE);
 }
 
 export async function resolveRequestUser(request: Request): Promise<User | undefined> {
@@ -109,23 +108,31 @@ export async function signOutRequest(request: Request): Promise<void> {
 
 export async function requireUser(request: Request): Promise<User | Response> {
   const user = await resolveRequestUser(request);
-  return user ?? Response.json({ error: 'unauthenticated' }, { status: 401 });
+  const binding = request.headers.get(SESSION_BINDING_HEADER);
+  if (user && (binding === null || binding === sessionBinding(user.username))) return user;
+  return Response.json({ error: 'unauthenticated' }, { status: 401 });
 }
 
-function writeSessionCookie(response: NextResponse, token: string, maxAge: number): void {
-  response.cookies.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'lax',
+function writeSessionCookies(
+  response: NextResponse,
+  token: string,
+  binding: string,
+  maxAge: number,
+): void {
+  const scope = {
+    sameSite: 'lax' as const,
     path: '/',
     maxAge,
     secure: loadEnv(process.env).NODE_ENV === 'production',
-  });
+  };
+  response.cookies.set(SESSION_COOKIE, token, { ...scope, httpOnly: true });
+  response.cookies.set(SESSION_BINDING_COOKIE, binding, scope);
 }
 
-export function setSessionCookie(response: NextResponse, token: string): void {
-  writeSessionCookie(response, token, 2592000);
+export function setSessionCookie(response: NextResponse, token: string, username: string): void {
+  writeSessionCookies(response, token, sessionBinding(username), 2592000);
 }
 
 export function clearSessionCookie(response: NextResponse): void {
-  writeSessionCookie(response, '', 0);
+  writeSessionCookies(response, '', '', 0);
 }

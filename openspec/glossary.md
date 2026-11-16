@@ -20,6 +20,10 @@ _Avoid_: Mutation, Patch, Command, Action
 一个能产出 TreeOp 的模型接入（Claude 直连、OpenAI 兼容端点、本地 Ollama 等），带能力声明。
 _Avoid_: Model（指接入时）, Backend, Engine, Vendor
 
+**Session binding**:
+由精确用户名的 UTF-8 base64url 编码得到的不透明账号绑定值。第一方 HTTP MapRepository 在调用时捕获它并随请求发送，服务端据此拒绝跨账号的延迟操作；它不是认证凭据、session token 或 CSRF token。同账号重新登录保持相同绑定，不同账号切换必须拒绝旧绑定操作。
+_Avoid_: Auth token, Session token, CSRF token, Owner id
+
 **Floating root**（浮动根）:
 不挂在主根下、自带画布坐标的 MindNode，可带子树；拖到树上即重新挂接。
 _Avoid_: 自由节点, Detached node, Orphan

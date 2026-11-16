@@ -16,6 +16,7 @@ import {
 failOnConsoleNoise();
 
 afterEach(() => {
+  document.cookie = 'mindsprout_session_binding=; Path=/; Max-Age=0';
   vi.unstubAllGlobals();
 });
 
@@ -60,4 +61,68 @@ it('shares the HTTP repository promise and stored maps across replay and remount
   ).toBe(true);
   expect(await session.repository.get('session-map')).toStrictEqual(map);
   expect(server.requests.map(({ init }) => init?.method)).toEqual(['PUT', 'GET']);
+});
+
+it('rebinds the document repository only when the account binding changes', async () => {
+  const server = new MapFetch();
+  vi.stubGlobal('fetch', server.fetch);
+  document.cookie = 'mindsprout_session_binding=QWxpY2U; Path=/';
+  const alicePromise = openSessionRepository();
+  const alice = await alicePromise;
+  expect(openSessionRepository()).toBe(alicePromise);
+  document.cookie = 'mindsprout_session_binding=Qm9i; Path=/';
+  server.authenticateAs('Bob');
+  const bobPromise = openSessionRepository();
+  const bob = await bobPromise;
+  expect(bobPromise).not.toBe(alicePromise);
+  expect(bob.repository).not.toBe(alice.repository);
+  expect(openSessionRepository()).toBe(bobPromise);
+  expect(server.requests).toEqual([]);
+  await bob.repository.list();
+  expect(new Headers(server.requests[0]?.init?.headers).get('x-mindsprout-session-binding')).toBe(
+    'Qm9i',
+  );
+});
+
+it('opens synchronously on account change in a mounted provider without exposing Alice state', async () => {
+  const server = new MapFetch();
+  vi.stubGlobal('fetch', server.fetch);
+  const seen: RepositoryState[] = [];
+  function Probe({ route }: { route: string }) {
+    const state = useMapRepository();
+    seen.push(state);
+    return (
+      <p>
+        {route}:{state.status}
+      </p>
+    );
+  }
+  document.cookie = 'mindsprout_session_binding=QWxpY2U; Path=/';
+  const view = render(
+    <MapRepositoryProvider>
+      <Probe route="editor" />
+    </MapRepositoryProvider>,
+  );
+  await act(() => openSessionRepository());
+  const alice = seen.at(-1);
+  view.rerender(
+    <MapRepositoryProvider>
+      <Probe route="library" />
+    </MapRepositoryProvider>,
+  );
+  expect(seen.at(-1)).toBe(alice);
+  seen.length = 0;
+  document.cookie = 'mindsprout_session_binding=Qm9i; Path=/';
+  server.authenticateAs('Bob');
+  view.rerender(
+    <MapRepositoryProvider>
+      <Probe route="bob" />
+    </MapRepositoryProvider>,
+  );
+  const first = seen[0];
+  await act(() => openSessionRepository());
+  expect(first).toEqual({ status: 'opening' });
+  expect(seen).not.toContain(alice);
+  expect(seen.at(-1)).toMatchObject({ status: 'ready' });
+  expect(screen.getByText('bob:ready')).toBeTruthy();
 });

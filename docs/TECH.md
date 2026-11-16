@@ -22,18 +22,18 @@ Postgres 16（RLS：app.user_id）
 
 ## 2. 技术选型
 
-| 层     | 选型                                                                                      | 理由                                                     |
-| ------ | ----------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| 框架   | Next.js 16 (App Router) + TypeScript                                                      | 全栈一体，Vercel 零配置部署，SSE 流式支持好              |
-| 画布   | React Flow (@xyflow/react) + d3-hierarchy                                                 | 节点是 React 组件，交互全自定义；d3 做树形布局           |
-| 状态   | Zustand；undo/redo 用 reducer 返回的逆操作栈（决策 0004 的 change `m1-canvas` design D3） | 一条 TreeOp 一步撤销，AI 会话可分组，不存整树快照        |
-| 样式   | Tailwind CSS + shadcn/ui                                                                  | 快速出 UI，组件可控                                      |
-| 数据库 | Postgres 16 + `postgres`（postgres.js）+ 编号 SQL 迁移                                    | 任意 Postgres 可用，RLS 做行级隔离；表少，不引入 ORM     |
-| 认证   | 自建：用户名 + 密码（scrypt，`node:crypto`）+ 服务端会话（httpOnly cookie）               | 零新依赖，本地/CI 原生 Postgres 即可跑通（决策 0023）    |
-| AI     | Vercel AI SDK (`ai`) 做提供方抽象；Claude 走 `@anthropic-ai/sdk` 直连以用全特性           | 一套接口接 Claude、OpenAI、任意 OpenAI 兼容端点和 Ollama |
-| 导出   | html-to-image (PNG/SVG)，自写 Markdown/OPML 序列化                                        | 树到文本是纯函数，容易测                                 |
-| 部署   | Vercel + 托管 Postgres（M2 只做本地验收，不含部署）                                       | 零运维                                                   |
-| 测试   | Vitest (单元) + Playwright (端到端)                                                       | 树操作和序列化用单元测试覆盖                             |
+| 层     | 选型                                                                                         | 理由                                                       |
+| ------ | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| 框架   | Next.js 16 (App Router) + TypeScript                                                         | 全栈一体，Vercel 零配置部署，SSE 流式支持好                |
+| 画布   | React Flow (@xyflow/react) + d3-hierarchy                                                    | 节点是 React 组件，交互全自定义；d3 做树形布局             |
+| 状态   | Zustand；undo/redo 用 reducer 返回的逆操作栈（决策 0004 的 change `m1-canvas` design D3）    | 一条 TreeOp 一步撤销，AI 会话可分组，不存整树快照          |
+| 样式   | Tailwind CSS + shadcn/ui                                                                     | 快速出 UI，组件可控                                        |
+| 数据库 | Postgres 16 + `postgres`（postgres.js）+ 编号 SQL 迁移                                       | 任意 Postgres 可用，RLS 做行级隔离；表少，不引入 ORM       |
+| 认证   | 自建：用户名 + 密码（scrypt，`node:crypto`）+ 服务端会话（HttpOnly cookie）+ Session binding | 零新依赖；延迟写按账号绑定并 fail-closed（决策 0023/0028） |
+| AI     | Vercel AI SDK (`ai`) 做提供方抽象；Claude 走 `@anthropic-ai/sdk` 直连以用全特性              | 一套接口接 Claude、OpenAI、任意 OpenAI 兼容端点和 Ollama   |
+| 导出   | html-to-image (PNG/SVG)，自写 Markdown/OPML 序列化                                           | 树到文本是纯函数，容易测                                   |
+| 部署   | Vercel + 托管 Postgres（M2 只做本地验收，不含部署）                                          | 零运维                                                     |
+| 测试   | Vitest (单元) + Playwright (端到端)                                                          | 树操作和序列化用单元测试覆盖                               |
 
 ## 3. 数据模型
 
@@ -87,6 +87,8 @@ Registration and sign-in accept exact strings: username 1–64 and password 1–
 `SessionRepository.createIfPasswordHashMatches` atomically checks the registered or verified password hash and inserts the session, serialized with password replacement and session deletion. A changed hash or absent user returns `false` without insertion; credentials remain separate from `Session`. Reset either invalidates an issued session or prevents stale issuance. Refused sign-in issuance yields `invalid-credentials`; refused initial registration issuance throws an internal, non-`AccountError` failure without an authenticated result. The account retains its replacement credential, with no cross-port rollback.
 
 Sessions expire exactly 30 days after the injected clock instant. Resolution requires expiry strictly after the supplied instant, does not extend it and does not purge expired rows. Sign-out deletes only the supplied session and accepts missing or unknown tokens. Unexpected port failures propagate; a failed session write does not roll back an account already registered.
+
+Login and registration set the HttpOnly `mindsprout_session` credential and the non-HttpOnly `mindsprout_session_binding`, an opaque base64url UTF-8 encoding of the exact username, with matching 30-day Path=/, SameSite=Lax and production-Secure scope. Successful logout clears both; failed authentication sets neither. The provider caches by binding and checks it on navigation, resetting to opening before children can use another account's adapter. Each adapter captures its binding and sends `x-mindsprout-session-binding` on all map requests. After resolving the session, `requireUser` rejects a present mismatching header with 401 `unauthenticated` before map or admin access; an absent header preserves direct-API behavior. Same-account re-login keeps the binding and pending-save recovery; cross-account queued writes fail closed. The binding is not a session token or secret and is never logged ([decision 0028](../decisions/implemented/bug-fix/0028-bind-queued-map-writes-to-account.md)).
 
 `application/admin.ts` exports `listUsers(actor, { users })` and `resetPassword(actor, userId, { users, hasher, tokens })`. Both reject non-admin actors with `forbidden` before any port operation. Listing returns public users in repository-owned oldest-first order. Reset hashes one 16-character base64url temporary password from `TokenSource` and calls `replacePasswordAndEndSessions` once, without a preliminary lookup. Its `false` result yields `not-found` without credential or session changes. Success returns only the temporary password, never stores or logs it in readable form, and revokes only the target's sessions. Self-reset is allowed and signs the admin out; peer sessions and credentials remain valid.
 

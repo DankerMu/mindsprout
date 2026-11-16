@@ -54,7 +54,7 @@ Each stored map SHALL be held, and transferred between browser and server, as `{
 
 ### Requirement: Same-session persistence operations retain invocation order
 
-Within one browser document session, the HTTP map repository SHALL preserve mutation invocation order and SHALL NOT let a later read bypass an earlier pending mutation. An idle `put` SHALL invoke fetch synchronously. When an earlier operation is pending, later operations SHALL wait for it to settle; a rejected operation SHALL NOT prevent later queued operations from running. Cross-device editing remains last-write-wins, and unload delivery remains best-effort.
+Within one browser document session, the HTTP map repository SHALL preserve mutation invocation order and SHALL NOT let a later read bypass an earlier pending mutation. An idle `put` SHALL invoke fetch synchronously. When an earlier operation is pending, later operations SHALL wait for it to settle; a rejected operation SHALL NOT prevent later queued operations from running. Every deferred operation SHALL retain its adapter's Session binding and follow account-auth "Deferred map operations remain bound to the invoking account"; queue release SHALL NOT bypass that account check. Cross-device editing remains last-write-wins, and unload delivery remains best-effort.
 
 #### Scenario: An older save cannot overwrite a newer edit or rename
 

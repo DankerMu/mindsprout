@@ -4,6 +4,7 @@ import { mapOf, node } from '../../../../../tests/support/map-domain';
 import { MapFetch } from '../../../../../tests/support/map-fetch';
 import { heldResult } from '../../../../../tests/support/map-library';
 import { describeMapRepositoryContract } from '../../../../../tests/support/map-repository-contract';
+import { StorageUnauthorizedError } from '../../domain/errors';
 import { HttpMapRepository } from './http-map-repository';
 
 describeMapRepositoryContract('HTTP', () => new HttpMapRepository(new MapFetch().fetch));
@@ -256,5 +257,54 @@ describe('HTTP session ordering', () => {
     expect(error).toHaveProperty('message', `PUT /api/maps/${older.id} request failed`);
     expect(error).toHaveProperty('cause', cause);
     expect(await repository.get(older.id)).toStrictEqual(newer);
+  });
+});
+
+describe('HTTP account binding', () => {
+  it('rejects Alice queued content after Bob authenticates and lets Bob save', async () => {
+    const server = new MapFetch();
+    server.authenticateAs('Alice');
+    const alice = new HttpMapRepository(server.fetch, 'QWxpY2U');
+    const older = { ...mapOf(node('r')), title: 'Alice private predecessor' };
+    const sensitive = { ...older, title: 'Alice sensitive queued content' };
+    const held = heldResult<undefined>();
+    server.beforeNextMutation(() => held.promise);
+    const first = alice.put(older).catch((error: unknown) => error);
+    const queued = alice.put(sensitive).catch((error: unknown) => error);
+    try {
+      await drainMacrotask();
+      expect(server.requests).toHaveLength(1);
+      server.authenticateAs('Bob');
+    } finally {
+      held.resolve(undefined);
+    }
+    const results = await Promise.all([first, queued]);
+    const bob = new HttpMapRepository(server.fetch, 'Qm9i');
+    expect.soft(await bob.get(older.id)).toBeUndefined();
+    for (const result of results) expect.soft(result).toBeInstanceOf(StorageUnauthorizedError);
+    const own = { ...older, title: 'Bob own map' };
+    await bob.put(own);
+    expect(await bob.get(own.id)).toStrictEqual(own);
+  });
+
+  it('keeps same-account reauthentication and binds every operation', async () => {
+    const server = new MapFetch();
+    const repository = new HttpMapRepository(server.fetch, 'QWxpY2U');
+    const map = mapOf(node('r'));
+    const held = heldResult<undefined>();
+    server.beforeNextMutation(() => held.promise);
+    const saving = repository.put(map);
+    try {
+      server.authenticateAs('Alice');
+    } finally {
+      held.resolve(undefined);
+    }
+    await saving;
+    expect(await repository.get(map.id)).toStrictEqual(map);
+    expect(await repository.list()).toHaveLength(1);
+    await repository.delete(map.id);
+    for (const { init } of server.requests) {
+      expect(new Headers(init?.headers).get('x-mindsprout-session-binding')).toBe('QWxpY2U');
+    }
   });
 });

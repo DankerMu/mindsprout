@@ -33,6 +33,7 @@ Canonical terms and their prohibited aliases live in `openspec/glossary.md`. Rea
 - API keys (platform or user-supplied) exist in plaintext only in server memory for the duration of one request; never in the client bundle, logs, or database.
 - Map reads and writes go through Postgres RLS as the signed-in user (`app.user_id` set inside each transaction); the application never accesses user data as a table owner or a `BYPASSRLS` role (decision 0023).
 - Every page and API route requires a signed-in session, except the sign-in and registration pages, `/api/auth/*` and `/api/healthz`; each route handler verifies the session itself, the proxy only redirects.
+- First-party deferred map operations carry a Session binding captured from the invoking account; the server rejects a present binding that differs from the authenticated exact username before map access. Same-account re-login preserves the binding, while cross-account queued writes fail closed (decision 0028).
 - Each user's AI usage is accounted per day; a request over quota is refused with 429 before any provider call.
 - Exports are pure: the same MindMap snapshot yields byte-identical Markdown/OPML output.
 

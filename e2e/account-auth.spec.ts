@@ -1,7 +1,8 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Response as BrowserResponse } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { createMindMap } from '../src/contexts/map/domain/create-mind-map';
-import { envelopeOf, seedRecords } from './support/seed';
+import { envelopeOf, readRecord, seedRecords } from './support/seed';
+import { collectExpectedResponses } from './support/expected-responses';
 
 test('account-auth: Register and land signed in', async ({ page }) => {
   const username = `alice-${randomUUID()}`;
@@ -171,3 +172,138 @@ test('account-auth: Native login Enter with hydration scripts blocked', async ({
   await page.route('**/*.js', (route) => route.abort());
   await submitNatively(page, 'login', 'Enter');
 });
+
+// ES2022 lacks Promise.withResolvers; each gate is released by the scenario's finally.
+function gate() {
+  let release: () => void = () => undefined;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+async function holdNextPut(page: Page, path: string) {
+  const held = gate();
+  const arrived = gate();
+  let writes = 0;
+  await page.route(`**${path}`, async (route) => {
+    if (route.request().method() === 'PUT' && ++writes === 1) {
+      arrived.release();
+      await held.promise;
+    }
+    await route.continue();
+  });
+  return { release: held.release, arrived: arrived.promise, writes: () => writes };
+}
+
+async function login(page: Page, username: string) {
+  await page.getByLabel('用户名').fill(username);
+  await page.getByLabel('密码').fill('pw');
+  await page.getByRole('button', { name: '登录', exact: true }).click();
+  await expect(page.getByTestId('session-username')).toHaveText(username);
+}
+
+for (const transition of ['same-document', 'new-tab'] as const) {
+  test(`account-auth: Queued Alice saves cannot enter Bob store after ${transition} login`, async ({
+    page,
+    request,
+  }) => {
+    const alice = `alice-${randomUUID()}`;
+    const bob = `bob-${randomUUID()}`;
+    expect(
+      (
+        await request.post('/api/auth/register', { data: { username: bob, password: 'pw' } })
+      ).status(),
+    ).toBe(201);
+    expect(
+      (
+        await page.request.post('/api/auth/register', { data: { username: alice, password: 'pw' } })
+      ).status(),
+    ).toBe(201);
+    const map = createMindMap({
+      id: 'alice-private',
+      rootId: 'r',
+      title: 'Alice private',
+      rootText: 'Seed',
+    });
+    const path = `/api/maps/${map.id}`;
+    const expected = collectExpectedResponses(page, [{ url: path, status: 401 }]);
+    const responses: BrowserResponse[] = [];
+    page.on('response', (response) => {
+      if (new URL(response.url()).pathname === path && response.request().method() === 'PUT') {
+        responses.push(response);
+      }
+    });
+    await seedRecords(page, [envelopeOf(map)]);
+    let held = await holdNextPut(page, path);
+    let loginPage = page;
+    let loginNoise: (() => Promise<string[]>) | undefined;
+    try {
+      await page.goto(`/maps/${map.id}`);
+      await expect(page.getByTestId('map-editor-ready')).toBeVisible();
+      const document = await page.evaluateHandle(() => window.document);
+      const edit = async (text: string) => {
+        await page.locator('.react-flow__node[data-id="r"]').dblclick();
+        const input = page.getByRole('textbox', { name: '节点标题' });
+        await input.fill(text);
+        await input.press('Enter');
+        await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+      };
+      if (transition === 'new-tab') {
+        await edit('Alice before same-account re-login');
+        await held.arrived;
+        await edit('Alice newest recovered edit');
+        expect(held.writes()).toBe(1);
+        loginPage = await page.context().newPage();
+        const collector = collectExpectedResponses(loginPage, []);
+        loginNoise = () => collector.noise();
+        await loginPage.goto('/login');
+        await login(loginPage, alice);
+        held.release();
+        await expect.poll(() => responses.length).toBe(2);
+        for (const response of responses) await response.finished();
+        expect(responses.map((response) => response.status())).toEqual([204, 204]);
+        expect(await readRecord(page, map.id)).toMatchObject({
+          map: { roots: [{ id: 'r', text: 'Alice newest recovered edit' }] },
+        });
+        expect(await document.evaluate((original) => original === window.document)).toBe(true);
+        responses.length = 0;
+        held = await holdNextPut(page, path);
+      }
+      await edit('Alice first private edit');
+      await held.arrived;
+      await edit('Alice newer sensitive edit');
+      expect(held.writes()).toBe(1);
+      if (transition === 'same-document') {
+        await page.getByRole('button', { name: '退出登录' }).click();
+        await expect(page).toHaveURL('/login');
+      } else {
+        await loginPage.goto('/login');
+      }
+      await login(loginPage, bob);
+      expect(await document.evaluate((original) => original === window.document)).toBe(true);
+      held.release();
+      await expect.poll(() => responses.length).toBe(2);
+      for (const response of responses) await response.finished();
+      expect.soft(await readRecord(loginPage, map.id)).toBeUndefined();
+      expect(responses.map((response) => response.status())).toEqual([401, 401]);
+      const list = await loginPage.request.get('/api/maps');
+      expect(await list.json()).toEqual([]);
+      await expect(loginPage.getByTestId('app-ready')).toBeVisible();
+      await loginPage.getByRole('button', { name: '新建导图' }).click();
+      await expect(loginPage.getByTestId('map-editor-ready')).toBeVisible();
+      const ownId = new URL(loginPage.url()).pathname.split('/').at(-1);
+      if (!ownId) throw new Error('Bob editor has no map id');
+      expect(await readRecord(loginPage, ownId)).toBeDefined();
+      await loginPage.reload();
+      await expect(loginPage.getByTestId('map-editor-ready')).toBeVisible();
+      await loginPage.screenshot({ path: `.run/ui-evidence/account-binding-${transition}.png` });
+      expect(await expected.noise()).toEqual([]);
+      if (loginNoise) expect(await loginNoise()).toEqual([]);
+    } finally {
+      held.release();
+      await page.unrouteAll({ behavior: 'wait' });
+      if (loginPage !== page) await loginPage.close();
+    }
+  });
+}

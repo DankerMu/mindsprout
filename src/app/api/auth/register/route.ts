@@ -17,7 +17,7 @@ export async function POST(request: Request): Promise<Response> {
       { username: user.username, isAdmin: user.isAdmin },
       { status: 201 },
     );
-    setSessionCookie(response, token);
+    setSessionCookie(response, token, user.username);
     return response;
   } catch (error) {
     if (error instanceof AccountError) {

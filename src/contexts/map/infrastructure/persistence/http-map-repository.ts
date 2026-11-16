@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SESSION_BINDING_HEADER } from '@/shared/session-binding';
 import { StorageUnauthorizedError, UnsupportedSchemaVersionError } from '../../domain/errors';
 import { parseMindMap } from '../../domain/parse-mind-map';
 import type { MapRepository, MapSummary } from '../../domain/map-repository';
@@ -41,7 +42,10 @@ async function readJson(response: Response, operation: string): Promise<unknown>
 export class HttpMapRepository implements MapRepository {
   #tail: Promise<void> | undefined;
 
-  constructor(private readonly fetchMap: typeof fetch = globalThis.fetch.bind(globalThis)) {}
+  constructor(
+    private readonly fetchMap: typeof fetch = globalThis.fetch.bind(globalThis),
+    private readonly binding?: string,
+  ) {}
 
   async list(): Promise<MapSummary[]> {
     const operation = 'GET /api/maps';
@@ -97,6 +101,11 @@ export class HttpMapRepository implements MapRepository {
   }
 
   private request(path: string, init: RequestInit): Promise<Response> {
+    if (this.binding !== undefined) {
+      const headers = new Headers(init.headers);
+      headers.set(SESSION_BINDING_HEADER, this.binding);
+      init.headers = headers;
+    }
     const response =
       this.#tail === undefined
         ? this.fetchResponse(path, init)

@@ -84,9 +84,10 @@ describe('POST /api/auth/register', () => {
     expect(registerAccount).toHaveBeenCalledExactlyOnceWith(credentials);
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({ username: ' Alice ', isAdmin });
-    expect(response.headers.get('set-cookie')).toBe(
+    expect(response.headers.getSetCookie()).toEqual([
       `mindsprout_session=${token}; Path=/; Expires=Mon, 14 Dec 2026 00:00:00 GMT; Max-Age=2592000;${environment === 'production' ? ' Secure;' : ''} HttpOnly; SameSite=lax`,
-    );
+      `mindsprout_session_binding=IEFsaWNlIA; Path=/; Expires=Mon, 14 Dec 2026 00:00:00 GMT; Max-Age=2592000;${environment === 'production' ? ' Secure;' : ''} SameSite=lax`,
+    ]);
     expect(errorLog).not.toHaveBeenCalled();
   });
 
