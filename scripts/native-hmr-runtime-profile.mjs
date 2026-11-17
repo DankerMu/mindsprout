@@ -125,8 +125,8 @@ export function createRuntimeProfile(
     if (enabled) await Promise.all([...profilers].map((profiler) => profiler.suspend()));
   }
 
-  async function resume() {
-    if (enabled) await Promise.all([...profilers].map((profiler) => profiler.resume()));
+  async function resume(collect = true) {
+    if (enabled) await Promise.all([...profilers].map((profiler) => profiler.resume(collect)));
   }
 
   async function closeBrowser(browser, browserServer, errors) {

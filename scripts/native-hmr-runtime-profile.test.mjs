@@ -172,13 +172,14 @@ for (const mode of ['default', 'profile']) {
   }
 }
 
-test('runtime publishes a suspended browser terminal state without replacing its completed interval', async (t) => {
+async function attachedRuntime(t) {
   const repo = temporary(t);
   const output = path.join(repo, 'output');
   fs.mkdirSync(output);
   const context = { generation: 0, trial: 0 };
+  const started = performance.now();
   const profiling = createRuntimeProfile(
-    { profile: true, repo, out: output, mode: 'restored-lifecycle', started: performance.now() },
+    { profile: true, repo, out: output, mode: 'restored-lifecycle', started },
     () => context,
   );
   assert.equal(
@@ -209,6 +210,12 @@ test('runtime publishes a suspended browser terminal state without replacing its
     },
   };
   await profiling.attach(page, cdp, 'retained-editor', browser);
+  return { profiling, context, started, output, commands, closed, browser, browserServer };
+}
+
+test('runtime publishes a suspended browser terminal state without replacing its completed interval', async (t) => {
+  const { profiling, context, output, commands, closed, browser, browserServer } =
+    await attachedRuntime(t);
   context.trial = 1;
   await profiling.suspend();
   const errors = [];
@@ -252,6 +259,63 @@ test('runtime publishes a suspended browser terminal state without replacing its
   assert.equal(summary.intervals[1].cpu.status, 'partial');
   assert.equal(summary.intervals[1].cpu.samples, undefined);
   assert.equal(summary.intervals[1].cpu.buckets, undefined);
+  assert.deepEqual(commands, ['Profiler.enable', 'Profiler.start', 'Profiler.stop']);
+  assert.deepEqual(closed, ['browser', 'browser-server']);
+  assert.deepEqual(errors, []);
+  noSecrets(summary);
+});
+
+test('runtime records cleanup-only resume after suspended disconnect without restarting collection', async (t) => {
+  const { profiling, context, started, output, commands, closed, browser, browserServer } =
+    await attachedRuntime(t);
+  context.trial = 1;
+  const suspendBefore = performance.now() - started;
+  await profiling.suspend();
+  const suspendAfter = performance.now() - started;
+  browser.emit('disconnected', new Error(secret));
+  const resumeBefore = performance.now() - started;
+  await profiling.resume(false);
+  const resumeAfter = performance.now() - started;
+  const errors = [];
+  await profiling.closeBrowser(browser, browserServer, errors);
+  await profiling.collectServer(4321, [4321]);
+  await profiling.finish(true);
+  const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+  assert.equal(summary.status, 'partial');
+  assert.deepEqual(summary.codes, ['cdp-disconnected']);
+  assert.equal(summary.generations[0].status, 'complete');
+  assert.deepEqual(
+    summary.intervals.map(({ generation, trial, page, status, codes }) => ({
+      generation,
+      trial,
+      page,
+      status,
+      codes,
+    })),
+    [
+      { generation: 0, trial: 0, page: 'retained-editor', status: 'complete', codes: [] },
+      {
+        generation: 0,
+        trial: 1,
+        page: 'retained-editor',
+        status: 'partial',
+        codes: ['cdp-disconnected'],
+      },
+    ],
+  );
+  assert.equal(summary.intervals[0].cpu.samples, 4);
+  const terminal = summary.intervals[1];
+  assert.equal(terminal.cpu.status, 'partial');
+  assert.equal(terminal.cpu.samples, undefined);
+  assert.equal(terminal.cpu.buckets, undefined);
+  assert.ok(terminal.gap, 'Cleanup-only resume must close the suspended collection gap');
+  assert.equal(terminal.gap.reason, 'browser-suspended');
+  assert.ok(Number.isFinite(terminal.gap.fromElapsedMs));
+  assert.ok(Number.isFinite(terminal.gap.toElapsedMs));
+  assert.ok(terminal.gap.fromElapsedMs >= suspendBefore);
+  assert.ok(terminal.gap.fromElapsedMs <= suspendAfter);
+  assert.ok(terminal.gap.toElapsedMs >= resumeBefore);
+  assert.ok(terminal.gap.toElapsedMs <= resumeAfter);
   assert.deepEqual(commands, ['Profiler.enable', 'Profiler.start', 'Profiler.stop']);
   assert.deepEqual(closed, ['browser', 'browser-server']);
   assert.deepEqual(errors, []);

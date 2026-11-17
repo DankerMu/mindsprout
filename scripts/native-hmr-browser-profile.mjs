@@ -48,7 +48,8 @@ export function createBrowserProfiler({
     pauseAt,
     pendingGap,
     pauseStart,
-    pendingTerminal;
+    pendingTerminal,
+    terminalPause;
   const intervals = [],
     gaps = [],
     problems = new Set();
@@ -85,6 +86,7 @@ export function createBrowserProfiler({
       active = undefined;
     } else if (code !== 'browser-interval-limit') {
       pendingTerminal = terminalInterval(context, code, suspended ? pauseStart : bracket(clock()));
+      terminalPause = suspended ? pauseStart : undefined;
     }
   }
   async function command(method) {
@@ -154,8 +156,25 @@ export function createBrowserProfiler({
     pauseAt = pauseStart.elapsedMs;
     state = 'suspended';
   }
-  async function resume() {
-    if (!enabled || state !== 'suspended') return;
+  function resumeForCleanup() {
+    if (state === 'suspended') abandon('browser-suspended');
+    if (!pendingTerminal || !terminalPause || pendingTerminal.gap) return;
+    const gap = {
+      fromElapsedMs: terminalPause.elapsedMs,
+      toElapsedMs: bracket(clock()).elapsedMs,
+      reason: 'browser-suspended',
+    };
+    pendingTerminal.gap = gap;
+    gaps.push(gap);
+    terminalPause = undefined;
+  }
+  async function resume(collect = true) {
+    if (!enabled) return;
+    if (!collect) {
+      resumeForCleanup();
+      return;
+    }
+    if (state !== 'suspended') return;
     pendingGap = {
       fromElapsedMs: pauseAt,
       toElapsedMs: bracket(clock()).elapsedMs,
@@ -181,6 +200,7 @@ export function createBrowserProfiler({
     if (!pendingTerminal) return;
     const terminal = pendingTerminal;
     pendingTerminal = undefined;
+    terminalPause = undefined;
     if (!reserve()) {
       problems.add('browser-interval-limit');
       return;
