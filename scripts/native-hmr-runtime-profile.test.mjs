@@ -17,6 +17,7 @@ import {
   generationFiles,
   noSecrets,
   secret,
+  span,
   temporary,
 } from './native-hmr-profile-fixtures.mjs';
 import { createRuntimeProfile } from './native-hmr-runtime-profile.mjs';
@@ -172,7 +173,7 @@ for (const mode of ['default', 'profile']) {
   }
 }
 
-async function attachedRuntime(t) {
+function preparedRuntime(t) {
   const repo = temporary(t);
   const output = path.join(repo, 'output');
   fs.mkdirSync(output);
@@ -189,6 +190,11 @@ async function attachedRuntime(t) {
     ),
     true,
   );
+  return { repo, output, context, started, profiling };
+}
+
+async function attachedRuntime(t) {
+  const { repo, output, context, started, profiling } = preparedRuntime(t);
   profiling.beginServer();
   generationFiles(repo);
   const commands = [];
@@ -431,20 +437,7 @@ test('runtime retains terminal causes when two pages exhaust the global eight-in
 });
 
 test('runtime refuses pre-start profile ownership replacement and preserves the symlink target', async (t) => {
-  const repo = temporary(t);
-  const output = path.join(repo, 'output');
-  fs.mkdirSync(output);
-  const profiling = createRuntimeProfile(
-    { profile: true, repo, out: output, mode: 'restored-lifecycle', started: performance.now() },
-    () => ({ generation: 0, trial: 0 }),
-  );
-  assert.equal(
-    profiling.prepare(
-      { target: 'aarch64-apple-darwin', binarySha256: digest },
-      { status: 'setup' },
-    ),
-    true,
-  );
+  const { repo, output, profiling } = preparedRuntime(t);
   const directory = path.join(repo, '.next-profiles');
   const preserved = path.join(repo, 'preserved-profiles');
   const original = fs.lstatSync(directory);
@@ -490,4 +483,121 @@ test('disabled runtime pre-start and finalization create no profiling artifacts'
   assert.deepEqual(result, { status: 'setup' });
   assert.deepEqual(fs.readdirSync(repo), ['output']);
   assert.deepEqual(fs.readdirSync(output), []);
+});
+
+test('runtime refuses a replaced real profile directory after preserving a valid prior generation', async (t) => {
+  const { repo, output, context, profiling } = preparedRuntime(t);
+  profiling.beginServer();
+  generationFiles(repo);
+  await profiling.collectServer(4321, [4321, 4322]);
+  context.generation = 1;
+  context.trial = 1;
+  const directory = path.join(repo, '.next-profiles');
+  const preserved = path.join(repo, 'preserved-profiles');
+  const original = fs.lstatSync(directory);
+  fs.renameSync(directory, preserved);
+  fs.mkdirSync(directory);
+  fs.writeFileSync(path.join(directory, 'sentinel'), secret);
+  const replacement = fs.lstatSync(directory);
+
+  assert.throws(() => profiling.beginServer(), { code: 'profile-ownership-changed' });
+  await profiling.finish(true);
+
+  const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+  assert.equal(summary.status, 'partial');
+  assert.ok(summary.codes.includes('profile-ownership-changed'));
+  assert.equal(summary.generations.length, 1);
+  const prior = summary.generations[0];
+  assert.equal(prior.generation, 0);
+  assert.equal(prior.trial, 0);
+  assert.equal(prior.status, 'complete');
+  assert.deepEqual(
+    prior.cpu.map(({ role, status, samples }) => ({ role, status, samples })),
+    [
+      { role: 'dev-main', status: 'complete', samples: 4 },
+      { role: 'dev-server', status: 'complete', samples: 4 },
+    ],
+  );
+  assert.deepEqual(fs.readdirSync(directory), ['sentinel']);
+  assert.equal(fs.readFileSync(path.join(directory, 'sentinel'), 'utf8'), secret);
+  const remaining = fs.lstatSync(directory);
+  assert.equal(remaining.dev, replacement.dev);
+  assert.equal(remaining.ino, replacement.ino);
+  const owned = fs.lstatSync(preserved);
+  assert.equal(owned.dev, original.dev);
+  assert.equal(owned.ino, original.ino);
+  assert.deepEqual(fs.readdirSync(preserved), []);
+  noSecrets(summary);
+});
+
+for (const existing of [true, false]) {
+  test(`runtime refuses a pre-start trace symlink with ${existing ? 'an existing' : 'a missing'} target`, async (t) => {
+    const { repo, output, profiling } = preparedRuntime(t);
+    const trace = path.join(repo, '.next/dev/trace');
+    fs.mkdirSync(path.dirname(trace), { recursive: true });
+    const target = path.join(repo, 'trace-target');
+    if (existing) fs.writeFileSync(target, secret);
+    fs.symlinkSync(target, trace);
+    const original = fs.lstatSync(trace);
+
+    assert.throws(() => profiling.beginServer(), { code: 'unsafe-file' });
+    await profiling.finish(true);
+
+    const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+    assert.equal(summary.status, 'partial');
+    assert.ok(summary.codes.includes('unsafe-file'));
+    assert.deepEqual(summary.generations, []);
+    const remaining = fs.lstatSync(trace);
+    assert.equal(remaining.isSymbolicLink(), true);
+    assert.equal(remaining.dev, original.dev);
+    assert.equal(remaining.ino, original.ino);
+    assert.equal(fs.readlinkSync(trace), target);
+    if (existing) assert.equal(fs.readFileSync(target, 'utf8'), secret);
+    else assert.equal(fs.existsSync(target), false);
+    assert.equal(fs.existsSync(path.join(output, 'profile-private/prestart-0.trace')), false);
+    noSecrets(summary);
+  });
+}
+
+test('runtime reports a fixed refusal when isolating a regular pre-start trace fails', async (t) => {
+  const { repo, output, profiling } = preparedRuntime(t);
+  const trace = path.join(repo, '.next/dev/trace');
+  const destination = path.join(output, 'profile-private/prestart-0.trace');
+  fs.mkdirSync(path.dirname(trace), { recursive: true });
+  const bytes = JSON.stringify([span()]);
+  fs.writeFileSync(trace, bytes);
+  const original = fs.lstatSync(trace);
+  const renameSync = fs.renameSync;
+  let refused = false;
+  t.mock.method(fs, 'renameSync', (source, target) => {
+    if (source === trace && target === destination) {
+      refused = true;
+      throw new Error(secret);
+    }
+    return renameSync(source, target);
+  });
+
+  assert.throws(
+    () => profiling.beginServer(),
+    (error) => {
+      assert.equal(error.code, 'trace-isolation-failed');
+      assert.equal(error.message, 'Profile pre-start refused');
+      noSecrets({ code: error.code, message: error.message });
+      return true;
+    },
+  );
+  assert.equal(refused, true);
+  await profiling.finish(true);
+
+  const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+  assert.equal(summary.status, 'partial');
+  assert.ok(summary.codes.includes('trace-isolation-failed'));
+  assert.deepEqual(summary.generations, []);
+  assert.equal(fs.readFileSync(trace, 'utf8'), bytes);
+  const remaining = fs.lstatSync(trace);
+  assert.equal(remaining.isFile(), true);
+  assert.equal(remaining.dev, original.dev);
+  assert.equal(remaining.ino, original.ino);
+  assert.equal(fs.existsSync(destination), false);
+  noSecrets(summary);
 });
