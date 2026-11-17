@@ -373,6 +373,7 @@ function profileSummary(state) {
     status:
       problems.size ||
       !generations.length ||
+      !intervals.length ||
       generations.some((item) => item.status !== 'complete') ||
       intervals.some((item) => item.status !== 'complete')
         ? 'partial'
@@ -389,6 +390,7 @@ function profileSummary(state) {
     ],
   };
   if (!generations.length) summary.codes.push('missing-profile');
+  if (!intervals.length) summary.codes.push('missing-browser-profile');
   return summary;
 }
 
