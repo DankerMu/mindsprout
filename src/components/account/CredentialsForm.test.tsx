@@ -1,5 +1,6 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
+import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { heldResult } from '../../../tests/support/map-library';
@@ -8,7 +9,11 @@ import { CredentialsForm } from './CredentialsForm';
 failOnConsoleNoise();
 afterEach(() => vi.unstubAllGlobals());
 
-function setup(mode: 'login' | 'register', next: string | null = null) {
+function setup(
+  mode: 'login' | 'register',
+  next: string | null = null,
+  earlyInput?: { label: string; value: string },
+) {
   const router = {
     push: vi.fn(),
     replace: vi.fn(),
@@ -20,11 +25,23 @@ function setup(mode: 'login' | 'register', next: string | null = null) {
   };
   const fetch = vi.fn<typeof globalThis.fetch>();
   vi.stubGlobal('fetch', fetch);
-  render(
+  const form = (
     <AppRouterContext value={router}>
       <CredentialsForm mode={mode} next={next} />
-    </AppRouterContext>,
+    </AppRouterContext>
   );
+  if (earlyInput) {
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(form);
+    document.body.append(container);
+    within(container).getByLabelText<HTMLInputElement>(earlyInput.label).value = earlyInput.value;
+    render(form, { container, hydrate: true });
+    expect(within(container).getByLabelText<HTMLInputElement>(earlyInput.label).value).toBe(
+      earlyInput.value,
+    );
+  } else {
+    render(form);
+  }
   expect(fetch).not.toHaveBeenCalled();
   const button = screen.getByRole<HTMLButtonElement>('button', {
     name: mode === 'login' ? '登录' : '注册',
@@ -39,6 +56,71 @@ function submit(username = 'alice', password = 'pw') {
 }
 
 describe.each(['login', 'register'] as const)('account-auth: %s', (mode) => {
+  it.each([
+    ['用户名', ' Alice ', '密码', ' pw '],
+    ['密码', ' pw ', '用户名', ' Alice '],
+  ])(
+    'retains pre-hydration %s when the other credential changes and submits exact values',
+    async (earlyLabel, earlyValue, laterLabel, laterValue) => {
+      const { fetch, router, button } = setup(mode, '/maps/abc?x=1', {
+        label: earlyLabel,
+        value: earlyValue,
+      });
+      const response = heldResult<Response>();
+      fetch.mockReturnValueOnce(response.promise);
+      fireEvent.change(screen.getByLabelText(laterLabel), { target: { value: laterValue } });
+      expect(screen.getByLabelText<HTMLInputElement>(earlyLabel).value).toBe(earlyValue);
+      fireEvent.click(button);
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(`/api/auth/${mode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{"username":" Alice ","password":" pw "}',
+      });
+      expect(screen.getByLabelText<HTMLInputElement>('用户名').value).toBe(' Alice ');
+      expect(screen.getByLabelText<HTMLInputElement>('密码').value).toBe(' pw ');
+      await act(() => {
+        response.resolve(new Response(null, { status: mode === 'login' ? 200 : 201 }));
+        return response.promise;
+      });
+      expect(router.push).toHaveBeenCalledExactlyOnceWith('/maps/abc?x=1');
+    },
+  );
+
+  it('retains pre-hydration credentials after refusal and resubmits without editing', async () => {
+    const { fetch, router, button } = setup(mode, null, { label: '密码', value: ' pw ' });
+    fetch.mockResolvedValueOnce(new Response(null, { status: 400 }));
+    fireEvent.change(screen.getByLabelText('用户名'), { target: { value: ' Alice ' } });
+    fireEvent.click(button);
+    expect((await screen.findByRole('alert')).textContent).toBe('请输入用户名和密码');
+    expect(screen.getByLabelText<HTMLInputElement>('用户名').value).toBe(' Alice ');
+    expect(screen.getByLabelText<HTMLInputElement>('密码').value).toBe(' pw ');
+    expect(router.push).not.toHaveBeenCalled();
+    expect(button.disabled).toBe(false);
+    fetch.mockResolvedValueOnce(new Response(null, { status: mode === 'login' ? 200 : 201 }));
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(router.push).toHaveBeenCalledExactlyOnceWith('/');
+    });
+    expect(fetch.mock.calls).toEqual([
+      [
+        `/api/auth/${mode}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{"username":" Alice ","password":" pw "}',
+        },
+      ],
+      [
+        `/api/auth/${mode}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{"username":" Alice ","password":" pw "}',
+        },
+      ],
+    ]);
+  });
+
   it.each([
     ['Taken username', 409, '用户名已被占用'],
     ['Wrong password or unknown user', 401, '用户名或密码错误'],
