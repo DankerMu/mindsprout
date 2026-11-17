@@ -86,12 +86,19 @@ describe.each(['login', 'register'] as const)('account-auth: %s', (mode) => {
     },
   );
 
-  it('retains pre-hydration credentials after refusal and resubmits without editing', async () => {
+  it.each([
+    ['refusal', '请输入用户名和密码'],
+    ['network failure', '请求失败，请重试'],
+  ])('resubmits pre-hydration credentials unchanged after %s', async (failure, message) => {
     const { fetch, router, button } = setup(mode, null, { label: '密码', value: ' pw ' });
-    fetch.mockResolvedValueOnce(new Response(null, { status: 400 }));
+    if (failure === 'refusal') {
+      fetch.mockResolvedValueOnce(new Response(null, { status: 400 }));
+    } else {
+      fetch.mockRejectedValueOnce(new TypeError('offline'));
+    }
     fireEvent.change(screen.getByLabelText('用户名'), { target: { value: ' Alice ' } });
     fireEvent.click(button);
-    expect((await screen.findByRole('alert')).textContent).toBe('请输入用户名和密码');
+    expect((await screen.findByRole('alert')).textContent).toBe(message);
     expect(screen.getByLabelText<HTMLInputElement>('用户名').value).toBe(' Alice ');
     expect(screen.getByLabelText<HTMLInputElement>('密码').value).toBe(' pw ');
     expect(router.push).not.toHaveBeenCalled();
