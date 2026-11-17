@@ -256,10 +256,62 @@ test('safe output overflow publishes a small partial object instead of truncated
     generationFiles(repo, { trace });
     await value.collectServer(generation(i));
   }
+  const browser = browserFixture({
+    context: { generation: 0, trial: 0, page: 'retained-editor' },
+    onInterval: value.addBrowserInterval,
+    reserve: value.reserveBrowserInterval,
+  });
+  await browser.profiler.start();
+  browser.advance(100);
+  await browser.profiler.close();
   await value.finish();
   const bytes = fs.readFileSync(path.join(output, 'safe/summary.json'));
   assert.ok(bytes.length <= 1024 * 1024);
-  partial(JSON.parse(bytes), 'summary-too-large');
+  const summary = JSON.parse(bytes);
+  partial(summary, 'summary-too-large');
+  assert.deepEqual(summary, {
+    status: 'partial',
+    codes: ['summary-too-large'],
+    identity: {
+      workflowSha: sha,
+      checkoutSha: 'c'.repeat(40),
+      prHeadSha: 'd'.repeat(40),
+      runId: '1234',
+      runAttempt: '2',
+      nodeVersion: 'v22.23.4',
+      platform: 'darwin',
+      arch: 'arm64',
+      nativeTarget: 'darwin-arm64',
+      nativeDigest: digest,
+      mode: 'restored-lifecycle',
+    },
+    limitations: [
+      'observed-trace-only',
+      'cpu-samples-not-utilization',
+      'clock-origins-not-correlated',
+      'producer-and-cdp-allocation-unbounded',
+    ],
+    generations: [0, 1, 2, 3, 4].map((generation) => ({
+      generation,
+      trial: generation,
+      status: 'partial',
+      codes: ['summary-too-large'],
+      cpu: [
+        { role: 'dev-main', status: 'partial', codes: ['summary-too-large'] },
+        { role: 'dev-server', status: 'partial', codes: ['summary-too-large'] },
+      ],
+      trace: { status: 'partial', codes: ['summary-too-large'] },
+    })),
+    intervals: [
+      {
+        generation: 0,
+        trial: 0,
+        page: 'retained-editor',
+        status: 'partial',
+        codes: ['summary-too-large'],
+      },
+    ],
+  });
 });
 
 test('safe staging refuses existing directories and symlink destinations', async (t) => {
