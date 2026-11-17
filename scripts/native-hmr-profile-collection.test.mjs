@@ -109,6 +109,33 @@ test('owned generation evidence is separated before the next identical filenames
   noSecrets(summary);
 });
 
+test('server-only collection publishes missing browser evidence without discarding server profiles', async (t) => {
+  const { repo, output, value } = collector(t);
+  assert.equal(value.prepare().status, 'complete');
+  generationFiles(repo);
+  assert.equal((await value.collectServer(generation())).status, 'complete');
+  await value.finish();
+  const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+  assert.equal(summary.status, 'partial');
+  assert.deepEqual(summary.codes, ['missing-browser-profile']);
+  assert.deepEqual(summary.intervals, []);
+  assert.equal(summary.generations.length, 1);
+  const captured = summary.generations[0];
+  assert.equal(captured.generation, 0);
+  assert.equal(captured.status, 'complete');
+  assert.deepEqual(
+    captured.cpu.map(({ role, samples }) => ({ role, samples })),
+    [
+      { role: 'dev-main', samples: 4 },
+      { role: 'dev-server', samples: 4 },
+    ],
+  );
+  assert.equal(captured.trace.status, 'complete');
+  assert.equal(captured.trace.coverage, 'observed-only');
+  assert.equal(captured.trace.spans.length, 1);
+  noSecrets(summary);
+});
+
 test('invalid provenance is explicit unknown rather than an arbitrary environment echo', async (t) => {
   const { output, value } = collector(t, {
     identity: Object.fromEntries(Object.keys(identity()).map((key) => [key, secret])),
