@@ -137,6 +137,7 @@ function deferred() {
 
 function browserFixture(options = {}) {
   const calls = [];
+  const gaps = [];
   const cdp = new EventEmitter();
   cdp.send = async (method) => {
     calls.push(method);
@@ -148,10 +149,12 @@ function browserFixture(options = {}) {
     cdp,
     clock: () => ({ epochMs: 1794823200000 + elapsedMs, elapsedMs }),
     context: { generation: 0, trial: 0, page: 'retained-editor' },
+    onGap: (gap) => gaps.push(gap),
     ...options,
   });
   return {
     calls,
+    gaps,
     cdp,
     profiler,
     advance: (ms) => {

@@ -260,12 +260,14 @@ test('safe output overflow publishes a small partial object instead of truncated
   const browser = browserFixture({
     context,
     onInterval: value.addBrowserInterval,
+    onGap: value.addBrowserGap,
     reserve: value.reserveBrowserInterval,
   });
   await browser.profiler.start();
   browser.advance(100);
   context.trial = 1;
   await browser.profiler.suspend();
+  browser.profiler.paused();
   browser.advance(200);
   browser.profiler.disconnect();
   browser.advance(50);
@@ -326,7 +328,16 @@ test('safe output overflow publishes a small partial object instead of truncated
         page: 'retained-editor',
         status: 'partial',
         codes: ['cdp-disconnected', 'summary-too-large'],
-        gap: { fromElapsedMs: 100, toElapsedMs: 350, reason: 'browser-suspended' },
+      },
+    ],
+    gaps: [
+      {
+        generation: 0,
+        trial: 1,
+        page: 'retained-editor',
+        fromElapsedMs: 100,
+        toElapsedMs: 350,
+        reason: 'browser-suspended',
       },
     ],
   });

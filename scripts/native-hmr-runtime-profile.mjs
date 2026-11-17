@@ -117,6 +117,7 @@ export function createRuntimeProfile(
       clock,
       context: () => ({ ...context(), page: label }),
       onInterval: profiles.addBrowserInterval,
+      onGap: profiles.addBrowserGap,
       reserve: profiles.reserveBrowserInterval,
     });
     profilers.add(profiler);
@@ -128,6 +129,10 @@ export function createRuntimeProfile(
 
   async function suspend() {
     if (enabled) await Promise.all([...profilers].map((profiler) => profiler.suspend()));
+  }
+
+  function paused() {
+    if (enabled) for (const profiler of profilers) profiler.paused();
   }
 
   async function resume(collect = true) {
@@ -189,6 +194,7 @@ export function createRuntimeProfile(
     recordNetwork,
     attach,
     suspend,
+    paused,
     resume,
     closeBrowser,
     registerSignals,

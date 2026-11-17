@@ -212,6 +212,7 @@ const codes = new Set([
   'interrupted',
   'browser-suspended',
   'browser-interval-limit',
+  'browser-gap-limit',
   'renderer-local-coverage',
   'malformed-profile',
   'empty-profile',
@@ -284,7 +285,9 @@ function intervalCodes(value, count) {
 
 export function safeGap(value) {
   if (!value || !finite(value.fromElapsedMs) || !finite(value.toElapsedMs)) return null;
+  if (value.toElapsedMs < value.fromElapsedMs) return null;
   return {
+    ...intervalContext(value),
     fromElapsedMs: value.fromElapsedMs,
     toElapsedMs: value.toElapsedMs,
     reason: 'browser-suspended',
@@ -314,6 +317,5 @@ export function safeInterval(value) {
     after: bracket(input.after),
     cpu,
     documentTransitions: transitions,
-    gap: safeGap(input.gap),
   };
 }

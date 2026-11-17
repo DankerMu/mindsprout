@@ -81,6 +81,8 @@ Profiling requires `.next-profiles` to be absent, including no existing file, di
 
 Private staging and generation destinations must remain directories with the collector's recorded filesystem identity; existing raw-move targets are conflicts, not overwrite permission. A detected conflict stops the raw move and produces fixed partial diagnostics. Safe staging conflicts prevent summary publication. Pending-output cleanup removes only a regular file matching the collector-created file's identity; unrelated replacements and unknown entries are preserved. These checks cover observed conflicts, not arbitrary filesystem replacement after the last check.
 
+Only a trace absent at its initial pre-start inspection permits launch without isolation. An observed pre-start isolation failure refuses the producer; a post-stop inspection or move failure publishes `trace-isolation-failed` partial evidence, retaining any valid projected spans without claiming successful raw archival.
+
 ### Profile evidence and interpretation
 
 For profiling artifacts, publish only `<OUTPUT>/safe/summary.json`. CI selects exactly `.run/native-diagnostic/safe/summary.json` in a separate artifact; no raw-file or directory-glob fallback is allowed. The summary contains fixed categories, numeric buckets, allowlisted spans/route classes, validated run/native identity, and observed process identity. An unobserved profile PID is null, not the pnpm launcher's PID. Function names, paths/URLs, tags, credentials, environment values, and raw exceptions are not publication fields.
@@ -95,6 +97,10 @@ Keep the clock domains separate:
 CPU deltas may be signed, as in [DevTools' timestamp reconstruction](https://github.com/ChromeDevTools/devtools-frontend/blob/main/front_end/models/cpu_profile/CPUProfileDataModel.ts), but every reconstructed position must remain within the declared profile window; raw samples/deltas are preserved and only derived histogram buckets are ordered chronologically.
 
 Do not subtract across those origins or treat sample counts as CPU utilization or exact wall-clock attribution. Trace coverage is always `observed-only`: rotation and unflushed tails can omit work. A top-level document transition marks its browser interval partial with `renderer-local-coverage`, preserving valid available CPU samples and bounded first/last collector transition brackets. Same-document navigation and subframes do not imply that loss.
+
+Physical suspension evidence lives in the summary's `gaps` array, independently of sampled `intervals` and terminal-record reservations. Each record contains `generation`, `trial`, `page`, finite collector-elapsed `fromElapsedMs`/`toElapsedMs`, and fixed reason `browser-suspended`. Attribution is captured after successful SIGSTOP; successful SIGCONT closes it once, including cleanup-only resume or an abandoned profiler. A failed SIGSTOP creates no gap, and late CDP replies cannot restart abandoned collection. Gaps are not copied onto intervals.
+
+The collector retains at most eight gap records under the existing interval-count bound, without evicting sampled intervals; exceeding that bound produces `browser-gap-limit`. Compact output preserves these attributed gaps and terminal causes when detailed samples/spans exceed the safe-output byte cap.
 
 Missing, invalid, unstable, over-limit, disconnected, or interrupted collection produces fixed partial codes independently of the functional result. [Implementation limits](../../scripts/native-hmr-profile-projection.mjs) own the file/run, record/sample, generation/interval, and safe-output caps. These bound ingestion and retained evidence, not Next's raw producer memory/disk or CDP allocation before receipt. No-follow capped file reads and bounded CDP operations do not establish a hard producer-memory limit.
 
