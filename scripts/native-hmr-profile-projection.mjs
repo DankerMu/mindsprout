@@ -220,7 +220,7 @@ const codes = new Set([
   'bucket-limit',
 ]);
 
-function filteredCodes(value, fallback) {
+export function filteredCodes(value, fallback) {
   return Array.isArray(value) ? value.filter((code) => codes.has(code)).slice(0, 4) : fallback;
 }
 
@@ -282,7 +282,7 @@ function intervalCodes(value, count) {
   return selected;
 }
 
-function safeGap(value) {
+export function safeGap(value) {
   if (!value || !finite(value.fromElapsedMs) || !finite(value.toElapsedMs)) return null;
   return {
     fromElapsedMs: value.fromElapsedMs,
