@@ -429,3 +429,65 @@ test('runtime retains terminal causes when two pages exhaust the global eight-in
   assert.deepEqual(errors, []);
   noSecrets(summary);
 });
+
+test('runtime refuses pre-start profile ownership replacement and preserves the symlink target', async (t) => {
+  const repo = temporary(t);
+  const output = path.join(repo, 'output');
+  fs.mkdirSync(output);
+  const profiling = createRuntimeProfile(
+    { profile: true, repo, out: output, mode: 'restored-lifecycle', started: performance.now() },
+    () => ({ generation: 0, trial: 0 }),
+  );
+  assert.equal(
+    profiling.prepare(
+      { target: 'aarch64-apple-darwin', binarySha256: digest },
+      { status: 'setup' },
+    ),
+    true,
+  );
+  const directory = path.join(repo, '.next-profiles');
+  const preserved = path.join(repo, 'preserved-profiles');
+  const original = fs.lstatSync(directory);
+  fs.renameSync(directory, preserved);
+  const target = path.join(repo, 'replacement-target');
+  fs.mkdirSync(target);
+  fs.writeFileSync(path.join(target, 'sentinel'), secret);
+  fs.symlinkSync(target, directory);
+
+  assert.throws(() => profiling.beginServer(), { code: 'profile-ownership-changed' });
+  await profiling.finish(true);
+
+  const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+  assert.equal(summary.status, 'partial');
+  assert.ok(summary.codes.includes('profile-ownership-changed'));
+  assert.deepEqual(summary.generations, []);
+  assert.deepEqual(summary.intervals, []);
+  assert.deepEqual(fs.readdirSync(target), ['sentinel']);
+  assert.equal(fs.readFileSync(path.join(target, 'sentinel'), 'utf8'), secret);
+  assert.equal(fs.lstatSync(directory).isSymbolicLink(), true);
+  assert.equal(fs.readlinkSync(directory), target);
+  const remaining = fs.lstatSync(preserved);
+  assert.equal(remaining.dev, original.dev);
+  assert.equal(remaining.ino, original.ino);
+  noSecrets(summary);
+});
+
+test('disabled runtime pre-start and finalization create no profiling artifacts', async (t) => {
+  const repo = temporary(t);
+  const output = path.join(repo, 'output');
+  fs.mkdirSync(output);
+  const profiling = createRuntimeProfile(
+    { profile: false, repo, out: output, mode: 'restored-lifecycle', started: performance.now() },
+    () => ({ generation: 0, trial: 0 }),
+  );
+  const result = { status: 'setup' };
+  assert.equal(
+    profiling.prepare({ target: 'aarch64-apple-darwin', binarySha256: digest }, result),
+    true,
+  );
+  assert.doesNotThrow(() => profiling.beginServer());
+  await profiling.finish(true);
+  assert.deepEqual(result, { status: 'setup' });
+  assert.deepEqual(fs.readdirSync(repo), ['output']);
+  assert.deepEqual(fs.readdirSync(output), []);
+});
