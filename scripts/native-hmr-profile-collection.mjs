@@ -17,6 +17,13 @@ import {
 } from './native-hmr-profile-projection.mjs';
 
 const same = (a, b) => a.dev === b.dev && a.ino === b.ino;
+const cpuRoles = ['dev-main', 'dev-server'];
+const profileLimitations = [
+  'observed-trace-only',
+  'cpu-samples-not-utilization',
+  'clock-origins-not-correlated',
+  'producer-and-cdp-allocation-unbounded',
+];
 
 function inspectedFileCode(stat, budget) {
   if (!stat.isFile()) return 'unsafe-file';
@@ -339,9 +346,7 @@ async function collectServerProfile(state, context) {
     if (entryCode) return state.note(entryCode);
     const destination = isolateCpuProfiles(state, context.generation);
     if (!destination) return state.note('profile-ownership-changed');
-    const cpu = ['dev-main', 'dev-server'].map((role) =>
-      collectCpuRole(state, destination, names, role),
-    );
+    const cpu = cpuRoles.map((role) => collectCpuRole(state, destination, names, role));
     const trace = collectTrace(state, destination, context.generation);
     const result = serverSummary(context, cpu, trace);
     state.generations.push(result);
@@ -382,22 +387,55 @@ function profileSummary(state) {
     identity: provenance(state.identity),
     generations,
     intervals,
-    limitations: [
-      'observed-trace-only',
-      'cpu-samples-not-utilization',
-      'clock-origins-not-correlated',
-      'producer-and-cdp-allocation-unbounded',
-    ],
+    limitations: profileLimitations.slice(),
   };
   if (!generations.length) summary.codes.push('missing-profile');
   if (!intervals.length) summary.codes.push('missing-browser-profile');
   return summary;
 }
 
+function omittedStatus(value) {
+  const codes = value.codes.slice();
+  if (!codes.includes('summary-too-large')) codes.push('summary-too-large');
+  return { status: 'partial', codes };
+}
+
+function compactGeneration(value) {
+  return {
+    generation: boundedInteger(value.generation, limits.generations - 1),
+    trial: boundedInteger(value.trial, 4),
+    ...omittedStatus(value),
+    cpu: value.cpu
+      .slice(0, cpuRoles.length)
+      .filter((item) => cpuRoles.includes(item.role))
+      .map((item) => ({ role: item.role, ...omittedStatus(item) })),
+    trace: omittedStatus(value.trace),
+  };
+}
+
+function compactInterval(value) {
+  return {
+    generation: boundedInteger(value.generation, limits.generations - 1),
+    trial: boundedInteger(value.trial, 4),
+    page: pages.includes(value.page) ? value.page : null,
+    ...omittedStatus(value),
+  };
+}
+
+function compactSummary(summary) {
+  return {
+    ...omittedStatus(summary),
+    identity: provenance(summary.identity),
+    limitations: profileLimitations.slice(),
+    generations: summary.generations.slice(0, limits.generations).map(compactGeneration),
+    intervals: summary.intervals.slice(0, limits.intervals).map(compactInterval),
+  };
+}
+
 function writeProfileSummary(state, summary) {
   let json = JSON.stringify(summary);
   if (Buffer.byteLength(json) + 1 > limits.summary) {
-    summary = partial('summary-too-large');
+    summary = compactSummary(summary);
     json = JSON.stringify(summary);
   }
   const safe = path.join(state.output, 'safe');
