@@ -223,7 +223,7 @@ async function resumeBrowser(collect = true) {
   record('browser-resumed', { pid: pausedBrowser.pid });
   pausedBrowser = undefined;
   handles();
-  if (profile && collect) await profiling.resume();
+  if (profile) await profiling.resume(collect);
 }
 async function readiness(state, start, label, expectedPath) {
   const elapsedMs = await waitForReadiness(state, start, expectedPath, started);
