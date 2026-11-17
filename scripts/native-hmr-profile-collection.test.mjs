@@ -256,14 +256,24 @@ test('safe output overflow publishes a small partial object instead of truncated
     generationFiles(repo, { trace });
     await value.collectServer(generation(i));
   }
+  const context = { generation: 0, trial: 0, page: 'retained-editor' };
   const browser = browserFixture({
-    context: { generation: 0, trial: 0, page: 'retained-editor' },
+    context,
     onInterval: value.addBrowserInterval,
     reserve: value.reserveBrowserInterval,
   });
   await browser.profiler.start();
   browser.advance(100);
+  context.trial = 1;
+  await browser.profiler.suspend();
+  browser.advance(200);
+  browser.profiler.disconnect();
+  browser.advance(50);
+  await browser.profiler.resume(false);
+  browser.advance(50);
   await browser.profiler.close();
+  browser.profiler.finalize();
+  value.recordBrowserProblems(browser.profiler.snapshot().codes);
   await value.finish();
   const bytes = fs.readFileSync(path.join(output, 'safe/summary.json'));
   assert.ok(bytes.length <= 1024 * 1024);
@@ -271,7 +281,7 @@ test('safe output overflow publishes a small partial object instead of truncated
   partial(summary, 'summary-too-large');
   assert.deepEqual(summary, {
     status: 'partial',
-    codes: ['summary-too-large'],
+    codes: ['cdp-disconnected', 'summary-too-large'],
     identity: {
       workflowSha: sha,
       checkoutSha: 'c'.repeat(40),
@@ -309,6 +319,14 @@ test('safe output overflow publishes a small partial object instead of truncated
         page: 'retained-editor',
         status: 'partial',
         codes: ['summary-too-large'],
+      },
+      {
+        generation: 0,
+        trial: 1,
+        page: 'retained-editor',
+        status: 'partial',
+        codes: ['cdp-disconnected', 'summary-too-large'],
+        gap: { fromElapsedMs: 100, toElapsedMs: 350, reason: 'browser-suspended' },
       },
     ],
   });
