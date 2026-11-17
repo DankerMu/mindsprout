@@ -525,9 +525,9 @@ async function restoredLifecycle(mapPath) {
       await guard(retained.page.goto(origin, { waitUntil: 'commit', timeout: 5000 }));
     await guard(sleep(3000));
     assert.equal(await retained.page.getByTestId(probe).textContent(), currentValue);
+    phase = 'restart-observation';
     await pauseBrowser();
     await stopServer();
-    phase = 'restart-observation';
     window = { documents: 0, reloads: 0, restarts: 0, connected: [], subscriptions: [] };
     const api = await startServer(condition.value);
     await resumeBrowser();
