@@ -14,6 +14,8 @@ import {
   provenance,
   bracket,
   safeInterval,
+  filteredCodes,
+  safeGap,
 } from './native-hmr-profile-projection.mjs';
 
 const same = (a, b) => a.dev === b.dev && a.ino === b.ino;
@@ -208,6 +210,10 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
     intervals.push(safe);
     return safe;
   }
+  function recordBrowserProblems(codes) {
+    if (!enabled) return;
+    for (const code of filteredCodes(codes, [])) problems.add(code);
+  }
   function reserveBrowserInterval() {
     if (!enabled) return false;
     if (reservations >= limits.intervals) {
@@ -241,6 +247,7 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
     readCpuProfile,
     addBrowserInterval,
     reserveBrowserInterval,
+    recordBrowserProblems,
     collectServer: (context) => collectServerProfile(state, context),
     finish: (options) => finishNativeProfile(state, options),
   };
@@ -414,12 +421,15 @@ function compactGeneration(value) {
 }
 
 function compactInterval(value) {
-  return {
+  const compact = {
     generation: boundedInteger(value.generation, limits.generations - 1),
     trial: boundedInteger(value.trial, 4),
     page: pages.includes(value.page) ? value.page : null,
     ...omittedStatus(value),
   };
+  const gap = safeGap(value.gap);
+  if (gap) compact.gap = gap;
+  return compact;
 }
 
 function compactSummary(summary) {

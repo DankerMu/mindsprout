@@ -1,14 +1,25 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { chromium } from '@playwright/test';
 import { deadline, processGroup } from './native-hmr-support.mjs';
-import { deferred, temporary } from './native-hmr-profile-fixtures.mjs';
+import {
+  cpu,
+  deferred,
+  digest,
+  generationFiles,
+  noSecrets,
+  secret,
+  temporary,
+} from './native-hmr-profile-fixtures.mjs';
+import { createRuntimeProfile } from './native-hmr-runtime-profile.mjs';
 
 const childFile = fileURLToPath(new URL('./native-hmr-signal-child.mjs', import.meta.url));
 
@@ -160,3 +171,89 @@ for (const mode of ['default', 'profile']) {
     });
   }
 }
+
+test('runtime publishes a suspended browser terminal state without replacing its completed interval', async (t) => {
+  const repo = temporary(t);
+  const output = path.join(repo, 'output');
+  fs.mkdirSync(output);
+  const context = { generation: 0, trial: 0 };
+  const profiling = createRuntimeProfile(
+    { profile: true, repo, out: output, mode: 'restored-lifecycle', started: performance.now() },
+    () => context,
+  );
+  assert.equal(
+    profiling.prepare(
+      { target: 'aarch64-apple-darwin', binarySha256: digest },
+      { status: 'setup' },
+    ),
+    true,
+  );
+  profiling.beginServer();
+  generationFiles(repo);
+  const commands = [];
+  const closed = [];
+  const cdp = new EventEmitter();
+  cdp.send = async (command) => {
+    commands.push(command);
+    return command === 'Profiler.stop' ? { profile: cpu() } : {};
+  };
+  const page = new EventEmitter();
+  const browser = new EventEmitter();
+  browser.close = async () => {
+    closed.push('browser');
+    browser.emit('disconnected', new Error(secret));
+  };
+  const browserServer = {
+    close: async () => {
+      closed.push('browser-server');
+    },
+  };
+  await profiling.attach(page, cdp, 'retained-editor', browser);
+  context.trial = 1;
+  await profiling.suspend();
+  const errors = [];
+  await profiling.closeBrowser(browser, browserServer, errors);
+  await profiling.collectServer(4321, [4321]);
+  await profiling.finish(true);
+  const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+  assert.equal(summary.status, 'partial');
+  assert.equal(summary.codes.includes('interrupted'), false);
+  assert.equal(summary.generations[0].status, 'complete');
+  assert.deepEqual(
+    summary.intervals.map(({ generation, trial, page, status, codes }) => ({
+      generation,
+      trial,
+      page,
+      status,
+      codes,
+    })),
+    [
+      { generation: 0, trial: 0, page: 'retained-editor', status: 'complete', codes: [] },
+      {
+        generation: 0,
+        trial: 1,
+        page: 'retained-editor',
+        status: 'partial',
+        codes: ['browser-suspended'],
+      },
+    ],
+  );
+  assert.equal(summary.intervals[0].cpu.samples, 4);
+  assert.deepEqual(summary.intervals[0].cpu.categories, {
+    javascript: 2,
+    gc: 1,
+    idle: 1,
+    other: 0,
+  });
+  assert.deepEqual(summary.intervals[0].cpu.buckets, [
+    { second: 0, samples: 2 },
+    { second: 1, samples: 2 },
+  ]);
+  assert.equal(summary.intervals[1].cpu.status, 'partial');
+  assert.equal(summary.intervals[1].cpu.samples, undefined);
+  assert.equal(summary.intervals[1].cpu.buckets, undefined);
+  assert.deepEqual(commands, ['Profiler.enable', 'Profiler.start', 'Profiler.stop']);
+  assert.deepEqual(closed, ['browser', 'browser-server']);
+  assert.deepEqual(errors, []);
+  noSecrets(summary);
+});

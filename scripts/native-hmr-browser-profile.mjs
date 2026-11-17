@@ -16,6 +16,23 @@ function recordProfileTransition(active, clock, event) {
   transitions.last = observed;
 }
 
+function observedContext(context) {
+  return typeof context === 'function' ? context() : context;
+}
+
+function terminalInterval(context, code, before) {
+  const observed = observedContext(context);
+  return {
+    generation: observed.generation,
+    trial: observed.trial,
+    page: observed.page,
+    before,
+    status: 'partial',
+    codes: [code],
+    cpu: partial(code),
+  };
+}
+
 export function createBrowserProfiler({
   enabled,
   cdp,
@@ -29,7 +46,9 @@ export function createBrowserProfiler({
     epoch = 0,
     active,
     pauseAt,
-    pendingGap;
+    pendingGap,
+    pauseStart,
+    pendingTerminal;
   const intervals = [],
     gaps = [],
     problems = new Set();
@@ -49,6 +68,7 @@ export function createBrowserProfiler({
   if (enabled) cdp.on('Page.frameNavigated', frameNavigated);
   function abandon(code) {
     if (!enabled || state === 'abandoned' || state === 'closed') return;
+    const suspended = state === 'suspended';
     epoch++;
     state = 'abandoned';
     problems.add(code);
@@ -63,6 +83,8 @@ export function createBrowserProfiler({
       intervals.push(interval);
       onInterval(interval);
       active = undefined;
+    } else if (code !== 'browser-interval-limit') {
+      pendingTerminal = terminalInterval(context, code, suspended ? pauseStart : bracket(clock()));
     }
   }
   async function command(method) {
@@ -85,7 +107,7 @@ export function createBrowserProfiler({
       return;
     }
     state = 'starting';
-    const observed = typeof context === 'function' ? context() : context;
+    const observed = observedContext(context);
     active = {
       generation: observed.generation,
       trial: observed.trial,
@@ -128,7 +150,8 @@ export function createBrowserProfiler({
     }
     await stop();
     if (state === 'abandoned') return;
-    pauseAt = bracket(clock()).elapsedMs;
+    pauseStart = bracket(clock());
+    pauseAt = pauseStart.elapsedMs;
     state = 'suspended';
   }
   async function resume() {
@@ -154,6 +177,18 @@ export function createBrowserProfiler({
     }
     cdp.off('Page.frameNavigated', frameNavigated);
   }
+  function finalize() {
+    if (!pendingTerminal) return;
+    const terminal = pendingTerminal;
+    pendingTerminal = undefined;
+    if (!reserve()) {
+      problems.add('browser-interval-limit');
+      return;
+    }
+    const interval = safeInterval({ ...terminal, after: bracket(clock()) });
+    intervals.push(interval);
+    onInterval(interval);
+  }
   return {
     start,
     stop,
@@ -161,6 +196,7 @@ export function createBrowserProfiler({
     resume,
     close,
     snapshot,
+    finalize,
     disconnect: () => abandon('cdp-disconnected'),
     interrupt: () => abandon('interrupted'),
   };

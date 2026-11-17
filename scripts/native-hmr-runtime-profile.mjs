@@ -168,7 +168,12 @@ export function createRuntimeProfile(
   }
 
   async function finish(serverStopped) {
-    if (profiles) await profiles.finish({ interrupted, serverStopped });
+    if (!profiles) return;
+    for (const profiler of profilers) {
+      profiler.finalize();
+      profiles.recordBrowserProblems(profiler.snapshot().codes);
+    }
+    await profiles.finish({ interrupted, serverStopped });
   }
 
   return {
