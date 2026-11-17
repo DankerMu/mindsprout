@@ -27,6 +27,24 @@ const profileLimitations = [
   'producer-and-cdp-allocation-unbounded',
 ];
 
+function ownsDirectory(filename, expected) {
+  try {
+    const current = fs.lstatSync(filename);
+    return Boolean(expected && current.isDirectory() && same(expected, current));
+  } catch {
+    return false;
+  }
+}
+
+function absent(filename) {
+  try {
+    fs.lstatSync(filename);
+    return false;
+  } catch (error) {
+    return error.code === 'ENOENT';
+  }
+}
+
 function inspectedFileCode(stat, budget) {
   if (!stat.isFile()) return 'unsafe-file';
   if (stat.size > limits.file) return 'file-byte-limit';
@@ -126,21 +144,15 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
   const intervals = [];
   const problems = new Set();
   const blockedTraces = new Set();
-  const ownership = { stat: undefined };
+  const ownership = { stat: undefined, privateStat: undefined };
   let prepared = false,
     reservations = 0;
   const note = (code) => {
     problems.add(code);
     return partial(code);
   };
-  const owns = () => {
-    try {
-      const stat = fs.lstatSync(directory);
-      return ownership.stat && stat.isDirectory() && same(ownership.stat, stat);
-    } catch {
-      return false;
-    }
-  };
+  const owns = () =>
+    ownsDirectory(privateRoot, ownership.privateStat) && ownsDirectory(directory, ownership.stat);
   function entries() {
     const names = [];
     const dir = fs.opendirSync(directory);
@@ -175,8 +187,11 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
         if (error.code !== 'ENOENT') return note('profile-directory-exists');
       }
       fs.mkdirSync(privateRoot, { mode: 0o700 });
+      ownership.privateStat = fs.lstatSync(privateRoot);
+      if (!ownership.privateStat.isDirectory()) return note('profile-prepare-failed');
       fs.mkdirSync(directory, { mode: 0o700 });
       ownership.stat = fs.lstatSync(directory);
+      if (!owns()) return note('profile-prepare-failed');
       prepared = true;
       return complete();
     } catch {
@@ -186,7 +201,8 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
   function beginServer({ generation }) {
     if (!enabled) return disabled();
     if (!prepared || !owns()) return note('profile-ownership-changed');
-    if (!integer(generation) || generation >= limits.generations) return note('generation-limit');
+    if (boundedInteger(generation, limits.generations - 1) === null)
+      return note('generation-limit');
     const trace = path.join(repo, '.next/dev/trace');
     try {
       const stat = fs.lstatSync(trace);
@@ -194,7 +210,12 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
         blockedTraces.add(generation);
         return note('unsafe-file');
       }
-      fs.renameSync(trace, path.join(privateRoot, `prestart-${generation}.trace`));
+      const destination = path.join(privateRoot, `prestart-${generation}.trace`);
+      if (!owns() || !absent(destination)) {
+        blockedTraces.add(generation);
+        return note('profile-ownership-changed');
+      }
+      fs.renameSync(trace, destination);
     } catch (error) {
       if (error.code !== 'ENOENT') {
         blockedTraces.add(generation);
@@ -272,14 +293,20 @@ function profileEntriesCode(names) {
 }
 
 function isolateCpuProfiles(state, generation) {
-  const destination = path.join(state.privateRoot, `generation-${generation}`);
-  fs.mkdirSync(destination, { mode: 0o700 });
+  const directory = path.join(state.privateRoot, `generation-${generation}`);
   if (!state.owns()) return null;
-  fs.renameSync(state.directory, path.join(destination, 'cpu'));
+  fs.mkdirSync(directory, { mode: 0o700 });
+  const destination = { directory, stat: fs.lstatSync(directory) };
+  if (!ownsDestination(state, destination) || !absent(path.join(directory, 'cpu'))) return null;
+  fs.renameSync(state.directory, path.join(directory, 'cpu'));
   state.ownership.stat = undefined;
   fs.mkdirSync(state.directory, { mode: 0o700 });
   state.ownership.stat = fs.lstatSync(state.directory);
-  return destination;
+  return ownsDestination(state, destination) ? destination : null;
+}
+
+function ownsDestination(state, destination) {
+  return state.owns() && ownsDirectory(destination.directory, destination.stat);
 }
 
 function collectCpuRole(state, destination, names, role) {
@@ -288,7 +315,10 @@ function collectCpuRole(state, destination, names, role) {
   );
   if (matches.length > 1) return { role, ...partial('ambiguous-profile') };
   if (!matches.length) return { role, ...partial('missing-profile') };
-  return { role, ...state.readCpuProfile(path.join(destination, 'cpu', matches[0])) };
+  return {
+    role,
+    ...state.readCpuProfile(path.join(destination.directory, 'cpu', matches[0])),
+  };
 }
 
 function collectTrace(state, destination, generation) {
@@ -298,7 +328,12 @@ function collectTrace(state, destination, generation) {
     : readBounded(filename, state.budget);
   const projected = raw.status === 'complete' ? projectNextTrace(raw.text) : raw;
   try {
-    if (fs.lstatSync(filename).isFile()) fs.renameSync(filename, path.join(destination, 'trace'));
+    if (!ownsDestination(state, destination))
+      return { ...state.note('profile-ownership-changed'), coverage: 'observed-only' };
+    const target = path.join(destination.directory, 'trace');
+    if (!absent(target))
+      return { ...state.note('profile-ownership-changed'), coverage: 'observed-only' };
+    if (fs.lstatSync(filename).isFile()) fs.renameSync(filename, target);
   } catch {
     // Missing traces already carry a partial code.
   }
@@ -370,8 +405,9 @@ function preserveOwnedProfiles(state, serverStopped) {
   try {
     const code = profileEntriesCode(state.entries());
     if (code) return code;
-    if (!state.owns()) return 'profile-ownership-changed';
-    fs.renameSync(state.directory, path.join(state.privateRoot, 'remaining'));
+    const destination = path.join(state.privateRoot, 'remaining');
+    if (!state.owns() || !absent(destination)) return 'profile-ownership-changed';
+    fs.renameSync(state.directory, destination);
     state.ownership.stat = undefined;
     return null;
   } catch {
@@ -442,6 +478,20 @@ function compactSummary(summary) {
   };
 }
 
+function ownedPending(filename, expected) {
+  const current = fs.lstatSync(filename);
+  return current.isFile() && same(expected, current);
+}
+
+function removeOwnedPending(filename, expected) {
+  if (!expected) return;
+  try {
+    if (ownedPending(filename, expected)) fs.unlinkSync(filename);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+
 function writeProfileSummary(state, summary) {
   let json = JSON.stringify(summary);
   if (Buffer.byteLength(json) + 1 > limits.summary) {
@@ -451,21 +501,25 @@ function writeProfileSummary(state, summary) {
   const safe = path.join(state.output, 'safe');
   fs.mkdirSync(safe, { mode: 0o700 });
   const stat = fs.lstatSync(safe);
+  if (!stat.isDirectory()) return state.note('safe-output-conflict');
   const pending = path.join(safe, 'summary.pending');
   const fd = fs.openSync(
     pending,
     fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
     0o600,
   );
+  let pendingStat;
   try {
+    pendingStat = fs.fstatSync(fd);
     fs.writeFileSync(fd, json + '\n');
+    if (!ownsDirectory(safe, stat) || !ownedPending(pending, pendingStat))
+      return state.note('safe-output-conflict');
+    fs.linkSync(pending, path.join(safe, 'summary.json'));
+    return summary;
   } finally {
-    fs.closeSync(fd);
+    closeDescriptor(fd);
+    removeOwnedPending(pending, pendingStat);
   }
-  if (!same(stat, fs.lstatSync(safe))) return state.note('safe-output-conflict');
-  fs.linkSync(pending, path.join(safe, 'summary.json'));
-  fs.unlinkSync(pending);
-  return summary;
 }
 
 async function finishNativeProfile(state, { interrupted = false, serverStopped = true } = {}) {

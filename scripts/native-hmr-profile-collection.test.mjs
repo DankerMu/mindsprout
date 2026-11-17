@@ -343,6 +343,269 @@ test('safe staging refuses existing directories and symlink destinations', async
   assert.equal(fs.readFileSync(unowned, 'utf8'), secret);
   assert.equal(fs.lstatSync(path.join(output, 'safe/summary.json')).isSymbolicLink(), true);
 });
+
+test('safe staging rejects a symlink substituted before its first inspection', async (t) => {
+  const { repo, output, value } = collector(t);
+  assert.equal(value.prepare().status, 'complete');
+  const safe = path.join(output, 'safe');
+  const preserved = path.join(output, 'preserved-safe');
+  const target = path.join(repo, 'replacement-target');
+  fs.mkdirSync(target);
+  fs.writeFileSync(path.join(target, 'sentinel'), secret);
+  const mkdirSync = fs.mkdirSync;
+  let created;
+  let replacement;
+  t.mock.method(fs, 'mkdirSync', (directory, ...args) => {
+    const result = mkdirSync(directory, ...args);
+    if (directory === safe) {
+      created = fs.lstatSync(safe);
+      fs.renameSync(safe, preserved);
+      fs.symlinkSync(target, safe);
+      replacement = fs.lstatSync(safe);
+    }
+    return result;
+  });
+
+  const result = await value.finish();
+  assert.ok(created, 'The collector must create its real safe staging directory');
+  assert.ok(replacement, 'The boundary fault must replace that directory before inspection');
+  partial(result, 'safe-output-conflict');
+  assert.deepEqual(fs.readdirSync(target), ['sentinel']);
+  assert.equal(fs.readFileSync(path.join(target, 'sentinel'), 'utf8'), secret);
+  const remaining = fs.lstatSync(safe);
+  assert.equal(remaining.isSymbolicLink(), true);
+  assert.equal(remaining.dev, replacement.dev);
+  assert.equal(remaining.ino, replacement.ino);
+  assert.equal(fs.readlinkSync(safe), target);
+  const owned = fs.lstatSync(preserved);
+  assert.equal(owned.isDirectory(), true);
+  assert.equal(owned.dev, created.dev);
+  assert.equal(owned.ino, created.ino);
+  assert.deepEqual(fs.readdirSync(preserved), []);
+});
+
+for (const pendingKind of ['owned', 'pre-existing', 'substituted']) {
+  test(`safe staging removes only its own pending file after replacement: ${pendingKind}`, async (t) => {
+    const { repo, output, value } = collector(t);
+    value.prepare();
+    const safe = path.join(output, 'safe');
+    const preserved = path.join(output, 'preserved-safe');
+    const target = path.join(repo, 'replacement-target');
+    const pending = path.join(target, 'summary.pending');
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, 'sentinel'), secret);
+    if (pendingKind === 'pre-existing') fs.writeFileSync(pending, secret);
+    let unrelated = pendingKind === 'pre-existing' ? fs.lstatSync(pending) : null;
+    const openSync = fs.openSync;
+    const writeFileSync = fs.writeFileSync;
+    let created, replacement, opened;
+    t.mock.method(fs, 'openSync', (filename, ...args) => {
+      if (filename === path.join(safe, 'summary.pending')) {
+        created = fs.lstatSync(safe);
+        fs.renameSync(safe, preserved);
+        fs.symlinkSync(target, safe);
+        replacement = fs.lstatSync(safe);
+        opened = openSync(filename, ...args);
+        return opened;
+      }
+      return openSync(filename, ...args);
+    });
+    t.mock.method(fs, 'writeFileSync', (filename, ...args) => {
+      const result = writeFileSync(filename, ...args);
+      if (filename === opened && pendingKind === 'substituted') {
+        fs.renameSync(pending, path.join(target, 'displaced-output'));
+        writeFileSync(pending, secret);
+        unrelated = fs.lstatSync(pending);
+      }
+      return result;
+    });
+    partial(await value.finish(), 'safe-output-conflict');
+    assert.ok(replacement, 'Replacement must occur after inspection and before pending open');
+    assert.equal(fs.lstatSync(safe).ino, replacement.ino);
+    assert.equal(fs.lstatSync(preserved).ino, created.ino);
+    assert.deepEqual(fs.readdirSync(preserved), []);
+    assert.equal(fs.readFileSync(path.join(target, 'sentinel'), 'utf8'), secret);
+    assert.equal(fs.existsSync(path.join(target, 'summary.json')), false);
+    if (pendingKind === 'owned') assert.deepEqual(fs.readdirSync(target), ['sentinel']);
+    else {
+      assert.equal(fs.readFileSync(pending, 'utf8'), secret);
+      assert.equal(fs.lstatSync(pending).dev, unrelated.dev);
+      assert.equal(fs.lstatSync(pending).ino, unrelated.ino);
+      if (pendingKind === 'substituted')
+        assert.equal(fs.lstatSync(path.join(target, 'displaced-output')).isFile(), true);
+    }
+  });
+}
+
+test('private staging rejects a symlink substituted before its first inspection', (t) => {
+  const { repo, output, directory, value } = collector(t);
+  const root = path.join(output, 'profile-private');
+  const target = path.join(repo, 'foreign-private');
+  fs.mkdirSync(target);
+  fs.writeFileSync(path.join(target, 'sentinel'), secret);
+  const mkdirSync = fs.mkdirSync;
+  let replaced;
+  t.mock.method(fs, 'mkdirSync', (filename, ...args) => {
+    const result = mkdirSync(filename, ...args);
+    if (filename === root) {
+      fs.renameSync(root, path.join(output, 'preserved-private'));
+      fs.symlinkSync(target, root);
+      replaced = fs.lstatSync(root);
+    }
+    return result;
+  });
+  partial(value.prepare(), 'profile-prepare-failed');
+  assert.ok(replaced);
+  assert.equal(fs.lstatSync(root).ino, replaced.ino);
+  assert.deepEqual(fs.readdirSync(target), ['sentinel']);
+  assert.equal(fs.readFileSync(path.join(target, 'sentinel'), 'utf8'), secret);
+  assert.equal(fs.existsSync(directory), false);
+});
+
+for (const operation of ['begin', 'collect', 'finish']) {
+  test(`changed private staging refuses ${operation} raw moves`, async (t) => {
+    const { repo, output, directory, value } = collector(t);
+    value.prepare();
+    generationFiles(repo);
+    const root = path.join(output, 'profile-private');
+    fs.renameSync(root, path.join(output, 'preserved-private'));
+    fs.mkdirSync(root);
+    fs.writeFileSync(path.join(root, 'sentinel'), secret);
+    const replacement = fs.lstatSync(root);
+    const source = fs.lstatSync(directory);
+    const trace = path.join(repo, '.next/dev/trace');
+    const traceBytes = fs.readFileSync(trace, 'utf8');
+    const result =
+      operation === 'begin'
+        ? value.beginServer({ generation: 0 })
+        : operation === 'collect'
+          ? await value.collectServer(generation())
+          : await value.finish();
+    partial(result, 'profile-ownership-changed');
+    assert.equal(fs.lstatSync(root).ino, replacement.ino);
+    assert.equal(fs.lstatSync(directory).ino, source.ino);
+    assert.deepEqual(fs.readdirSync(root), ['sentinel']);
+    assert.equal(fs.readFileSync(path.join(root, 'sentinel'), 'utf8'), secret);
+    assert.equal(fs.readFileSync(trace, 'utf8'), traceBytes);
+    assert.equal(
+      fs.readFileSync(path.join(directory, profileName('dev-main')), 'utf8'),
+      JSON.stringify(cpu()),
+    );
+  });
+}
+
+for (const boundary of ['creation', 'inspection']) {
+  test(`CPU destination replacement after ${boundary} preserves raw sources`, async (t) => {
+    const { repo, output, directory, value } = collector(t);
+    value.prepare();
+    generationFiles(repo);
+    const destination = path.join(output, 'profile-private/generation-0');
+    const target = path.join(repo, 'foreign-generation');
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, 'sentinel'), secret);
+    const source = fs.lstatSync(directory);
+    const method = boundary === 'creation' ? 'mkdirSync' : 'lstatSync';
+    const original = fs[method];
+    let replaced;
+    t.mock.method(fs, method, (filename, ...args) => {
+      const result = original(filename, ...args);
+      if (filename === destination && !replaced) {
+        fs.renameSync(destination, path.join(output, 'preserved-generation'));
+        fs.symlinkSync(target, destination);
+        replaced = true;
+      }
+      return result;
+    });
+    partial(await value.collectServer(generation()), 'profile-ownership-changed');
+    assert.equal(replaced, true);
+    assert.equal(fs.lstatSync(destination).isSymbolicLink(), true);
+    assert.equal(fs.lstatSync(directory).ino, source.ino);
+    assert.deepEqual(fs.readdirSync(target), ['sentinel']);
+    assert.equal(fs.readFileSync(path.join(target, 'sentinel'), 'utf8'), secret);
+    assert.equal(
+      fs.readFileSync(path.join(directory, profileName('dev-main')), 'utf8'),
+      JSON.stringify(cpu()),
+    );
+    assert.equal(fs.existsSync(path.join(repo, '.next/dev/trace')), true);
+  });
+}
+
+test('trace collection refuses a changed generation destination without moving the trace', async (t) => {
+  const { repo, output, value } = collector(t);
+  value.prepare();
+  generationFiles(repo);
+  const destination = path.join(output, 'profile-private/generation-0');
+  const target = path.join(repo, 'foreign-generation');
+  const trace = path.join(repo, '.next/dev/trace');
+  const bytes = fs.readFileSync(trace, 'utf8');
+  fs.mkdirSync(target);
+  fs.writeFileSync(path.join(target, 'trace'), secret);
+  const foreign = fs.lstatSync(path.join(target, 'trace'));
+  const lstatSync = fs.lstatSync;
+  let replaced = false;
+  t.mock.method(fs, 'lstatSync', (filename, ...args) => {
+    if (filename === trace && !replaced) {
+      replaced = true;
+      fs.renameSync(destination, path.join(output, 'preserved-generation'));
+      fs.symlinkSync(target, destination);
+    }
+    return lstatSync(filename, ...args);
+  });
+  const result = await value.collectServer(generation());
+  partial(result.trace, 'profile-ownership-changed');
+  assert.equal(replaced, true);
+  assert.equal(fs.readFileSync(trace, 'utf8'), bytes);
+  assert.equal(fs.readFileSync(path.join(target, 'trace'), 'utf8'), secret);
+  assert.equal(fs.lstatSync(path.join(target, 'trace')).ino, foreign.ino);
+  assert.deepEqual(fs.readdirSync(target), ['trace']);
+  assert.equal(
+    fs.existsSync(path.join(output, 'preserved-generation/cpu', profileName('dev-main'))),
+    true,
+  );
+});
+
+for (const leaf of ['prestart-0.trace', 'remaining', 'generation-0/cpu', 'generation-0/trace']) {
+  test(`raw isolation preserves an existing destination: ${leaf}`, async (t) => {
+    const { repo, output, directory, value } = collector(t);
+    value.prepare();
+    generationFiles(repo);
+    const destination = path.join(output, 'profile-private', leaf);
+    const isDirectory = leaf === 'remaining' || leaf.endsWith('/cpu');
+    let foreign;
+    const populate = () => {
+      if (isDirectory) fs.mkdirSync(destination);
+      else fs.writeFileSync(destination, secret);
+      foreign = fs.lstatSync(destination);
+    };
+    if (leaf.startsWith('generation-')) {
+      const mkdirSync = fs.mkdirSync;
+      t.mock.method(fs, 'mkdirSync', (filename, ...args) => {
+        const result = mkdirSync(filename, ...args);
+        if (filename === path.dirname(destination)) populate();
+        return result;
+      });
+    } else populate();
+    const result =
+      leaf === 'prestart-0.trace'
+        ? value.beginServer({ generation: 0 })
+        : leaf === 'remaining'
+          ? await value.finish()
+          : await value.collectServer(generation());
+    partial(leaf.endsWith('/trace') ? result.trace : result, 'profile-ownership-changed');
+    assert.ok(foreign);
+    assert.equal(fs.lstatSync(destination).dev, foreign.dev);
+    assert.equal(fs.lstatSync(destination).ino, foreign.ino);
+    if (isDirectory) assert.deepEqual(fs.readdirSync(destination), []);
+    else assert.equal(fs.readFileSync(destination, 'utf8'), secret);
+    assert.equal(fs.existsSync(path.join(repo, '.next/dev/trace')), true);
+    if (!leaf.endsWith('/trace'))
+      assert.equal(
+        fs.readFileSync(path.join(directory, profileName('dev-main')), 'utf8'),
+        JSON.stringify(cpu()),
+      );
+  });
+}
+
 test('a source-cache trace predating server start is excluded without modifying its backup', async (t) => {
   const { repo, output, value } = collector(t);
   const cache = path.join(repo, '.next/dev');

@@ -83,6 +83,8 @@ Both default and profiled invocations reject the presence of `NEXT_CPU_PROF`, `N
 
 Profiling requires `.next-profiles` to be absent, including no existing file, directory, or broken symlink. The collector owns its creation before source/cache mutation, verifies ownership before moves, and isolates stopped server generations before restart. Unexpected entries or ownership changes are preserved, not overwritten. Raw CPU/trace files stay under `<OUTPUT>/profile-private`; diagnostic server logs and other raw run output also remain private.
 
+Private staging and generation destinations must remain directories with the collector's recorded filesystem identity; existing raw-move targets are conflicts, not overwrite permission. A detected conflict stops the raw move and produces fixed partial diagnostics. Safe staging conflicts prevent summary publication. Pending-output cleanup removes only a regular file matching the collector-created file's identity; unrelated replacements and unknown entries are preserved. These checks cover observed conflicts, not arbitrary filesystem replacement after the last check.
+
 ### Profile evidence and interpretation
 
 For profiling artifacts, publish only `<OUTPUT>/safe/summary.json`. CI selects exactly `.run/native-diagnostic/safe/summary.json` in a separate artifact; no raw-file or directory-glob fallback is allowed. The summary contains fixed categories, numeric buckets, allowlisted spans/route classes, validated run/native identity, and observed process identity. An unobserved profile PID is null, not the pnpm launcher's PID. Function names, paths/URLs, tags, credentials, environment values, and raw exceptions are not publication fields.
