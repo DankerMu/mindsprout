@@ -66,7 +66,12 @@ export function createRuntimeProfile(
 
   function beginServer() {
     if (!enabled) return;
-    profiles.beginServer(context());
+    const result = profiles.beginServer(context());
+    if (result.status !== 'complete') {
+      const error = new Error('Profile pre-start refused');
+      error.code = result.codes[0];
+      throw error;
+    }
     network = undefined;
     serverStart = clock();
   }
