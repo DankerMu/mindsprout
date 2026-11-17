@@ -19,13 +19,13 @@ export function CredentialsForm({
   next: string | null;
 }) {
   const router = useRouter();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const label = mode === 'login' ? '登录' : '注册';
 
-  async function submit() {
+  async function submit(credentials: FormData) {
+    const username = credentials.get('username');
+    const password = credentials.get('password');
     setPending(true);
     setError(null);
     try {
@@ -52,19 +52,13 @@ export function CredentialsForm({
         action={`/api/auth/${mode}`}
         onSubmit={(event) => {
           event.preventDefault();
-          void submit();
+          const credentials = new FormData(event.currentTarget);
+          void submit(credentials);
         }}
       >
         <label>
           用户名
-          <input
-            name="username"
-            autoComplete="username"
-            value={username}
-            onChange={(event) => {
-              setUsername(event.target.value);
-            }}
-          />
+          <input name="username" autoComplete="username" />
         </label>
         <label>
           密码
@@ -72,10 +66,6 @@ export function CredentialsForm({
             name="password"
             type="password"
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            value={password}
-            onChange={(event) => {
-              setPassword(event.target.value);
-            }}
           />
         </label>
         <button type="submit" disabled={pending}>
