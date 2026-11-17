@@ -16,11 +16,12 @@ import {
 } from './native-hmr-profile-fixtures.mjs';
 
 test('browser intervals stop before suspension and restart only after resume with an explicit gap', async () => {
-  const { calls, profiler, advance } = browserFixture();
+  const { calls, gaps, profiler, advance } = browserFixture();
   await profiler.start();
   assert.deepEqual(calls, ['Profiler.enable', 'Profiler.start']);
   advance(100);
   await profiler.suspend();
+  profiler.paused();
   assert.deepEqual(calls, ['Profiler.enable', 'Profiler.start', 'Profiler.stop']);
   await profiler.start();
   await profiler.stop();
@@ -33,8 +34,15 @@ test('browser intervals stop before suspension and restart only after resume wit
   assert.equal(calls.at(-1), 'Profiler.stop');
   const summary = profiler.snapshot();
   assert.equal(summary.intervals.length, 2);
-  assert.deepEqual(summary.gaps, [
-    { fromElapsedMs: 100, toElapsedMs: 600, reason: 'browser-suspended' },
+  assert.deepEqual(gaps, [
+    {
+      generation: 0,
+      trial: 0,
+      page: 'retained-editor',
+      fromElapsedMs: 100,
+      toElapsedMs: 600,
+      reason: 'browser-suspended',
+    },
   ]);
   assert.equal(summary.intervals[0].cpu.samples, 4);
   noSecrets(summary);
@@ -315,4 +323,95 @@ test('document-transition metadata stays constant-sized and ignores events outsi
   });
   assert.equal(cdp.listenerCount('Page.frameNavigated'), 0);
   noSecrets(interval);
+});
+
+test('interrupted physical suspension retains one attributed gap without profiler revival', async (t) => {
+  const { repo, output, value } = collector(t);
+  value.prepare();
+  generationFiles(repo);
+  await value.collectServer(generation());
+  const context = { generation: 0, trial: 1, page: 'retained-editor' };
+  const { calls, profiler, advance } = browserFixture({
+    context,
+    onInterval: value.addBrowserInterval,
+    onGap: value.addBrowserGap,
+    reserve: value.reserveBrowserInterval,
+  });
+  await profiler.start();
+  advance(100);
+  await profiler.suspend();
+  profiler.paused();
+  advance(200);
+  profiler.paused();
+  profiler.interrupt();
+  context.generation = 1;
+  context.trial = 2;
+  advance(50);
+  await profiler.resume(false);
+  await profiler.resume();
+  await profiler.close();
+  profiler.finalize();
+  value.recordBrowserProblems(profiler.snapshot().codes);
+  await value.finish();
+  const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+  assert.deepEqual(summary.gaps, [
+    {
+      generation: 0,
+      trial: 1,
+      page: 'retained-editor',
+      fromElapsedMs: 100,
+      toElapsedMs: 350,
+      reason: 'browser-suspended',
+    },
+  ]);
+  assert.equal(summary.intervals[0].cpu.samples, 4);
+  partial(summary.intervals[1], 'interrupted');
+  assert.equal(
+    summary.intervals.some((interval) => Object.hasOwn(interval, 'gap')),
+    false,
+  );
+  assert.deepEqual(calls, ['Profiler.enable', 'Profiler.start', 'Profiler.stop']);
+  noSecrets(summary);
+});
+
+test('physical gap capacity is independent of sample reservations and never evicts evidence', async (t) => {
+  const { output, value } = collector(t);
+  value.prepare();
+  const { profiler } = browserFixture({ onInterval: value.addBrowserInterval });
+  await profiler.start();
+  await profiler.close();
+  for (let index = 0; index < 8; index++) {
+    assert.equal(value.reserveBrowserInterval(), true);
+    value.addBrowserGap({
+      generation: 0,
+      trial: 1,
+      page: 'fresh-editor',
+      fromElapsedMs: index * 100,
+      toElapsedMs: index * 100 + 50,
+      extra: secret,
+    });
+  }
+  partial(
+    value.addBrowserGap({
+      generation: 0,
+      trial: 1,
+      page: 'fresh-editor',
+      fromElapsedMs: 800,
+      toElapsedMs: 850,
+    }),
+    'browser-gap-limit',
+  );
+  await value.finish();
+  const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+  partial(summary, 'browser-gap-limit');
+  assert.equal(summary.intervals[0].cpu.samples, 4);
+  assert.deepEqual(
+    summary.gaps.map(({ fromElapsedMs }) => fromElapsedMs),
+    [0, 100, 200, 300, 400, 500, 600, 700],
+  );
+  assert.equal(
+    summary.gaps.every((gap) => gap.page === 'fresh-editor'),
+    true,
+  );
+  noSecrets(summary);
 });

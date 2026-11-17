@@ -142,6 +142,7 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
   const budget = { files: 0, bytes: 0 };
   const generations = [];
   const intervals = [];
+  const gaps = [];
   const problems = new Set();
   const blockedTraces = new Set();
   const ownership = { stat: undefined, privateStat: undefined };
@@ -203,9 +204,19 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
     if (!prepared || !owns()) return note('profile-ownership-changed');
     if (boundedInteger(generation, limits.generations - 1) === null)
       return note('generation-limit');
+    return isolatePrestartTrace(generation);
+  }
+  function isolatePrestartTrace(generation) {
     const trace = path.join(repo, '.next/dev/trace');
+    let stat;
     try {
-      const stat = fs.lstatSync(trace);
+      stat = fs.lstatSync(trace);
+    } catch (error) {
+      if (error.code === 'ENOENT') return complete();
+      blockedTraces.add(generation);
+      return note('trace-isolation-failed');
+    }
+    try {
       if (!stat.isFile()) {
         blockedTraces.add(generation);
         return note('unsafe-file');
@@ -216,11 +227,9 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
         return note('profile-ownership-changed');
       }
       fs.renameSync(trace, destination);
-    } catch (error) {
-      if (error.code !== 'ENOENT') {
-        blockedTraces.add(generation);
-        return note('trace-isolation-failed');
-      }
+    } catch {
+      blockedTraces.add(generation);
+      return note('trace-isolation-failed');
     }
     return complete();
   }
@@ -229,6 +238,14 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
     if (intervals.length >= limits.intervals) return note('browser-interval-limit');
     const safe = safeInterval(interval);
     intervals.push(safe);
+    return safe;
+  }
+  function addBrowserGap(gap) {
+    if (!enabled) return disabled();
+    if (gaps.length >= limits.intervals) return note('browser-gap-limit');
+    const safe = safeGap(gap);
+    if (!safe) return note('malformed-profile');
+    gaps.push(safe);
     return safe;
   }
   function recordBrowserProblems(codes) {
@@ -254,6 +271,7 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
     budget,
     generations,
     intervals,
+    gaps,
     problems,
     blockedTraces,
     ownership,
@@ -267,6 +285,7 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
     beginServer,
     readCpuProfile,
     addBrowserInterval,
+    addBrowserGap,
     reserveBrowserInterval,
     recordBrowserProblems,
     collectServer: (context) => collectServerProfile(state, context),
@@ -333,9 +352,17 @@ function collectTrace(state, destination, generation) {
     const target = path.join(destination.directory, 'trace');
     if (!absent(target))
       return { ...state.note('profile-ownership-changed'), coverage: 'observed-only' };
-    if (fs.lstatSync(filename).isFile()) fs.renameSync(filename, target);
+    if (!fs.lstatSync(filename).isFile())
+      return { ...projected, ...state.note('unsafe-file'), coverage: 'observed-only' };
+    fs.renameSync(filename, target);
   } catch {
-    // Missing traces already carry a partial code.
+    state.note('trace-isolation-failed');
+    return {
+      ...projected,
+      status: 'partial',
+      codes: [...projected.codes, 'trace-isolation-failed'],
+      coverage: 'observed-only',
+    };
   }
   return { ...projected, coverage: 'observed-only' };
 }
@@ -430,6 +457,7 @@ function profileSummary(state) {
     identity: provenance(state.identity),
     generations,
     intervals,
+    gaps: state.gaps,
     limitations: profileLimitations.slice(),
   };
   if (!generations.length) summary.codes.push('missing-profile');
@@ -457,15 +485,12 @@ function compactGeneration(value) {
 }
 
 function compactInterval(value) {
-  const compact = {
+  return {
     generation: boundedInteger(value.generation, limits.generations - 1),
     trial: boundedInteger(value.trial, 4),
     page: pages.includes(value.page) ? value.page : null,
     ...omittedStatus(value),
   };
-  const gap = safeGap(value.gap);
-  if (gap) compact.gap = gap;
-  return compact;
 }
 
 function compactSummary(summary) {
@@ -475,6 +500,7 @@ function compactSummary(summary) {
     limitations: profileLimitations.slice(),
     generations: summary.generations.slice(0, limits.generations).map(compactGeneration),
     intervals: summary.intervals.slice(0, limits.intervals).map(compactInterval),
+    gaps: summary.gaps.slice(0, limits.intervals).map(safeGap),
   };
 }
 

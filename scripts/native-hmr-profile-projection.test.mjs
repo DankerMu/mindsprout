@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { projectCpuProfile, projectNextTrace } from './native-hmr-profile-projection.mjs';
+import { projectCpuProfile, projectNextTrace, safeGap } from './native-hmr-profile-projection.mjs';
 import { cpu, span, secret, partial, noSecrets } from './native-hmr-profile-fixtures.mjs';
 
 test('CPU projection retains only fixed categories and microsecond-relative buckets', () => {
@@ -225,3 +225,34 @@ for (const [name, field, routes] of [
     noSecrets(projected);
   });
 }
+
+test('physical gap projection retains only bounded attribution and ordered finite endpoints', () => {
+  const input = {
+    generation: 4,
+    trial: 4,
+    page: 'fresh-editor',
+    fromElapsedMs: 100,
+    toElapsedMs: 350,
+    reason: secret,
+    extra: secret,
+  };
+  assert.deepEqual(safeGap(input), {
+    generation: 4,
+    trial: 4,
+    page: 'fresh-editor',
+    fromElapsedMs: 100,
+    toElapsedMs: 350,
+    reason: 'browser-suspended',
+  });
+  for (const value of [NaN, Infinity, -1, 99]) {
+    assert.equal(safeGap({ ...input, toElapsedMs: value }), null);
+  }
+  assert.deepEqual(safeGap({ ...input, generation: 5, trial: 5, page: secret }), {
+    generation: null,
+    trial: null,
+    page: null,
+    fromElapsedMs: 100,
+    toElapsedMs: 350,
+    reason: 'browser-suspended',
+  });
+});

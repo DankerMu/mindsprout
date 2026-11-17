@@ -224,6 +224,7 @@ test('runtime publishes a suspended browser terminal state without replacing its
     await attachedRuntime(t);
   context.trial = 1;
   await profiling.suspend();
+  profiling.paused();
   const errors = [];
   await profiling.closeBrowser(browser, browserServer, errors);
   await profiling.collectServer(4321, [4321]);
@@ -277,6 +278,7 @@ test('runtime records cleanup-only resume after suspended disconnect without res
   context.trial = 1;
   const suspendBefore = performance.now() - started;
   await profiling.suspend();
+  profiling.paused();
   const suspendAfter = performance.now() - started;
   browser.emit('disconnected', new Error(secret));
   const resumeBefore = performance.now() - started;
@@ -314,14 +316,16 @@ test('runtime records cleanup-only resume after suspended disconnect without res
   assert.equal(terminal.cpu.status, 'partial');
   assert.equal(terminal.cpu.samples, undefined);
   assert.equal(terminal.cpu.buckets, undefined);
-  assert.ok(terminal.gap, 'Cleanup-only resume must close the suspended collection gap');
-  assert.equal(terminal.gap.reason, 'browser-suspended');
-  assert.ok(Number.isFinite(terminal.gap.fromElapsedMs));
-  assert.ok(Number.isFinite(terminal.gap.toElapsedMs));
-  assert.ok(terminal.gap.fromElapsedMs >= suspendBefore);
-  assert.ok(terminal.gap.fromElapsedMs <= suspendAfter);
-  assert.ok(terminal.gap.toElapsedMs >= resumeBefore);
-  assert.ok(terminal.gap.toElapsedMs <= resumeAfter);
+  assert.equal(summary.gaps.length, 1);
+  const gap = summary.gaps[0];
+  assert.equal(gap.generation, 0);
+  assert.equal(gap.trial, 1);
+  assert.equal(gap.page, 'retained-editor');
+  assert.equal(gap.reason, 'browser-suspended');
+  assert.ok(gap.fromElapsedMs >= suspendBefore);
+  assert.ok(gap.fromElapsedMs <= suspendAfter);
+  assert.ok(gap.toElapsedMs >= resumeBefore);
+  assert.ok(gap.toElapsedMs <= resumeAfter);
   assert.deepEqual(commands, ['Profiler.enable', 'Profiler.start', 'Profiler.stop']);
   assert.deepEqual(closed, ['browser', 'browser-server']);
   assert.deepEqual(errors, []);
@@ -334,6 +338,7 @@ test('runtime cleanup-only resume retains a suspended terminal gap without a sig
   context.trial = 1;
   const suspendBefore = performance.now() - started;
   await profiling.suspend();
+  profiling.paused();
   const suspendAfter = performance.now() - started;
   const resumeBefore = performance.now() - started;
   await profiling.resume(false);
@@ -370,14 +375,16 @@ test('runtime cleanup-only resume retains a suspended terminal gap without a sig
   assert.equal(terminal.cpu.status, 'partial');
   assert.equal(terminal.cpu.samples, undefined);
   assert.equal(terminal.cpu.buckets, undefined);
-  assert.ok(terminal.gap, 'Cleanup-only resume must retain the suspended collection gap');
-  assert.equal(terminal.gap.reason, 'browser-suspended');
-  assert.ok(Number.isFinite(terminal.gap.fromElapsedMs));
-  assert.ok(Number.isFinite(terminal.gap.toElapsedMs));
-  assert.ok(terminal.gap.fromElapsedMs >= suspendBefore);
-  assert.ok(terminal.gap.fromElapsedMs <= suspendAfter);
-  assert.ok(terminal.gap.toElapsedMs >= resumeBefore);
-  assert.ok(terminal.gap.toElapsedMs <= resumeAfter);
+  assert.equal(summary.gaps.length, 1);
+  const gap = summary.gaps[0];
+  assert.equal(gap.generation, 0);
+  assert.equal(gap.trial, 1);
+  assert.equal(gap.page, 'retained-editor');
+  assert.equal(gap.reason, 'browser-suspended');
+  assert.ok(gap.fromElapsedMs >= suspendBefore);
+  assert.ok(gap.fromElapsedMs <= suspendAfter);
+  assert.ok(gap.toElapsedMs >= resumeBefore);
+  assert.ok(gap.toElapsedMs <= resumeAfter);
   assert.deepEqual(commands, ['Profiler.enable', 'Profiler.start', 'Profiler.stop']);
   assert.deepEqual(errors, []);
   noSecrets(summary);
@@ -395,6 +402,7 @@ test('runtime retains terminal causes when two pages exhaust the global eight-in
   for (let trial = 1; trial <= 4; trial++) {
     context.trial = trial;
     await profiling.suspend();
+    profiling.paused();
     if (trial < 4) await profiling.resume();
   }
   await profiling.resume(false);
@@ -406,6 +414,20 @@ test('runtime retains terminal causes when two pages exhaust the global eight-in
   assert.equal(summary.status, 'partial');
   assert.deepEqual(summary.codes.toSorted(), ['browser-interval-limit', 'browser-suspended']);
   assert.equal(summary.intervals.length, 8);
+  assert.equal((summary.gaps ?? []).length, 8);
+  for (const page of ['retained-editor', 'first-navigation']) {
+    const gaps = (summary.gaps ?? []).filter((gap) => gap.page === page);
+    assert.deepEqual(
+      gaps.map(({ generation, trial }) => ({ generation, trial })),
+      [1, 2, 3, 4].map((trial) => ({ generation: 0, trial })),
+    );
+    for (const gap of gaps) {
+      assert.equal(gap.reason, 'browser-suspended');
+      assert.ok(Number.isFinite(gap.fromElapsedMs));
+      assert.ok(Number.isFinite(gap.toElapsedMs));
+      assert.ok(gap.toElapsedMs >= gap.fromElapsedMs);
+    }
+  }
   for (const page of ['retained-editor', 'first-navigation']) {
     assert.deepEqual(
       summary.intervals
@@ -567,12 +589,14 @@ test('runtime reports a fixed refusal when isolating a regular pre-start trace f
   const bytes = JSON.stringify([span()]);
   fs.writeFileSync(trace, bytes);
   const original = fs.lstatSync(trace);
+  const unknown = path.join(path.dirname(trace), 'unknown');
+  fs.writeFileSync(unknown, secret);
   const renameSync = fs.renameSync;
   let refused = false;
   t.mock.method(fs, 'renameSync', (source, target) => {
     if (source === trace && target === destination) {
       refused = true;
-      throw new Error(secret);
+      throw Object.assign(new Error(secret), { code: 'ENOENT' });
     }
     return renameSync(source, target);
   });
@@ -599,5 +623,97 @@ test('runtime reports a fixed refusal when isolating a regular pre-start trace f
   assert.equal(remaining.dev, original.dev);
   assert.equal(remaining.ino, original.ino);
   assert.equal(fs.existsSync(destination), false);
+  assert.equal(fs.readFileSync(unknown, 'utf8'), secret);
   noSecrets(summary);
+});
+
+test('runtime allows an initially absent trace before producer launch', async (t) => {
+  const { repo, output, profiling } = preparedRuntime(t);
+  assert.doesNotThrow(() => profiling.beginServer());
+  generationFiles(repo);
+  await profiling.collectServer(4321, [4321]);
+  await profiling.finish(true);
+  const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+  assert.equal(summary.generations[0].status, 'complete');
+  assert.equal(summary.codes.includes('trace-isolation-failed'), false);
+});
+
+for (const collect of [true, false]) {
+  test(`runtime retains physical gaps after stop timeout with ${collect ? 'normal' : 'cleanup'} resume`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { profiling, context, started, output, browser, browserServer } =
+      await attachedRuntime(t);
+    const held = deferred();
+    const entered = deferred();
+    const calls = [];
+    let physicallyPaused = false;
+    const cdp = new EventEmitter();
+    cdp.send = (method) => {
+      assert.equal(physicallyPaused, false, 'No CDP while physically paused');
+      calls.push(method);
+      if (method === 'Profiler.stop') {
+        entered.resolve();
+        return held.promise;
+      }
+      return Promise.resolve({});
+    };
+    await profiling.attach(new EventEmitter(), cdp, 'fresh-editor', browser);
+    context.trial = 1;
+    const pending = profiling.suspend();
+    await entered.promise;
+    t.mock.timers.tick(1000);
+    await pending;
+    const from = performance.now() - started;
+    physicallyPaused = true;
+    profiling.paused();
+    const until = performance.now() - started;
+    assert.deepEqual(calls, ['Profiler.enable', 'Profiler.start', 'Profiler.stop']);
+    context.generation = 1;
+    context.trial = 2;
+    const beforeResume = performance.now() - started;
+    physicallyPaused = false;
+    await profiling.resume(collect);
+    const afterResume = performance.now() - started;
+    held.resolve({ profile: cpu(), secret });
+    await Promise.resolve();
+    await profiling.resume(collect);
+    const errors = [];
+    await profiling.closeBrowser(browser, browserServer, errors);
+    await profiling.collectServer(4321, [4321]);
+    await profiling.finish(true);
+    const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+    assert.equal(summary.status, 'partial');
+    assert.ok(summary.codes.includes('cdp-timeout'));
+    const gaps = (summary.gaps ?? []).filter((gap) => gap.page === 'fresh-editor');
+    assert.equal(gaps.length, 1);
+    const gap = gaps[0];
+    assert.equal(gap.generation, 0);
+    assert.equal(gap.trial, 1);
+    assert.equal(gap.reason, 'browser-suspended');
+    assert.ok(gap.fromElapsedMs >= from && gap.fromElapsedMs <= until);
+    assert.ok(gap.toElapsedMs >= beforeResume && gap.toElapsedMs <= afterResume);
+    const intervals = summary.intervals.filter((interval) => interval.page === 'fresh-editor');
+    assert.equal(intervals.length, 1);
+    assert.deepEqual(intervals[0].codes, ['cdp-timeout']);
+    assert.equal(intervals[0].cpu.samples, undefined);
+    assert.equal(summary.intervals[0].cpu.samples, 4);
+    assert.deepEqual(calls, ['Profiler.enable', 'Profiler.start', 'Profiler.stop']);
+    assert.deepEqual(errors, []);
+    noSecrets(summary);
+  });
+}
+
+test('an unsuccessful physical pause records no gap', async (t) => {
+  const { profiling, output, browser, browserServer } = await attachedRuntime(t);
+  await profiling.suspend();
+  // A failed SIGSTOP never calls the physical-pause notification.
+  await profiling.resume(false);
+  const errors = [];
+  await profiling.closeBrowser(browser, browserServer, errors);
+  await profiling.collectServer(4321, [4321]);
+  await profiling.finish(true);
+  const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+  assert.deepEqual(summary.gaps, []);
+  assert.equal(summary.intervals[0].cpu.samples, 4);
+  assert.deepEqual(errors, []);
 });

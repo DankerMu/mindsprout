@@ -200,6 +200,7 @@ async function pauseBrowser() {
   );
   process.kill(-child.pid, 'SIGSTOP');
   pausedBrowser = child;
+  if (profile) profiling.paused();
   const group = processGroup(child.pid);
   record('browser-stopped', { pid: child.pid, group });
   handles();
@@ -219,11 +220,13 @@ async function resumeBrowser(collect = true) {
     processGroup(pausedBrowser.pid).some((item) => item.pid === pausedBrowser.pid),
     'Owned browser leader disappeared',
   );
-  process.kill(-pausedBrowser.pid, 'SIGCONT');
-  record('browser-resumed', { pid: pausedBrowser.pid });
+  const child = pausedBrowser;
+  process.kill(-child.pid, 'SIGCONT');
   pausedBrowser = undefined;
+  const resumed = profile ? profiling.resume(collect) : undefined;
+  record('browser-resumed', { pid: child.pid });
   handles();
-  if (profile) await profiling.resume(collect);
+  await resumed;
 }
 async function readiness(state, start, label, expectedPath) {
   const elapsedMs = await waitForReadiness(state, start, expectedPath, started);

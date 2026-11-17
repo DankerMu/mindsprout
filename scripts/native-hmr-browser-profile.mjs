@@ -39,19 +39,17 @@ export function createBrowserProfiler({
   clock = () => ({ epochMs: Date.now(), elapsedMs: 0 }),
   context = {},
   onInterval = () => undefined,
+  onGap = () => undefined,
   reserve = () => true,
 }) {
   let state = 'idle',
     configured = false,
     epoch = 0,
     active,
-    pauseAt,
-    pendingGap,
+    physicalPause,
     pauseStart,
-    pendingTerminal,
-    terminalPause;
+    pendingTerminal;
   const intervals = [],
-    gaps = [],
     problems = new Set();
   const snapshot = () =>
     !enabled
@@ -63,7 +61,6 @@ export function createBrowserProfiler({
               : 'complete',
           codes: [...problems],
           intervals,
-          gaps,
         };
   const frameNavigated = (event) => recordProfileTransition(active, clock, event);
   if (enabled) cdp.on('Page.frameNavigated', frameNavigated);
@@ -86,7 +83,6 @@ export function createBrowserProfiler({
       active = undefined;
     } else if (code !== 'browser-interval-limit') {
       pendingTerminal = terminalInterval(context, code, suspended ? pauseStart : bracket(clock()));
-      terminalPause = suspended ? pauseStart : undefined;
     }
   }
   async function command(method) {
@@ -115,10 +111,8 @@ export function createBrowserProfiler({
       trial: observed.trial,
       page: observed.page,
       before: bracket(clock()),
-      gap: pendingGap,
       documentTransitions: { count: 0, first: null, last: null },
     };
-    pendingGap = undefined;
     if (!configured) {
       if (!(await command('Profiler.enable')).ok) return;
       configured = true;
@@ -153,38 +147,35 @@ export function createBrowserProfiler({
     await stop();
     if (state === 'abandoned') return;
     pauseStart = bracket(clock());
-    pauseAt = pauseStart.elapsedMs;
     state = 'suspended';
   }
-  function resumeForCleanup() {
-    if (state === 'suspended') abandon('browser-suspended');
-    if (!pendingTerminal || !terminalPause || pendingTerminal.gap) return;
-    const gap = {
-      fromElapsedMs: terminalPause.elapsedMs,
-      toElapsedMs: bracket(clock()).elapsedMs,
-      reason: 'browser-suspended',
+  function paused() {
+    if (!enabled || state === 'closed' || physicalPause) return;
+    const observed = observedContext(context);
+    physicalPause = {
+      generation: observed.generation,
+      trial: observed.trial,
+      page: observed.page,
+      fromElapsedMs: bracket(clock()).elapsedMs,
     };
-    pendingTerminal.gap = gap;
-    gaps.push(gap);
-    terminalPause = undefined;
   }
   async function resume(collect = true) {
     if (!enabled) return;
+    if (physicalPause) {
+      onGap({
+        ...physicalPause,
+        toElapsedMs: bracket(clock()).elapsedMs,
+        reason: 'browser-suspended',
+      });
+      physicalPause = undefined;
+    }
     if (!collect) {
-      resumeForCleanup();
+      if (state === 'suspended') abandon('browser-suspended');
       return;
     }
     if (state !== 'suspended') return;
-    pendingGap = {
-      fromElapsedMs: pauseAt,
-      toElapsedMs: bracket(clock()).elapsedMs,
-      reason: 'browser-suspended',
-    };
-    gaps.push(pendingGap);
-    const gap = pendingGap;
     state = 'idle';
     await start();
-    gap.toElapsedMs = bracket(clock()).elapsedMs;
   }
   async function close() {
     if (!enabled || state === 'closed' || state === 'abandoned') return;
@@ -200,7 +191,6 @@ export function createBrowserProfiler({
     if (!pendingTerminal) return;
     const terminal = pendingTerminal;
     pendingTerminal = undefined;
-    terminalPause = undefined;
     if (!reserve()) {
       problems.add('browser-interval-limit');
       return;
@@ -213,6 +203,7 @@ export function createBrowserProfiler({
     start,
     stop,
     suspend,
+    paused,
     resume,
     close,
     snapshot,
