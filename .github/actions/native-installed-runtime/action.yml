@@ -62,7 +62,7 @@ runs:
       env:
         NATIVE_RESTORED_OUTCOME: ${{ steps.native_restored.outcome }}
         NATIVE_SOURCE_OUTCOME: ${{ steps.native_source.outcome }}
-        NATIVE_PROFILE_CANCELLED: ${{ cancelled() }}
+        NATIVE_PROFILE_CANCELLED: ${{ job.status == 'cancelled' }}
         NATIVE_PROFILE_WORKFLOW_SHA: ${{ github.workflow_sha }}
         NATIVE_PROFILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       run: |
