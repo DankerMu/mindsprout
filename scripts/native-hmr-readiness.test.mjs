@@ -342,7 +342,11 @@ async function liveReadiness(t) {
   const received = [];
   cdp.on('Runtime.bindingCalled', ({ name, payload }) => {
     if (name !== '__mindsproutReadinessSample') return;
-    received.push(JSON.parse(payload));
+    try {
+      received.push(JSON.parse(payload));
+    } catch {
+      return;
+    }
     events.emit('event');
   });
   return {
@@ -468,3 +472,57 @@ for (const held of [false, true]) {
     noSecrets(evidence);
   });
 }
+
+test('hostile real binding payloads and cap-plus-one observations remain bounded and cannot rewrite visibility', async (t) => {
+  const fixture = await liveReadiness(t);
+  const { page, cdp, observation, now, received } = fixture;
+  await observation.begin();
+  observation.start(now());
+  observation.actionSettled('fulfilled', now());
+  await fixture.sampled((sample) => sample.visibility === 'visible');
+  const first = received.find((sample) => sample.ordinal === 1);
+  observation.outcome('readiness-failed', now());
+  await observation.end();
+  const routeEvents = new EventEmitter();
+  let routes = 0;
+  cdp.on('Page.navigatedWithinDocument', () => {
+    routes++;
+    routeEvents.emit('event');
+  });
+  await page.evaluate((first) => {
+    const send = globalThis.__mindsproutReadinessSample;
+    send('PRIVATE_CANARY_not_json');
+    send(JSON.stringify({ ...first, nowMs: null, cookie: 'PRIVATE_CANARY_cookie' }));
+    send(JSON.stringify(first));
+    for (let ordinal = 2; ordinal <= 129; ordinal++) {
+      send(
+        JSON.stringify({
+          ...first,
+          ordinal,
+          nowMs: first.nowMs + (ordinal - 1) * 50,
+          headers: { cookie: 'PRIVATE_CANARY_cookie' },
+          body: 'PRIVATE_CANARY_body',
+        }),
+      );
+    }
+    for (let index = 0; index < 17; index++)
+      globalThis.history.pushState({}, '', `/maps/private-route-${index}`);
+  }, first);
+  await fixture.sampled((sample) => sample.ordinal === 129);
+  await waitForObserved(routeEvents, () => routes === 17, 1000, 'Fixture route observations');
+  const evidence = await fixture.finish();
+  assert.equal(evidence.marker.samples.length, 128);
+  assert.equal(evidence.routes.observations.length, 16);
+  assert.equal(evidence.routes.omittedRecords, 1);
+  assert(evidence.marker.codes.includes('invalid-marker-sample'));
+  assert(evidence.marker.codes.includes('unordered-marker-sample'));
+  assert(evidence.marker.codes.includes('sample-limit'));
+  assert(evidence.routes.codes.includes('route-limit'));
+  assert.deepEqual(evidence.marker.firstVisible, {
+    at: { timeOriginMs: first.timeOriginMs, nowMs: first.nowMs },
+    previous: null,
+  });
+  assert.equal(evidence.outcome.status, 'readiness-failed');
+  noSecrets(evidence);
+  assert.doesNotMatch(JSON.stringify(evidence), /private-route|headers|cookie|body/);
+});
