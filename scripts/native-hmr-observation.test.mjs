@@ -124,6 +124,118 @@ test('document responses and completion are observed before public map creation 
   ]);
 });
 
+test('profiled public creation retains classified PUT and RSC network delivery', async () => {
+  const cdp = new EventEmitter();
+  const commands = [];
+  cdp.send = async (method) => {
+    commands.push(method);
+    assert.equal(method, 'Performance.getMetrics');
+    return { metrics: [] };
+  };
+  const legacy = [];
+  const diagnostics = [];
+  const observation = observeNavigation(
+    { cdp, label: 'setup' },
+    (type, data) => legacy.push({ type, data }),
+    {
+      origin: 'http://localhost:3000',
+      clock: () => ({ elapsedMs: 120, epochMs: 1800000000120 }),
+      sink: (data) => diagnostics.push(data),
+    },
+  );
+  await observation.begin();
+  for (const request of [
+    {
+      requestId: 'persist-private-id',
+      type: 'Fetch',
+      method: 'PUT',
+      url: 'http://localhost:3000/api/maps/private-map-id',
+      timestamp: 10,
+    },
+    {
+      requestId: 'rsc-private-id',
+      type: 'Fetch',
+      method: 'GET',
+      url: 'http://localhost:3000/maps/private-map-id?_rsc=private-query',
+      timestamp: 20,
+    },
+  ]) {
+    cdp.emit('Network.requestWillBeSent', {
+      requestId: request.requestId,
+      type: request.type,
+      request: { method: request.method, url: request.url },
+      timestamp: request.timestamp,
+    });
+    cdp.emit('Network.responseReceived', {
+      requestId: request.requestId,
+      timestamp: request.timestamp + 0.1,
+      response: { status: 200 },
+    });
+    cdp.emit('Network.dataReceived', {
+      requestId: request.requestId,
+      timestamp: request.timestamp + 0.2,
+      dataLength: 32,
+      encodedDataLength: 24,
+    });
+    cdp.emit('Network.loadingFinished', {
+      requestId: request.requestId,
+      timestamp: request.timestamp + 0.3,
+      encodedDataLength: 48,
+    });
+  }
+  await observation.end();
+  assert.deepEqual(
+    diagnostics
+      .flatMap((entry) => entry.requests ?? [])
+      .map((entry) => ({
+        ordinal: entry.ordinal,
+        requestClass: entry.requestClass,
+        method: entry.method,
+        requestTimestampSeconds: entry.requestTimestampSeconds,
+        responseTimestampSeconds: entry.responseTimestampSeconds,
+        responseStatus: entry.responseStatus,
+        firstDataTimestampSeconds: entry.firstDataTimestampSeconds,
+        dataLength: entry.dataLength,
+        completionTimestampSeconds: entry.completionTimestampSeconds,
+        completion: entry.completion,
+      })),
+    [
+      {
+        ordinal: 1,
+        requestClass: 'map-put',
+        method: 'PUT',
+        requestTimestampSeconds: 10,
+        responseTimestampSeconds: 10.1,
+        responseStatus: 200,
+        firstDataTimestampSeconds: 10.2,
+        dataLength: 32,
+        completionTimestampSeconds: 10.3,
+        completion: 'finished',
+      },
+      {
+        ordinal: 2,
+        requestClass: 'editor-rsc',
+        method: 'GET',
+        requestTimestampSeconds: 20,
+        responseTimestampSeconds: 20.1,
+        responseStatus: 200,
+        firstDataTimestampSeconds: 20.2,
+        dataLength: 32,
+        completionTimestampSeconds: 20.3,
+        completion: 'finished',
+      },
+    ],
+  );
+  assert.deepEqual(commands, ['Performance.getMetrics', 'Performance.getMetrics']);
+  assert.deepEqual(
+    legacy
+      .find((entry) => entry.type === 'public-create-network')
+      .data.requests.map((entry) => entry.requestId),
+    ['rsc-private-id'],
+  );
+  assert.doesNotMatch(JSON.stringify(diagnostics), /private-|localhost|_rsc/);
+});
+
 test('probe literals follow the active qualification mode', () => {
   assert.deepEqual(probeLiterals('source-change'), ['Native HMR A', 'Native HMR B']);
   assert.deepEqual(probeLiterals('restored-lifecycle'), [

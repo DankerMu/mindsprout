@@ -4,13 +4,103 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { deadline } from './native-hmr-support.mjs';
+import { finiteOrNull } from './native-hmr-profile-projection.mjs';
 
-export function observeNavigation(state, record) {
+function diagnosticGetClass(url, type) {
+  if (type === 'Script') return 'script';
+  if (/^\/maps\/[^/]+$/.test(url.pathname) && url.searchParams.has('_rsc')) return 'editor-rsc';
+  return undefined;
+}
+
+function diagnosticRequestClass(request, type, origin) {
+  if (!['PUT', 'GET'].includes(request?.method)) return undefined;
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return undefined;
+  }
+  if (url.origin !== origin) return undefined;
+  if (/^\/api\/maps\/[^/]+$/.test(url.pathname))
+    return request.method === 'PUT' ? 'map-put' : 'map-get';
+  if (request.method !== 'GET') return undefined;
+  return diagnosticGetClass(url, type);
+}
+
+function createNavigationDiagnostic(options) {
+  if (!options) return undefined;
+  const requests = [];
+  const pending = new Map();
+  let omittedRequests = 0;
+  const receipt = () => {
+    const clock = options.clock();
+    return {
+      elapsedMs: finiteOrNull(clock.elapsedMs),
+      epochMs: finiteOrNull(clock.epochMs),
+    };
+  };
+  return {
+    request(data) {
+      const requestClass = diagnosticRequestClass(data.request, data.type, options.origin);
+      if (!requestClass) return;
+      if (requests.length >= 64) {
+        omittedRequests++;
+        return;
+      }
+      const row = {
+        ordinal: requests.length + 1,
+        requestClass,
+        method: data.request.method,
+        requestTimestampSeconds: finiteOrNull(data.timestamp),
+        requestReceipt: receipt(),
+        packets: 0,
+        dataLength: 0,
+        encodedDataLength: 0,
+      };
+      requests.push(row);
+      pending.set(data.requestId, row);
+    },
+    response(data) {
+      const row = pending.get(data.requestId);
+      if (!row) return;
+      row.responseTimestampSeconds = finiteOrNull(data.timestamp);
+      row.responseStatus = finiteOrNull(data.response.status);
+      row.responseReceipt = receipt();
+    },
+    data(data) {
+      const row = pending.get(data.requestId);
+      if (!row) return;
+      row.firstDataTimestampSeconds ??= finiteOrNull(data.timestamp);
+      row.lastDataTimestampSeconds = finiteOrNull(data.timestamp);
+      row.packets++;
+      row.dataLength = finiteOrNull(row.dataLength + finiteOrNull(data.dataLength));
+      row.encodedDataLength = finiteOrNull(
+        row.encodedDataLength + finiteOrNull(data.encodedDataLength),
+      );
+    },
+    completion(data, event) {
+      const row = pending.get(data.requestId);
+      if (!row) return;
+      row.completionTimestampSeconds = finiteOrNull(data.timestamp);
+      row.completion = event === 'Network.loadingFinished' ? 'finished' : 'failed';
+      row.completionReceipt = receipt();
+      row.completionEncodedDataLength = finiteOrNull(data.encodedDataLength);
+      pending.delete(data.requestId);
+    },
+    end() {
+      pending.clear();
+      options.sink({ requests, omittedRequests });
+    },
+  };
+}
+
+export function observeNavigation(state, record, diagnosticOptions) {
   let active = false;
   let omittedRequests = 0;
   const requests = new Map();
   const documents = new Map();
   const { cdp, label } = state;
+  const diagnostic = createNavigationDiagnostic(diagnosticOptions);
   cdp.on('Network.requestWillBeSent', (data) => {
     if (data.type === 'Document') {
       documents.set(data.requestId, {
@@ -22,6 +112,7 @@ export function observeNavigation(state, record) {
       });
     }
     if (!active) return;
+    diagnostic?.request(data);
     const url = new URL(data.request.url);
     if (data.type !== 'Script' && !url.searchParams.has('_rsc')) return;
     if (requests.size >= 256) {
@@ -40,6 +131,7 @@ export function observeNavigation(state, record) {
     });
   });
   cdp.on('Network.responseReceived', (data) => {
+    diagnostic?.response(data);
     const document = documents.get(data.requestId);
     if (document) {
       record(
@@ -66,6 +158,7 @@ export function observeNavigation(state, record) {
     };
   });
   cdp.on('Network.dataReceived', (data) => {
+    diagnostic?.data(data);
     const request = requests.get(data.requestId);
     if (!request) return;
     request.firstDataTimestamp ??= data.timestamp;
@@ -76,6 +169,7 @@ export function observeNavigation(state, record) {
   });
   for (const event of ['Network.loadingFinished', 'Network.loadingFailed']) {
     cdp.on(event, (data) => {
+      diagnostic?.completion(data, event);
       const document = documents.get(data.requestId);
       if (document) {
         documents.delete(data.requestId);
@@ -114,6 +208,7 @@ export function observeNavigation(state, record) {
     },
     async end() {
       active = false;
+      diagnostic?.end();
       record('public-create-outcome', {}, label);
       await snapshot('after');
       record('public-create-network', { requests: [...requests.values()], omittedRequests }, label);
