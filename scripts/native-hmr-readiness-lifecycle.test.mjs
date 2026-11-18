@@ -164,3 +164,89 @@ test('interrupting an active real sampler cannot accept late success or rearm a 
   assert(evidence.marker.samples.length <= before);
   noSecrets(evidence);
 });
+
+test('interruption during real sampler setup cannot publish a budget or revive late installation', async (t) => {
+  const fixture = await liveReadiness(t);
+  const { page, profiling, observation, now } = fixture;
+  const evaluate = page.evaluate.bind(page);
+  const entered = deferred();
+  const held = deferred();
+  page.evaluate = (fn, args) => {
+    if (fn.name !== 'installSampler') return evaluate(fn, args);
+    entered.resolve();
+    return held.promise.then(() => evaluate(fn, args));
+  };
+  let interruption;
+  t.after(
+    profiling.registerSignals((error) => {
+      interruption = error;
+    }),
+  );
+  const beginning = observation.begin();
+  await entered.promise;
+  process.emit('SIGTERM');
+  assert.match(interruption.message, /Interrupted by SIGTERM/);
+  held.resolve();
+  await beginning;
+  await fixture.sampled((sample) => sample.ordinal === 1);
+  observation.start(now());
+  observation.outcome('ready', now());
+  await observation.end();
+  const evidence = await fixture.finish();
+  assert.deepEqual(evidence.budget, {
+    start: { epochMs: null, elapsedMs: null },
+    deadline: { epochMs: null, elapsedMs: null },
+  });
+  assert.equal(evidence.outcome.status, 'unavailable');
+  assert.deepEqual(evidence.marker.samples, []);
+  assert(evidence.marker.codes.includes('interrupted'));
+  noSecrets(evidence);
+});
+
+test('detaching the actual CDP session abandons channels without changing the recorded failure', async (t) => {
+  const fixture = await liveReadiness(t);
+  const { cdp, observation, now } = fixture;
+  await observation.begin();
+  observation.start(now());
+  observation.actionSettled('fulfilled', now());
+  await fixture.sampled((sample) => sample.ordinal >= 2);
+  const failure = now();
+  observation.outcome('readiness-failed', failure);
+  await observation.end();
+  await cdp.detach();
+  observation.outcome('ready', now());
+  const evidence = await fixture.finish();
+  assert.deepEqual(evidence.outcome, {
+    status: 'readiness-failed',
+    at: { epochMs: failure.at, elapsedMs: failure.ms },
+  });
+  assert(evidence.network.codes.includes('cdp-disconnected'));
+  assert(evidence.marker.codes.includes('cdp-disconnected'));
+  assert.equal(evidence.marker.status, 'partial');
+  noSecrets(evidence);
+});
+
+for (const profile of [false, true]) {
+  test(`${profile ? 'profiled' : 'default'} readiness observation issues no additional HTTP requests`, async (t) => {
+    const fixture = await liveReadiness(t, { profile });
+    const { page, observation, now, requests, received } = fixture;
+    assert.deepEqual(requests, [{ method: 'GET', url: '/' }]);
+    await observation.begin();
+    observation.start(now());
+    observation.actionSettled('fulfilled', now());
+    await page.evaluate(() => globalThis.history.pushState({}, '', '/maps/private-no-request'));
+    if (profile) await fixture.sampled((sample) => sample.route === 'editor');
+    observation.outcome('ready', now());
+    await observation.end();
+    await page.goBack();
+    const evidence = await fixture.finish();
+    assert.deepEqual(requests, [{ method: 'GET', url: '/' }]);
+    if (profile) {
+      assert.equal(evidence.outcome.status, 'ready');
+      assert.equal(evidence.marker.shutdown, 'stopped');
+    } else {
+      assert.equal(evidence, undefined);
+      assert.deepEqual(received, []);
+    }
+  });
+}

@@ -10,21 +10,23 @@ import { createRuntimeProfile, launchNativeBrowser } from './native-hmr-runtime-
 import { digest, temporary } from './native-hmr-profile-fixtures.mjs';
 import { waitForObserved } from './native-hmr-support.mjs';
 
-export async function liveReadiness(t) {
+export async function liveReadiness(t, { profile = true } = {}) {
   const repo = temporary(t);
   const output = path.join(repo, 'output');
   fs.mkdirSync(output);
   const started = performance.now();
   const now = () => ({ at: Date.now(), ms: performance.now() - started });
   const profiling = createRuntimeProfile(
-    { profile: true, repo, out: output, mode: 'source-change', started },
+    { profile, repo, out: output, mode: 'source-change', started },
     () => ({ generation: 0, trial: 0 }),
   );
   profiling.prepare({ target: 'aarch64-apple-darwin', binarySha256: digest }, {});
+  const requests = [];
   const server = createServer((request, response) => {
+    requests.push({ method: request.method, url: request.url });
     response.writeHead(200, { 'content-type': 'text/html' });
     response.end(
-      '<!doctype html><div data-testid="map-editor-ready" style="width:20px;height:20px"></div>',
+      '<!doctype html><link rel="icon" href="data:,"><div data-testid="map-editor-ready" style="width:20px;height:20px"></div>',
     );
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -73,11 +75,16 @@ export async function liveReadiness(t) {
     observation,
     now,
     received,
+    requests,
     sampled: (predicate) =>
       waitForObserved(events, () => received.some(predicate), 1000, 'Fixture sample'),
     async finish() {
       await close();
       await profiling.finish(true);
+      if (!profile) {
+        assert.equal(fs.existsSync(path.join(output, 'safe')), false);
+        return undefined;
+      }
       return JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'))
         .publicCreate;
     },
