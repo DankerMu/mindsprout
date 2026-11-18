@@ -170,6 +170,7 @@ export function createRuntimeProfile(
     try {
       await deadline(
         (async () => {
+          if (finalizeCreate) await finalizeCreate();
           if (enabled) await Promise.all([...profilers].map((profiler) => profiler.close()));
           await browser?.close();
         })(),
@@ -207,7 +208,7 @@ export function createRuntimeProfile(
 
   async function finish(serverStopped) {
     if (!profiles) return;
-    finalizeCreate?.();
+    if (finalizeCreate) await finalizeCreate();
     for (const profiler of profilers) {
       profiler.finalize();
       profiles.recordBrowserProblems(profiler.snapshot().codes);

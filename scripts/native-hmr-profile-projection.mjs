@@ -11,6 +11,10 @@ export const limits = {
   intervals: 8,
   summary: 1024 * 1024,
   createRequests: 64,
+  createRoutes: 16,
+  markerSamples: 128,
+  markerIntervalMs: 50,
+  markerLifetimeMs: 6400,
 };
 export const modes = ['restored-lifecycle', 'source-change'];
 export const pages = ['retained-editor', 'first-navigation', 'fresh-editor'];
@@ -335,12 +339,27 @@ const createCodes = new Set([
   'missing-network-observation',
   'malformed-create-observation',
   'summary-too-large',
+  'missing-marker-observation',
+  'missing-route-observation',
+  'invalid-marker-sample',
+  'unordered-marker-sample',
+  'invalid-route-observation',
+  'sample-limit',
+  'route-limit',
+  'sampler-expired',
+  'sampler-context-lost',
+  'sampler-setup-timeout',
+  'sampler-setup-failed',
+  'sampler-disposal-timeout',
+  'sampler-disposal-failed',
 ]);
 
 function createReceipt(value) {
   return {
     ...bracket(value),
-    phase: ['observing', 'failed-tail'].includes(value?.phase) ? value.phase : 'unavailable',
+    phase: ['armed', 'observing', 'failed-tail'].includes(value?.phase)
+      ? value.phase
+      : 'unavailable',
   };
 }
 
@@ -399,9 +418,88 @@ function createSettlement(value, statuses) {
   };
 }
 
-export function safePublicCreate(value) {
+function createChannelCodes(value) {
+  return Array.isArray(value?.codes)
+    ? [...new Set(value.codes.filter((code) => createCodes.has(code)))].slice(0, createCodes.size)
+    : [];
+}
+
+function browserClock(value) {
   return {
-    ...partial('missing-marker-observation'),
+    timeOriginMs: finiteOrNull(value?.timeOriginMs),
+    nowMs: finiteOrNull(value?.nowMs),
+  };
+}
+
+function safeMarkerSample(value) {
+  if (!value || !['present', 'absent'].includes(value.presence)) return null;
+  if (!['visible', 'hidden'].includes(value.visibility)) return null;
+  if (!['home', 'editor', 'other'].includes(value.route)) return null;
+  if (!boundedInteger(value.ordinal, limits.markerSamples)) return null;
+  if (!finite(value.browser?.timeOriginMs) || !finite(value.browser?.nowMs)) return null;
+  return {
+    ordinal: value.ordinal,
+    presence: value.presence,
+    visibility: value.visibility,
+    route: value.route,
+    browser: browserClock(value.browser),
+    receipt: createReceipt(value.receipt),
+  };
+}
+
+function firstVisibleBracket(samples) {
+  const index = samples.findIndex((sample) => sample.visibility === 'visible');
+  if (index < 0) return null;
+  return { at: samples[index].browser, previous: samples[index - 1]?.browser ?? null };
+}
+
+function safeMarker(value) {
+  if (!Array.isArray(value?.samples))
+    return { ...partial('missing-marker-observation'), samples: [], omittedSamples: 0 };
+  const codes = createChannelCodes(value);
+  const projected = value.samples.slice(0, limits.markerSamples).map(safeMarkerSample);
+  if (projected.includes(null)) codes.push('invalid-marker-sample');
+  if (value.samples.length > limits.markerSamples) codes.push('sample-limit');
+  const samples = projected.filter((sample) => sample !== null);
+  return {
+    status: value.status === 'complete' && !codes.length ? 'complete' : 'partial',
+    codes: [...new Set(codes)],
+    samples,
+    firstVisible: firstVisibleBracket(samples),
+    omittedSamples: finiteOrNull(value.omittedSamples),
+    shutdown: value.shutdown === 'stopped' ? 'stopped' : 'unknown',
+  };
+}
+
+function safeRoute(value) {
+  if (!value || !['home', 'editor', 'other'].includes(value.route)) return null;
+  if (!boundedInteger(value.ordinal, limits.createRoutes)) return null;
+  return { ordinal: value.ordinal, route: value.route, receipt: createReceipt(value.receipt) };
+}
+
+function safeRoutes(value) {
+  if (!Array.isArray(value?.observations))
+    return { ...partial('missing-route-observation'), observations: [], omittedRecords: 0 };
+  const codes = createChannelCodes(value);
+  const observations = value.observations.slice(0, limits.createRoutes).map(safeRoute);
+  if (observations.includes(null)) codes.push('invalid-route-observation');
+  if (value.observations.length > limits.createRoutes) codes.push('route-limit');
+  return {
+    status: value.status === 'complete' && !codes.length ? 'complete' : 'partial',
+    codes: [...new Set(codes)],
+    observations: observations.filter((entry) => entry !== null),
+    omittedRecords: finiteOrNull(value.omittedRecords),
+  };
+}
+
+export function safePublicCreate(value) {
+  const network = safeCreateNetwork(value);
+  const marker = safeMarker(value.marker);
+  const routes = safeRoutes(value.routes);
+  const channels = [network, marker, routes];
+  return {
+    status: channels.every((channel) => channel.status === 'complete') ? 'complete' : 'partial',
+    codes: [...new Set(channels.flatMap((channel) => channel.codes))],
     attempt: 1,
     mode: modes.includes(value.mode) ? value.mode : null,
     ...intervalContext(value),
@@ -411,9 +509,9 @@ export function safePublicCreate(value) {
     },
     action: createSettlement(value.action, ['fulfilled', 'rejected']),
     outcome: createSettlement(value.outcome, ['ready', 'action-failed', 'readiness-failed']),
-    network: safeCreateNetwork(value),
-    routes: { ...partial('missing-route-observation'), observations: [], omittedRecords: 0 },
-    marker: { ...partial('missing-marker-observation'), samples: [], omittedSamples: 0 },
+    network,
+    routes,
+    marker,
   };
 }
 
@@ -431,6 +529,26 @@ export function compactPublicCreate(value) {
         value.network.omittedRequests + value.network.requests.length,
       ),
       requests: [],
+    },
+    marker: {
+      ...value.marker,
+      status: 'partial',
+      codes: [...value.marker.codes, 'summary-too-large'],
+      omittedSamples: Math.min(
+        Number.MAX_SAFE_INTEGER,
+        value.marker.omittedSamples + value.marker.samples.length,
+      ),
+      samples: [],
+    },
+    routes: {
+      ...value.routes,
+      status: 'partial',
+      codes: [...value.routes.codes, 'summary-too-large'],
+      omittedRecords: Math.min(
+        Number.MAX_SAFE_INTEGER,
+        value.routes.omittedRecords + value.routes.observations.length,
+      ),
+      observations: [],
     },
   };
 }
