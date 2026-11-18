@@ -138,8 +138,8 @@ export function createReadinessSampler(state, options, receipt) {
     omittedSamples = Math.min(Number.MAX_SAFE_INTEGER, omittedSamples + 1);
   }
   function acceptSample(value) {
-    if (!validSample(value)) return rejectSample('invalid-marker-sample');
     if (samples.length >= limits.markerSamples) return rejectSample('sample-limit');
+    if (!validSample(value)) return rejectSample('invalid-marker-sample');
     const previous = samples.at(-1);
     if (
       previous &&
