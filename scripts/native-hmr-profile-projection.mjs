@@ -10,6 +10,7 @@ export const limits = {
   generations: 5,
   intervals: 8,
   summary: 1024 * 1024,
+  createRequests: 64,
 };
 export const modes = ['restored-lifecycle', 'source-change'];
 export const pages = ['retained-editor', 'first-navigation', 'fresh-editor'];
@@ -317,5 +318,119 @@ export function safeInterval(value) {
     after: bracket(input.after),
     cpu,
     documentTransitions: transitions,
+  };
+}
+
+const createRequestClasses = [
+  'map-put',
+  'map-get',
+  'editor-rsc',
+  'script',
+  'redirect-out-of-scope',
+];
+const createCodes = new Set([
+  'request-limit',
+  'cdp-disconnected',
+  'interrupted',
+  'missing-network-observation',
+  'malformed-create-observation',
+  'summary-too-large',
+]);
+
+function createReceipt(value) {
+  return {
+    ...bracket(value),
+    phase: ['observing', 'failed-tail'].includes(value?.phase) ? value.phase : 'unavailable',
+  };
+}
+
+function safeCreateRequest(value) {
+  if (!value || !createRequestClasses.includes(value.requestClass)) return null;
+  const ordinal = boundedInteger(value.ordinal, limits.createRequests);
+  if (!ordinal) return null;
+  const request = {
+    ordinal,
+    requestClass: value.requestClass,
+    method: ['PUT', 'GET'].includes(value.method) ? value.method : 'unavailable',
+    completion: ['finished', 'failed', 'redirected', 'out-of-scope'].includes(value.completion)
+      ? value.completion
+      : 'unavailable',
+  };
+  for (const field of [
+    'requestTimestampSeconds',
+    'responseTimestampSeconds',
+    'firstDataTimestampSeconds',
+    'lastDataTimestampSeconds',
+    'completionTimestampSeconds',
+    'redirectTimestampSeconds',
+    'responseStatus',
+    'packets',
+    'dataLength',
+    'encodedDataLength',
+    'completionEncodedDataLength',
+  ])
+    request[field] = finiteOrNull(value[field]);
+  for (const field of ['requestReceipt', 'responseReceipt', 'completionReceipt', 'redirectReceipt'])
+    request[field] = createReceipt(value[field]);
+  return request;
+}
+
+function safeCreateNetwork(value) {
+  if (!Array.isArray(value.requests))
+    return { ...partial('missing-network-observation'), requests: [], omittedRequests: 0 };
+  const requests = value.requests.slice(0, limits.createRequests).map(safeCreateRequest);
+  const codes = Array.isArray(value.codes)
+    ? value.codes.filter((code) => createCodes.has(code)).slice(0, createCodes.size)
+    : [];
+  if (requests.includes(null)) codes.push('malformed-create-observation');
+  if (value.requests.length > limits.createRequests) codes.push('request-limit');
+  return {
+    status: value.status === 'complete' && !codes.length ? 'complete' : 'partial',
+    codes: [...new Set(codes)],
+    requests: requests.filter((request) => request !== null),
+    omittedRequests: finiteOrNull(value.omittedRequests),
+  };
+}
+
+function createSettlement(value, statuses) {
+  return {
+    status: statuses.includes(value?.status) ? value.status : 'unavailable',
+    at: bracket(value?.at),
+  };
+}
+
+export function safePublicCreate(value) {
+  return {
+    ...partial('missing-marker-observation'),
+    attempt: 1,
+    mode: modes.includes(value.mode) ? value.mode : null,
+    ...intervalContext(value),
+    budget: {
+      start: bracket(value.budget?.start),
+      deadline: bracket(value.budget?.deadline),
+    },
+    action: createSettlement(value.action, ['fulfilled', 'rejected']),
+    outcome: createSettlement(value.outcome, ['ready', 'action-failed', 'readiness-failed']),
+    network: safeCreateNetwork(value),
+    routes: { ...partial('missing-route-observation'), observations: [], omittedRecords: 0 },
+    marker: { ...partial('missing-marker-observation'), samples: [], omittedSamples: 0 },
+  };
+}
+
+export function compactPublicCreate(value) {
+  return {
+    ...value,
+    status: 'partial',
+    codes: [...value.codes, 'summary-too-large'],
+    network: {
+      ...value.network,
+      status: 'partial',
+      codes: [...value.network.codes, 'summary-too-large'],
+      omittedRequests: Math.min(
+        Number.MAX_SAFE_INTEGER,
+        value.network.omittedRequests + value.network.requests.length,
+      ),
+      requests: [],
+    },
   };
 }

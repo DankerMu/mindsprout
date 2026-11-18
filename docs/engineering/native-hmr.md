@@ -104,6 +104,16 @@ The collector retains at most eight gap records under the existing interval-coun
 
 Missing, invalid, unstable, over-limit, disconnected, or interrupted collection produces fixed partial codes independently of the functional result. [Implementation limits](../../scripts/native-hmr-profile-projection.mjs) own the file/run, record/sample, generation/interval, and safe-output caps. These bound ingestion and retained evidence, not Next's raw producer memory/disk or CDP allocation before receipt. No-follow capped file reads and bounded CDP operations do not establish a hard producer-memory limit.
 
+### Public-create evidence
+
+With `--profile`, `publicCreate` attributes one first-create attempt to its mode, generation, trial and page. Its budget copies the original readiness start and five-second deadline synchronously; action settlement and readiness outcome are separate observations. Neither later delivery nor another navigation can replace that outcome. [Decision 0031](../../decisions/implemented/testing/0031-public-create-readiness-evidence.md) owns this diagnostic choice.
+
+The network channel classifies same-origin item PUT/GET, editor RSC and scripts without retaining URLs, map identifiers, headers or bodies. Each redirect response belongs to the preceding hop. Excluded replacements terminate attribution; over-cap replacements retain the preceding redirect response but cannot accept subsequent response/data/completion into that hop. Standalone excluded requests consume no retained request slots. The request bound lives in [projection limits](../../scripts/native-hmr-profile-projection.mjs).
+
+Network timestamp fields ending in `Seconds` use the CDP monotonic domain; collector receipts use the [collector clock](#profile-evidence-and-interpretation). `redirectTimestampSeconds` is the replacement request event's timestamp, not an inferred response-arrival timestamp. A completed GET proves network delivery, not parsing, repository resolution, editor-session construction or rendering.
+
+Success fences network acceptance before later navigation. Failure permits passive observations only during existing capture/teardown; receipts distinguish `observing` from `failed-tail`. Page closure, interruption or publication finalizes the channel without adding a grace period. Missing route or marker evidence remains partial and cannot be inferred from network completion. Compact publication preserves attempt identity, budget, outcome and channel omission/status fields within the same total safe-output cap.
+
 ### Failure-scoped CI diagnosis
 
 The [installed-native action](../../.github/actions/native-installed-runtime/action.yml) keeps both qualification commands unprofiled. Only an eligible, non-cancelled Darwin browser-step failure selects one separately labelled diagnostic execution of the failed mode in fresh output.
