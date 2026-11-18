@@ -140,14 +140,13 @@ export function createRuntimeProfile(
       profiler.disconnect();
       finalizeNavigation?.();
     });
-    page.on('crash', () => {
+    const disconnected = () => {
       profiler.disconnect();
       finalizeNavigation?.('cdp-disconnected');
-    });
-    browser.on('disconnected', () => {
-      profiler.disconnect();
-      finalizeNavigation?.('cdp-disconnected');
-    });
+    };
+    page.on('crash', disconnected);
+    browser.on('disconnected', disconnected);
+    cdp.on('close', disconnected);
     await profiler.start();
     return diagnostic;
   }
