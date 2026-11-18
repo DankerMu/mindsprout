@@ -292,7 +292,7 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
     recordBrowserProblems,
     addPublicCreate(value) {
       if (!enabled || state.publicCreate) return;
-      state.publicCreate = safePublicCreate(value);
+      state.publicCreate = safePublicCreate(value, identity.mode);
     },
     collectServer: (context) => collectServerProfile(state, context),
     finish: (options) => finishNativeProfile(state, options),

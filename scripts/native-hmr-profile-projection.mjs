@@ -338,6 +338,7 @@ const createCodes = new Set([
   'interrupted',
   'missing-network-observation',
   'malformed-create-observation',
+  'create-provenance-mismatch',
   'summary-too-large',
   'missing-marker-observation',
   'missing-route-observation',
@@ -401,11 +402,15 @@ function safeCreateNetwork(value) {
   const codes = createChannelCodes(value, 'omittedRequests');
   if (requests.includes(null)) codes.push('malformed-create-observation');
   if (value.requests.length > limits.createRequests) codes.push('request-limit');
+  const retained = requests.filter((request) => request !== null);
   return {
     status: value.status === 'complete' && !codes.length ? 'complete' : 'partial',
     codes: [...new Set(codes)],
-    requests: requests.filter((request) => request !== null),
-    omittedRequests: boundedInteger(value.omittedRequests, Number.MAX_SAFE_INTEGER),
+    requests: retained,
+    omittedRequests: omissionTotal(
+      boundedInteger(value.omittedRequests, Number.MAX_SAFE_INTEGER),
+      value.requests.length - retained.length,
+    ),
   };
 }
 
@@ -475,7 +480,10 @@ function safeMarker(value) {
     codes: [...new Set(codes)],
     samples,
     firstVisible: firstVisibleBracket(samples),
-    omittedSamples: boundedInteger(value.omittedSamples, Number.MAX_SAFE_INTEGER),
+    omittedSamples: omissionTotal(
+      boundedInteger(value.omittedSamples, Number.MAX_SAFE_INTEGER),
+      value.samples.length - samples.length,
+    ),
     shutdown: value.shutdown === 'stopped' ? 'stopped' : 'unknown',
   };
 }
@@ -493,11 +501,15 @@ function safeRoutes(value) {
   const observations = value.observations.slice(0, limits.createRoutes).map(safeRoute);
   if (observations.includes(null)) codes.push('invalid-route-observation');
   if (value.observations.length > limits.createRoutes) codes.push('route-limit');
+  const retained = observations.filter((entry) => entry !== null);
   return {
     status: value.status === 'complete' && !codes.length ? 'complete' : 'partial',
     codes: [...new Set(codes)],
-    observations: observations.filter((entry) => entry !== null),
-    omittedRecords: boundedInteger(value.omittedRecords, Number.MAX_SAFE_INTEGER),
+    observations: retained,
+    omittedRecords: omissionTotal(
+      boundedInteger(value.omittedRecords, Number.MAX_SAFE_INTEGER),
+      value.observations.length - retained.length,
+    ),
   };
 }
 
@@ -531,7 +543,7 @@ function validCreateContext(value) {
   );
 }
 
-export function safePublicCreate(value) {
+export function safePublicCreate(value, expectedMode) {
   const network = safeCreateNetwork(value);
   const marker = safeMarker(value.marker);
   const routes = safeRoutes(value.routes);
@@ -557,10 +569,14 @@ export function safePublicCreate(value) {
     if (!summary.codes.includes('malformed-create-observation'))
       summary.codes.push('malformed-create-observation');
   }
+  if (value.mode !== expectedMode) {
+    summary.status = 'partial';
+    summary.codes.push('create-provenance-mismatch');
+  }
   return summary;
 }
 
-function compactOmissions(count, length) {
+function omissionTotal(count, length) {
   return count === null ? null : Math.min(Number.MAX_SAFE_INTEGER, count + length);
 }
 
@@ -573,27 +589,21 @@ export function compactPublicCreate(value) {
       ...value.network,
       status: 'partial',
       codes: [...value.network.codes, 'summary-too-large'],
-      omittedRequests: compactOmissions(
-        value.network.omittedRequests,
-        value.network.requests.length,
-      ),
+      omittedRequests: omissionTotal(value.network.omittedRequests, value.network.requests.length),
       requests: [],
     },
     marker: {
       ...value.marker,
       status: 'partial',
       codes: [...value.marker.codes, 'summary-too-large'],
-      omittedSamples: compactOmissions(value.marker.omittedSamples, value.marker.samples.length),
+      omittedSamples: omissionTotal(value.marker.omittedSamples, value.marker.samples.length),
       samples: [],
     },
     routes: {
       ...value.routes,
       status: 'partial',
       codes: [...value.routes.codes, 'summary-too-large'],
-      omittedRecords: compactOmissions(
-        value.routes.omittedRecords,
-        value.routes.observations.length,
-      ),
+      omittedRecords: omissionTotal(value.routes.omittedRecords, value.routes.observations.length),
       observations: [],
     },
   };
