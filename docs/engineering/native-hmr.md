@@ -116,6 +116,10 @@ The marker channel samples presence and Playwright-compatible visibility without
 
 Sampling is profile-only and begins before the original clock. Its cadence, sample/route caps and autonomous lifetime are bounded by [projection limits](../../scripts/native-hmr-profile-projection.mjs); expiry is checked before layout reads, even after a stalled callback. Invalid or out-of-order binding payloads produce fixed partial codes without retaining their raw content.
 
+An attempt owns terminal cleanup before its first awaited snapshot. Interruption or disconnection before the readiness clock prevents sampler setup and leaves the unobserved budget/outcome unknown. Coded abandonment marks network, marker and route channels partial; a healthy route listener can legitimately observe no transitions.
+
+Binding ownership is tracked independently of sampler installation. Setup preserves pre-existing globals; cleanup checks the originating document and captured function/object identities before removing owned page resources. A late acknowledgement may trigger bounded owned cleanup, but cannot revive collection or revise published evidence.
+
 Success fences collector acceptance before later navigation and requests bounded best-effort sampler disposal. A disposal timeout leaves shutdown unknown, not stopped; residual page work remains bounded by autonomous expiry or page closure. Failure keeps sampling only during existing capture/teardown, with every post-outcome receipt labelled `failed-tail`. Closure, interruption or publication finalizes evidence without a grace period. Missing route or marker evidence remains partial. Compact publication preserves attempt identity, budget, outcome, first-observed brackets and channel omission/status fields within the same total safe-output cap.
 
 Invalid provenance, budget, settlement or omission counts cannot produce complete evidence. Unknown omission counts remain null, including in compact output; rejected marker states cannot establish a visibility bracket.

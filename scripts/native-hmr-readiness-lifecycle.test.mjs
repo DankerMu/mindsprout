@@ -1,18 +1,35 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { observeEditorVisit } from './native-hmr-observation.mjs';
 import { countSamplerWork, liveReadiness } from './native-hmr-readiness-fixtures.mjs';
 import { deferred, noSecrets } from './native-hmr-profile-fixtures.mjs';
-import { waitForReadiness } from './native-hmr-support.mjs';
+import { deadline, waitForObserved, waitForReadiness } from './native-hmr-support.mjs';
+
+function acknowledgedBindingRemoval(cdp) {
+  const removed = deferred();
+  const send = cdp.send.bind(cdp);
+  cdp.send = async (method, parameters) => {
+    const result = await send(method, parameters);
+    if (method === 'Runtime.removeBinding') removed.resolve();
+    return result;
+  };
+  return removed.promise;
+}
 
 test('timed-out real sampler setup cannot revive acceptance when its page evaluation arrives late', async (t) => {
   const fixture = await liveReadiness(t);
-  const { page, observation, now } = fixture;
+  const { page, cdp, observation, now } = fixture;
   await countSamplerWork(page);
   const evaluate = page.evaluate.bind(page);
   const held = deferred();
-  page.evaluate = (fn, args) =>
-    fn.name === 'installSampler' ? held.promise.then(() => evaluate(fn, args)) : evaluate(fn, args);
+  const removed = acknowledgedBindingRemoval(cdp);
+  let installation;
+  page.evaluate = (fn, args) => {
+    if (fn.name !== 'installSampler') return evaluate(fn, args);
+    installation = held.promise.then(() => evaluate(fn, args));
+    return installation;
+  };
   await observation.begin();
   const start = now();
   observation.start(start);
@@ -20,9 +37,14 @@ test('timed-out real sampler setup cannot revive acceptance when its page evalua
   const failure = now();
   observation.outcome('readiness-failed', failure);
   await observation.end();
+  await deadline(removed, 1500, 'Fixture owned binding cleanup');
   held.resolve();
-  await fixture.sampled((sample) => sample.ordinal === 1);
-  assert((await evaluate(() => globalThis.__readinessWork.reads)) > 0);
+  await installation;
+  assert.equal(await evaluate(() => globalThis.__readinessWork.reads), 0);
+  assert.equal(
+    await evaluate(() => Object.hasOwn(globalThis, '__mindsproutReadinessSample')),
+    false,
+  );
   const evidence = await fixture.finish();
   assert.deepEqual(evidence.marker.samples, []);
   assert.equal(evidence.marker.firstVisible, null);
@@ -178,14 +200,18 @@ test('interrupting an active real sampler cannot accept late success or rearm a 
 
 test('interruption during real sampler setup cannot publish a budget or revive late installation', async (t) => {
   const fixture = await liveReadiness(t);
-  const { page, profiling, observation, now } = fixture;
+  const { page, cdp, profiling, observation, now } = fixture;
+  await countSamplerWork(page);
   const evaluate = page.evaluate.bind(page);
   const entered = deferred();
   const held = deferred();
+  const removed = acknowledgedBindingRemoval(cdp);
+  let installation;
   page.evaluate = (fn, args) => {
     if (fn.name !== 'installSampler') return evaluate(fn, args);
     entered.resolve();
-    return held.promise.then(() => evaluate(fn, args));
+    installation = held.promise.then(() => evaluate(fn, args));
+    return installation;
   };
   let interruption;
   t.after(
@@ -197,9 +223,15 @@ test('interruption during real sampler setup cannot publish a budget or revive l
   await entered.promise;
   process.emit('SIGTERM');
   assert.match(interruption.message, /Interrupted by SIGTERM/);
+  await deadline(removed, 1500, 'Fixture owned binding cleanup');
   held.resolve();
   await beginning;
-  await fixture.sampled((sample) => sample.ordinal === 1);
+  await installation;
+  assert.equal(await evaluate(() => globalThis.__readinessWork.reads), 0);
+  assert.equal(
+    await evaluate(() => Object.hasOwn(globalThis, '__mindsproutReadinessSample')),
+    false,
+  );
   observation.start(now());
   observation.outcome('ready', now());
   await observation.end();
@@ -345,4 +377,125 @@ for (const timing of ['before-attempt', 'held-snapshot']) {
       noSecrets(evidence);
     });
   }
+}
+
+for (const document of ['retained', 'reloaded']) {
+  test(`late addBinding acknowledgement cleans only its owned ${document} document after finalization`, async (t) => {
+    const fixture = await liveReadiness(t);
+    const { page, cdp, profiling, observation, now, readEvidence } = fixture;
+    const send = cdp.send.bind(cdp);
+    const created = deferred();
+    const release = deferred();
+    const removed = new EventEmitter();
+    let removals = 0;
+    let reply;
+    cdp.send = (method, parameters) => {
+      const pending = send(method, parameters);
+      if (method === 'Runtime.removeBinding') {
+        pending.then(
+          () => {
+            removals++;
+            removed.emit('event');
+          },
+          () => undefined,
+        );
+      }
+      if (method !== 'Runtime.addBinding') return pending;
+      reply = pending.then(async (result) => {
+        created.resolve();
+        await release.promise;
+        return result;
+      });
+      return reply;
+    };
+    const beginning = observation.begin();
+    await created.promise;
+    assert.equal(
+      await page.evaluate(() => typeof globalThis.__mindsproutReadinessSample),
+      'function',
+    );
+    await beginning;
+    if (document === 'reloaded') {
+      await page.reload();
+      await page.evaluate(() => {
+        globalThis.__foreignBinding = () => 'foreign';
+        globalThis.__mindsproutReadinessSample = globalThis.__foreignBinding;
+      });
+    }
+    observation.start(now());
+    observation.actionSettled('fulfilled', now());
+    observation.outcome('readiness-failed', now());
+    await observation.end();
+    await profiling.finish(true);
+    const published = readEvidence();
+    release.resolve();
+    await reply;
+    await waitForObserved(removed, () => removals > 0, 1500, 'Owned binding removal');
+    if (document === 'retained') {
+      await page.waitForFunction(() => !Object.hasOwn(globalThis, '__mindsproutReadinessSample'));
+    } else {
+      assert.equal(
+        await page.evaluate(
+          () => globalThis.__mindsproutReadinessSample === globalThis.__foreignBinding,
+        ),
+        true,
+      );
+    }
+    assert.deepEqual(published.marker.samples, []);
+    assert(published.marker.codes.includes('sampler-setup-timeout'));
+    assert.deepEqual(readEvidence(), published);
+    noSecrets(published);
+  });
+}
+
+for (const failure of ['install-conflict', 'evaluation-rejected', 'foreign-binding']) {
+  test(`${failure} releases owned binding resources without deleting foreign page globals`, async (t) => {
+    const fixture = await liveReadiness(t);
+    const { page, profiling, observation, now, readEvidence } = fixture;
+    if (failure === 'evaluation-rejected') {
+      const evaluate = page.evaluate.bind(page);
+      page.evaluate = (fn, parameters) => {
+        if (fn.name === 'installSampler')
+          return Promise.reject(new Error('PRIVATE_CANARY_evaluate'));
+        return evaluate(fn, parameters);
+      };
+    } else {
+      await page.evaluate((foreignBinding) => {
+        globalThis.__foreignStopped = 0;
+        globalThis.__foreignSampler = {
+          stop() {
+            globalThis.__foreignStopped++;
+          },
+          foreign: true,
+        };
+        globalThis.__mindsproutReadinessSampler = globalThis.__foreignSampler;
+        if (foreignBinding) {
+          globalThis.__foreignBinding = () => 'foreign';
+          globalThis.__mindsproutReadinessSample = globalThis.__foreignBinding;
+        }
+      }, failure === 'foreign-binding');
+    }
+    await observation.begin();
+    observation.start(now());
+    observation.outcome('readiness-failed', now());
+    await observation.end();
+    await profiling.finish(true);
+    const evidence = readEvidence();
+    const globals = await page.evaluate(() => ({
+      binding: Object.hasOwn(globalThis, '__mindsproutReadinessSample'),
+      foreignBinding: globalThis.__mindsproutReadinessSample === globalThis.__foreignBinding,
+      foreignSampler: globalThis.__mindsproutReadinessSampler === globalThis.__foreignSampler,
+      foreignStopped: globalThis.__foreignStopped,
+    }));
+    assert.equal(globals.binding, failure === 'foreign-binding');
+    if (failure !== 'evaluation-rejected') {
+      assert.equal(globals.foreignSampler, true);
+      assert.equal(globals.foreignStopped, 0);
+    }
+    if (failure === 'foreign-binding') assert.equal(globals.foreignBinding, true);
+    assert.equal(evidence.marker.status, 'partial');
+    assert(evidence.marker.codes.includes('sampler-setup-failed'));
+    assert.deepEqual(evidence.marker.samples, []);
+    noSecrets(evidence);
+  });
 }

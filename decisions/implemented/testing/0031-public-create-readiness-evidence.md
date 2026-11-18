@@ -18,12 +18,15 @@ Extend the existing opt-in observer and safe-summary publisher, rather than addi
 
 Capture an original failure once. Passive evidence may continue through existing failure capture, but cannot renew its deadline or qualify it retroactively. Fence successful attempts before subsequent navigation, and finalize failed attempts on closure or publication. Project every publication field explicitly, including compact output; unavailable observations remain partial.
 
+Register attempt termination before asynchronous observation begins. Treat binding acquisition and sampler installation as distinct owned resources: acknowledgement delay or failed installation must not bypass cleanup, while foreign globals and later documents remain outside that ownership.
+
 ## Alternatives considered
 
 - **Infer data readiness from API completion or SPA history.** Network delivery and URL changes do not establish application promise resolution, a React commit or visible readiness.
 - **Extend the assertion deadline or wait for late evidence.** That changes the measured qualification and can turn a failed attempt into an apparent success.
 - **Replace a request row when CDP reuses its ID.** A redirect's response belongs to the preceding hop. Excluded or over-cap replacements must terminate attribution rather than overwrite earlier evidence.
 - **Upload raw event records.** URLs, identifiers, headers, bodies and error strings are not safe diagnostic fields; raw fallback also defeats bounded publication.
+- **Gate cleanup solely on successful sampler installation.** A binding can already exist when its acknowledgement times out or installation fails. Ownership must survive that gap without requiring late page work to occur.
 
 ## Consequences
 

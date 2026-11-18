@@ -57,6 +57,29 @@ test('safe public-create evidence preserves the original budget and failure afte
     timestamp: 16.1,
     encodedDataLength: 48,
   });
+  cdp.emit('Network.requestWillBeSent', {
+    requestId: 'private-late-chain',
+    type: 'Fetch',
+    request: { method: 'PUT', url: 'http://localhost:3000/api/maps/private-id' },
+    timestamp: 17,
+  });
+  cdp.emit('Network.requestWillBeSent', {
+    requestId: 'private-late-chain',
+    type: 'Fetch',
+    request: { method: 'GET', url: 'http://localhost:3000/api/maps/private-id' },
+    timestamp: 18,
+    redirectResponse: { status: 303 },
+  });
+  cdp.emit('Network.responseReceived', {
+    requestId: 'private-late-chain',
+    timestamp: 19,
+    response: { status: 200 },
+  });
+  cdp.emit('Network.loadingFinished', {
+    requestId: 'private-late-chain',
+    timestamp: 19.1,
+    encodedDataLength: 48,
+  });
   observation.outcome?.('ready', { at: 1800000007000, ms: 7000.5 });
   observation.start?.({ at: 1800000008000, ms: 8000 });
   page.emit('close');
@@ -96,6 +119,35 @@ test('safe public-create evidence preserves the original budget and failure afte
         completion: 'finished',
         completionTimestampSeconds: 16.1,
       },
+      {
+        ordinal: 2,
+        requestClass: 'map-put',
+        method: 'PUT',
+        responseStatus: 303,
+        completion: 'redirected',
+        completionTimestampSeconds: null,
+      },
+      {
+        ordinal: 3,
+        requestClass: 'map-get',
+        method: 'GET',
+        responseStatus: 200,
+        completion: 'finished',
+        completionTimestampSeconds: 19.1,
+      },
+    ],
+  );
+  assert.deepEqual(
+    summary.publicCreate.network.requests.map((request) => [
+      request.requestReceipt.phase,
+      request.responseReceipt.phase,
+      request.completionReceipt.phase,
+      request.redirectReceipt.phase,
+    ]),
+    [
+      ['observing', 'failed-tail', 'failed-tail', 'unavailable'],
+      ['failed-tail', 'unavailable', 'unavailable', 'failed-tail'],
+      ['failed-tail', 'failed-tail', 'failed-tail', 'unavailable'],
     ],
   );
   noSecrets(summary);
@@ -318,6 +370,9 @@ for (const held of [false, true]) {
     observation.outcome('ready', success);
     await observation.end();
     await page.goBack();
+    await evaluate(() =>
+      fetch('/api/maps/private-post-success').then((response) => response.text()),
+    );
     const atHome = await evaluate(() => globalThis.__readinessWork.reads);
     if (held) {
       assert(
@@ -352,6 +407,7 @@ for (const held of [false, true]) {
       );
     }
     const evidence = await fixture.finish();
+    assert.deepEqual(evidence.network.requests, []);
     assert.deepEqual(evidence.outcome, {
       status: 'ready',
       at: { epochMs: success.at, elapsedMs: success.ms },
@@ -416,6 +472,7 @@ test('hostile real binding payloads and cap-plus-one observations remain bounded
   assert.equal(evidence.marker.samples.length, 128);
   assert.equal(evidence.routes.observations.length, 16);
   assert.equal(evidence.routes.omittedRecords, 1);
+  assert(evidence.routes.observations.every((entry) => entry.receipt.phase === 'failed-tail'));
   assert(evidence.marker.codes.includes('invalid-marker-sample'));
   assert(evidence.marker.codes.includes('unordered-marker-sample'));
   assert(evidence.marker.codes.includes('sample-limit'));
