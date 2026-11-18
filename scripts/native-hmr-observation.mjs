@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { deadline } from './native-hmr-support.mjs';
 import { bracket, finiteOrNull, limits } from './native-hmr-profile-projection.mjs';
+import { createReadinessSampler } from './native-hmr-readiness-sampler.mjs';
 
 function diagnosticGetClass(url, type) {
   if (type === 'Script') return 'script';
@@ -36,7 +37,7 @@ function originalClock(input) {
   return bracket({ epochMs: value.at, elapsedMs: value.ms });
 }
 
-function createNavigationDiagnostic(options) {
+function createNavigationDiagnostic(state, options) {
   if (!options) return undefined;
   const requests = [];
   const pending = new Map();
@@ -44,6 +45,7 @@ function createNavigationDiagnostic(options) {
   let phase = 'armed';
   const attempt = {};
   const problems = new Set();
+  let finalization;
   const receipt = () => {
     const clock = options.clock();
     return {
@@ -52,6 +54,7 @@ function createNavigationDiagnostic(options) {
       phase,
     };
   };
+  const sampler = options.claim ? createReadinessSampler(state, options, receipt) : undefined;
   function redirect(data) {
     const previous = pending.get(data.requestId);
     if (!previous || !data.redirectResponse) return false;
@@ -61,26 +64,29 @@ function createNavigationDiagnostic(options) {
     previous.completion = 'redirected';
     return true;
   }
-  function finalize(code) {
-    if (phase === 'finalized') return;
-    if (code) problems.add(code);
-    if (omittedRequests) problems.add('request-limit');
-    phase = 'finalized';
-    pending.clear();
+  function publish() {
     options.sink({
       ...attempt,
+      ...sampler?.snapshot(),
       requests,
       omittedRequests,
       status: problems.size ? 'partial' : 'complete',
       codes: [...problems],
     });
   }
+  function finalize(code) {
+    if (phase === 'finalized') return finalization;
+    if (code) problems.add(code);
+    if (omittedRequests) problems.add('request-limit');
+    phase = 'finalized';
+    pending.clear();
+    const stopped = sampler?.stop(code);
+    if (stopped) finalization = stopped.then(publish);
+    else publish();
+    return finalization;
+  }
   function start(value) {
     if (phase !== 'armed') return;
-    if (options.claim && !options.claim(finalize)) {
-      phase = 'finalized';
-      return;
-    }
     const start = originalClock(value);
     attempt.budget = {
       start,
@@ -95,8 +101,14 @@ function createNavigationDiagnostic(options) {
     ['observing', 'failed-tail'].includes(phase) && pending.get(id) !== null;
   return {
     start,
-    begin() {
+    async begin() {
+      if (phase !== 'armed') return;
+      if (options.claim && !options.claim(finalize)) {
+        phase = 'finalized';
+        return;
+      }
       if (!options.claim) phase = 'observing';
+      await sampler?.begin();
     },
     actionSettled(status, value) {
       if (phase !== 'observing' || attempt.action) return;
@@ -168,7 +180,8 @@ function createNavigationDiagnostic(options) {
       pending.delete(data.requestId);
     },
     end() {
-      if (!options.claim) finalize();
+      if (!options.claim) return finalize();
+      return finalization;
     },
   };
 }
@@ -179,7 +192,7 @@ export function observeNavigation(state, record, diagnosticOptions) {
   const requests = new Map();
   const documents = new Map();
   const { cdp, label } = state;
-  const diagnostic = createNavigationDiagnostic(diagnosticOptions);
+  const diagnostic = createNavigationDiagnostic(state, diagnosticOptions);
   cdp.on('Network.requestWillBeSent', (data) => {
     if (data.type === 'Document') {
       documents.set(data.requestId, {
@@ -291,12 +304,12 @@ export function observeNavigation(state, record, diagnosticOptions) {
     outcome: (status, value) => diagnostic?.outcome(status, value),
     async begin() {
       await snapshot('before');
-      diagnostic?.begin();
+      if (diagnostic) await diagnostic.begin();
       active = true;
     },
     async end() {
       active = false;
-      diagnostic?.end();
+      if (diagnostic) await diagnostic.end();
       record('public-create-outcome', {}, label);
       await snapshot('after');
       record('public-create-network', { requests: [...requests.values()], omittedRequests }, label);
