@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { deadline } from './native-hmr-support.mjs';
 import {
   boundedInteger,
@@ -10,16 +11,43 @@ import {
 const bindingName = '__mindsproutReadinessSample';
 const samplerName = '__mindsproutReadinessSampler';
 
-function installSampler({ bindingName, samplerName, epoch, interval, maximum, lifetime }) {
-  if (globalThis[samplerName] || typeof globalThis[bindingName] !== 'function') return 'conflict';
+function prepareBinding({ bindingName, samplerName, ownerKey, epoch }) {
+  if (bindingName in globalThis || samplerName in globalThis) return { status: 'conflict' };
+  const timeOriginMs = performance.timeOrigin;
+  Object.defineProperty(globalThis, ownerKey, {
+    value: { epoch, timeOriginMs, binding: null, sampler: null },
+    configurable: true,
+  });
+  return { status: 'prepared', timeOriginMs };
+}
+
+function captureBinding({ bindingName, ownerKey, epoch }) {
+  const owner = globalThis[ownerKey];
+  if (!owner || owner.epoch !== epoch) return false;
+  if (typeof globalThis[bindingName] !== 'function') return false;
+  owner.binding = globalThis[bindingName];
+  return true;
+}
+
+function installSampler({
+  bindingName,
+  samplerName,
+  ownerKey,
+  epoch,
+  interval,
+  maximum,
+  lifetime,
+}) {
+  const owner = globalThis[ownerKey];
+  if (!owner || owner.epoch !== epoch || !owner.binding) return 'conflict';
+  if (globalThis[samplerName] || globalThis[bindingName] !== owner.binding) return 'conflict';
   const armed = performance.now();
   const timeOriginMs = performance.timeOrigin;
   let timer;
   let count = 0;
   let last = -Infinity;
   let stopped = false;
-  const send = (value) =>
-    globalThis[bindingName](JSON.stringify({ epoch, timeOriginMs, ...value }));
+  const send = (value) => owner.binding(JSON.stringify({ epoch, timeOriginMs, ...value }));
   const stop = () => {
     stopped = true;
     clearTimeout(timer);
@@ -67,17 +95,23 @@ function installSampler({ bindingName, samplerName, epoch, interval, maximum, li
     });
     timer = setTimeout(sample, interval);
   }
-  Object.defineProperty(globalThis, samplerName, { value: { stop, epoch }, configurable: true });
+  owner.sampler = { stop, epoch };
+  Object.defineProperty(globalThis, samplerName, { value: owner.sampler, configurable: true });
   sample();
   return 'installed';
 }
 
-function disposeSampler({ bindingName, samplerName, epoch }) {
-  const sampler = globalThis[samplerName];
-  if (!sampler || sampler.epoch !== epoch) return 'unavailable';
-  sampler.stop();
-  Reflect.deleteProperty(globalThis, samplerName);
-  Reflect.deleteProperty(globalThis, bindingName);
+function disposeSampler({ bindingName, samplerName, ownerKey, epoch, timeOriginMs }) {
+  if (performance.timeOrigin !== timeOriginMs) return 'context-lost';
+  const owner = globalThis[ownerKey];
+  if (!owner || owner.epoch !== epoch) return 'unavailable';
+  if (owner.sampler) {
+    owner.sampler.stop();
+    if (globalThis[samplerName] === owner.sampler) Reflect.deleteProperty(globalThis, samplerName);
+  }
+  if (!owner.binding && Object.hasOwn(globalThis, bindingName)) return 'ownership-pending';
+  if (globalThis[bindingName] === owner.binding) Reflect.deleteProperty(globalThis, bindingName);
+  Reflect.deleteProperty(globalThis, ownerKey);
   return 'stopped';
 }
 
@@ -104,6 +138,16 @@ function validSample(value) {
 
 export function createReadinessSampler(state, options, receipt) {
   const { page, cdp } = state;
+  const ownership = {
+    ownerKey: `__mindsproutReadinessOwner_${randomUUID().replaceAll('-', '')}`,
+    epoch: 1,
+    revision: 0,
+    attempted: -1,
+    issued: false,
+    removed: false,
+    released: false,
+    timeOriginMs: null,
+  };
   const samples = [];
   const observations = [];
   const markerCodes = new Set();
@@ -117,7 +161,9 @@ export function createReadinessSampler(state, options, receipt) {
   let omittedSamples = 0;
   let omittedRecords = 0;
   let shutdown = 'unknown';
-  let installed = false;
+  let cleanupPromise;
+  let cleanupRunning = false;
+  let sealed = false;
   let stopping;
   const listeners = [];
   const listen = (event, handler) => {
@@ -131,10 +177,13 @@ export function createReadinessSampler(state, options, receipt) {
     listeners.length = 0;
   }
   function abandon(code) {
-    markerCodes.add(code);
-    routeCodes.add(code);
+    if (!sealed) {
+      markerCodes.add(code);
+      routeCodes.add(code);
+    }
     epoch++;
     fence();
+    void cleanupOwned();
   }
   function rejectSample(code) {
     markerCodes.add(code);
@@ -216,6 +265,33 @@ export function createReadinessSampler(state, options, receipt) {
     });
     listen('Runtime.executionContextsCleared', () => abandon('sampler-context-lost'));
   }
+  const ownerParameters = () => ({
+    bindingName,
+    samplerName,
+    ownerKey: ownership.ownerKey,
+    epoch: ownership.epoch,
+    timeOriginMs: ownership.timeOriginMs,
+  });
+  async function addOwnedBinding() {
+    ownership.issued = true;
+    ownership.revision++;
+    const added = cdp.send('Runtime.addBinding', {
+      name: bindingName,
+      executionContextId: contextId,
+    });
+    added.catch(() => undefined);
+    // Capture in the same CDP context before awaiting an acknowledgement that may arrive late.
+    const captured = await cdp.send('Runtime.callFunctionOn', {
+      executionContextId: contextId,
+      functionDeclaration: captureBinding.toString(),
+      arguments: [{ value: ownerParameters() }],
+      returnByValue: true,
+    });
+    if (captured.result?.value === true) ownership.revision++;
+    else throw new Error('Binding ownership unavailable');
+    if (!accepting && epoch !== ownership.epoch) void cleanupOwned();
+    await added;
+  }
   async function setup(token) {
     if (!frameId) frameId = (await cdp.send('Page.getFrameTree')).frameTree.frame.id;
     if (epoch !== token) return;
@@ -223,21 +299,35 @@ export function createReadinessSampler(state, options, receipt) {
     await cdp.send('Runtime.enable');
     if (epoch !== token) return;
     if (!integer(contextId)) throw new Error('Missing main execution context');
-    await cdp.send('Runtime.addBinding', { name: bindingName, executionContextId: contextId });
-    if (epoch !== token) return;
+    const prepared = await page.evaluate(prepareBinding, ownerParameters());
+    if (prepared.status !== 'prepared') throw new Error('Sampler binding conflict');
+    ownership.timeOriginMs = prepared.timeOriginMs;
+    ownership.revision++;
+    if (epoch !== token) {
+      void cleanupOwned();
+      return;
+    }
+    await addOwnedBinding();
+    if (epoch !== token) {
+      void cleanupOwned();
+      return;
+    }
     accepting = true;
     sampling = true;
     const result = await page.evaluate(installSampler, {
       bindingName,
       samplerName,
+      ownerKey: ownership.ownerKey,
       epoch: token,
       interval: limits.markerIntervalMs,
       maximum: limits.markerSamples,
       lifetime: limits.markerLifetimeMs,
     });
-    if (epoch !== token) return;
+    if (epoch !== token) {
+      void cleanupOwned();
+      return;
+    }
     if (result !== 'installed') throw new Error('Sampler installation unavailable');
-    installed = true;
   }
   async function begin() {
     if (typeof page?.evaluate !== 'function') {
@@ -254,43 +344,65 @@ export function createReadinessSampler(state, options, receipt) {
       );
     }
   }
-  async function dispose(token) {
-    const result = await page.evaluate(disposeSampler, { bindingName, samplerName, epoch: token });
-    await cdp.send('Runtime.removeBinding', { name: bindingName });
-    return result;
+  async function dispose() {
+    try {
+      return await page.evaluate(disposeSampler, ownerParameters());
+    } finally {
+      if (ownership.issued && !ownership.removed) {
+        await cdp.send('Runtime.removeBinding', { name: bindingName });
+        ownership.removed = true;
+      }
+    }
   }
-  async function stopWork(token) {
+  function cleanupResult(result) {
+    if (['stopped', 'context-lost'].includes(result)) {
+      ownership.released = true;
+      if (!sealed) shutdown = 'stopped';
+    } else if (!sealed) markerCodes.add('sampler-disposal-failed');
+  }
+
+  async function stopWork() {
     if (page?.isClosed?.()) {
-      shutdown = 'stopped';
+      cleanupResult('stopped');
       return;
     }
-    if (!installed) return;
     try {
-      const result = await deadline(dispose(token), 1000, 'Readiness sampler disposal');
-      if (result === 'stopped') shutdown = 'stopped';
-      else markerCodes.add('sampler-disposal-failed');
+      const result = await deadline(dispose(), 1000, 'Readiness sampler disposal');
+      cleanupResult(result);
     } catch (error) {
-      markerCodes.add(
-        error.message === 'Readiness sampler disposal exceeded 1000ms'
-          ? 'sampler-disposal-timeout'
-          : 'sampler-disposal-failed',
-      );
+      if (!sealed)
+        markerCodes.add(
+          error.message === 'Readiness sampler disposal exceeded 1000ms'
+            ? 'sampler-disposal-timeout'
+            : 'sampler-disposal-failed',
+        );
     }
+  }
+  function cleanupOwned() {
+    if (ownership.released || ownership.revision === 0) return Promise.resolve();
+    if (ownership.attempted === ownership.revision) return cleanupPromise;
+    if (cleanupRunning) return cleanupPromise.then(cleanupOwned);
+    ownership.attempted = ownership.revision;
+    cleanupRunning = true;
+    cleanupPromise = stopWork().finally(() => {
+      cleanupRunning = false;
+    });
+    return cleanupPromise;
   }
   function stop(code) {
     if (stopping) return stopping;
-    const token = epoch;
     if (code) {
       markerCodes.add(code);
       routeCodes.add(code);
     }
     fence();
     epoch++;
-    stopping = stopWork(token);
+    stopping = cleanupOwned();
     return stopping;
   }
   function snapshot() {
     if (!samples.length) markerCodes.add('missing-marker-observation');
+    sealed = true;
     return {
       marker: {
         status: markerCodes.size ? 'partial' : 'complete',

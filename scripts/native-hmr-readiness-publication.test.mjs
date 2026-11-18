@@ -338,3 +338,65 @@ test('a public-create mode from another invocation is partial without silently r
   assert(summary.publicCreate.codes.includes('create-provenance-mismatch'));
   noSecrets(summary);
 });
+
+for (const compact of [false, true]) {
+  for (const code of ['interrupted', 'cdp-disconnected']) {
+    test(`${compact ? 'compact' : 'full'} publication preserves all abandoned channels and failed-tail provenance for ${code}`, async (t) => {
+      const { repo, output, value } = collector(t, {
+        identity: { ...identity(), mode: 'source-change' },
+      });
+      value.prepare();
+      await existingProfileEvidence(repo, value, compact);
+      const input = publicCreate();
+      input.outcome.status = 'readiness-failed';
+      for (const channel of [input, input.marker, input.routes]) {
+        channel.status = 'partial';
+        channel.codes = [code];
+      }
+      input.requests[0].requestReceipt = {
+        epochMs: 1800000001100,
+        elapsedMs: 1100,
+        phase: 'observing',
+      };
+      input.requests[0].responseReceipt = {
+        epochMs: 1800000002100,
+        elapsedMs: 2100,
+        phase: 'failed-tail',
+      };
+      input.requests[0].completionReceipt = {
+        epochMs: 1800000002200,
+        elapsedMs: 2200,
+        phase: 'failed-tail',
+      };
+      input.routes.observations[0].receipt = {
+        epochMs: 1800000002150,
+        elapsedMs: 2150,
+        phase: 'failed-tail',
+      };
+      value.addPublicCreate(input);
+      await value.finish();
+      const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+      const evidence = summary.publicCreate;
+      assert.equal(summary.codes.includes('summary-too-large'), compact);
+      for (const channel of [evidence.network, evidence.marker, evidence.routes]) {
+        assert.equal(channel.status, 'partial');
+        assert(channel.codes.includes(code));
+      }
+      assert.deepEqual(evidence.budget, {
+        start: { epochMs: 1800000001000, elapsedMs: 1000 },
+        deadline: { epochMs: 1800000006000, elapsedMs: 6000 },
+      });
+      assert.deepEqual(evidence.outcome, {
+        status: 'readiness-failed',
+        at: { epochMs: 1800000002000, elapsedMs: 2000 },
+      });
+      if (!compact) {
+        assert.equal(evidence.network.requests[0].requestReceipt.phase, 'observing');
+        assert.equal(evidence.network.requests[0].responseReceipt.phase, 'failed-tail');
+        assert.equal(evidence.network.requests[0].completionReceipt.phase, 'failed-tail');
+        assert.equal(evidence.routes.observations[0].receipt.phase, 'failed-tail');
+      }
+      noSecrets(summary);
+    });
+  }
+}
