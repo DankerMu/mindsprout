@@ -138,7 +138,7 @@ test('an original action rejection remains authoritative while real diagnostic s
 
 test('interrupting an active real sampler cannot accept late success or rearm a new attempt', async (t) => {
   const fixture = await liveReadiness(t);
-  const { profiling, observation, now, received } = fixture;
+  const { page, profiling, observation, now, received } = fixture;
   let interruption;
   const remove = profiling.registerSignals((error) => {
     interruption = error;
@@ -148,10 +148,12 @@ test('interrupting an active real sampler cannot accept late success or rearm a 
   const start = now();
   observation.start(start);
   observation.actionSettled('fulfilled', now());
-  await fixture.sampled((sample) => sample.ordinal >= 2);
+  await page.evaluate(() => globalThis.history.pushState({}, '', '/maps/private-active'));
+  await fixture.sampled((sample) => sample.route === 'editor');
   const before = received.length;
   process.emit('SIGINT');
   assert.match(interruption.message, /Interrupted by SIGINT/);
+  await page.evaluate(() => globalThis.history.pushState({}, '', '/'));
   observation.outcome('ready', now());
   observation.start(now());
   await observation.end();
@@ -162,6 +164,15 @@ test('interrupting an active real sampler cannot accept late success or rearm a 
   assert(evidence.marker.codes.includes('interrupted'));
   assert(evidence.network.codes.includes('interrupted'));
   assert(evidence.marker.samples.length <= before);
+  for (const channel of [evidence.network, evidence.marker, evidence.routes]) {
+    assert.equal(channel.status, 'partial');
+    assert(channel.codes.includes('interrupted'));
+  }
+  assert.deepEqual(
+    evidence.routes.observations.map((entry) => entry.route),
+    ['editor'],
+  );
+  assert.equal(evidence.routes.observations[0].receipt.phase, 'observing');
   noSecrets(evidence);
 });
 
@@ -205,15 +216,17 @@ test('interruption during real sampler setup cannot publish a budget or revive l
 
 test('detaching the actual CDP session abandons channels without changing the recorded failure', async (t) => {
   const fixture = await liveReadiness(t);
-  const { cdp, observation, now } = fixture;
+  const { page, cdp, observation, now } = fixture;
   await observation.begin();
   observation.start(now());
   observation.actionSettled('fulfilled', now());
-  await fixture.sampled((sample) => sample.ordinal >= 2);
+  await page.evaluate(() => globalThis.history.pushState({}, '', '/maps/private-detach'));
+  await fixture.sampled((sample) => sample.route === 'editor');
   const failure = now();
   observation.outcome('readiness-failed', failure);
   await observation.end();
   await cdp.detach();
+  await page.evaluate(() => globalThis.history.pushState({}, '', '/'));
   observation.outcome('ready', now());
   const evidence = await fixture.finish();
   assert.deepEqual(evidence.outcome, {
@@ -223,6 +236,14 @@ test('detaching the actual CDP session abandons channels without changing the re
   assert(evidence.network.codes.includes('cdp-disconnected'));
   assert(evidence.marker.codes.includes('cdp-disconnected'));
   assert.equal(evidence.marker.status, 'partial');
+  for (const channel of [evidence.network, evidence.marker, evidence.routes]) {
+    assert.equal(channel.status, 'partial');
+    assert(channel.codes.includes('cdp-disconnected'));
+  }
+  assert.deepEqual(
+    evidence.routes.observations.map((entry) => entry.route),
+    ['editor'],
+  );
   noSecrets(evidence);
 });
 
@@ -249,4 +270,79 @@ for (const profile of [false, true]) {
       assert.deepEqual(received, []);
     }
   });
+}
+
+async function terminateBeforeClaim(fixture, terminal, t) {
+  if (terminal === 'SIGINT') {
+    t.after(fixture.profiling.registerSignals(() => undefined));
+    process.emit('SIGINT');
+  } else if (terminal === 'page-close') {
+    await fixture.page.close();
+  } else if (terminal === 'browser-disconnect') {
+    await fixture.browser.close();
+  } else if (terminal === 'cdp-close') {
+    await fixture.cdp.detach();
+  } else {
+    const crashed = fixture.page.waitForEvent('crash');
+    const settled = fixture.cdp.send('Page.crash').catch(() => undefined);
+    await crashed;
+    return { settled };
+  }
+  return {};
+}
+
+for (const timing of ['before-attempt', 'held-snapshot']) {
+  for (const terminal of ['SIGINT', 'page-close', 'crash', 'browser-disconnect', 'cdp-close']) {
+    test(`${terminal} ${timing} prevents diagnostic setup and fabricated original budget`, async (t) => {
+      const fixture = await liveReadiness(t);
+      const { cdp, observation, now, received } = fixture;
+      const commands = [];
+      const send = cdp.send.bind(cdp);
+      const entered = deferred();
+      const release = deferred();
+      cdp.send = async (method, parameters) => {
+        commands.push(method);
+        const result = await send(method, parameters);
+        if (timing === 'held-snapshot' && method === 'Performance.getMetrics') {
+          entered.resolve();
+          await release.promise;
+        }
+        return result;
+      };
+      let beginning;
+      if (timing === 'held-snapshot') {
+        beginning = observation.begin();
+        await entered.promise;
+      }
+      const { settled } = await terminateBeforeClaim(fixture, terminal, t);
+      release.resolve();
+      if (beginning) await beginning;
+      else await observation.begin();
+      observation.start(now());
+      observation.actionSettled('fulfilled', now());
+      observation.outcome('ready', now());
+      await observation.end();
+      const evidence = await fixture.finish();
+      await settled;
+      assert.deepEqual(
+        commands.filter((method) =>
+          ['Runtime.enable', 'Runtime.addBinding', 'Page.getFrameTree'].includes(method),
+        ),
+        [],
+      );
+      assert.deepEqual(received, []);
+      assert.deepEqual(evidence.budget, {
+        start: { epochMs: null, elapsedMs: null },
+        deadline: { epochMs: null, elapsedMs: null },
+      });
+      assert.equal(evidence.action.status, 'unavailable');
+      assert.equal(evidence.outcome.status, 'unavailable');
+      const code = terminal === 'SIGINT' ? 'interrupted' : 'cdp-disconnected';
+      for (const channel of [evidence.network, evidence.marker, evidence.routes]) {
+        assert.equal(channel.status, 'partial');
+        assert(channel.codes.includes(code));
+      }
+      noSecrets(evidence);
+    });
+  }
 }

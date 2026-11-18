@@ -70,6 +70,7 @@ export async function liveReadiness(t, { profile = true } = {}) {
   });
   return {
     page,
+    browser,
     cdp,
     profiling,
     observation,

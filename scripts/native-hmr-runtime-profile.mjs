@@ -114,6 +114,8 @@ export function createRuntimeProfile(
     if (!enabled) return;
     let finalizeNavigation;
     let attemptContext;
+    let terminalCause =
+      page.isClosed?.() || browser.isConnected?.() === false ? 'cdp-disconnected' : undefined;
     const diagnostic = navigation
       ? {
           origin: navigation.origin,
@@ -123,6 +125,11 @@ export function createRuntimeProfile(
             attemptContext = { ...context(), page: label, mode };
             finalizeCreate = finalize;
             finalizeNavigation = finalize;
+            const cause = interrupted ? 'interrupted' : terminalCause;
+            if (cause) {
+              finalize(cause);
+              return false;
+            }
             return true;
           },
           sink: (value) => profiles.addPublicCreate({ ...value, ...attemptContext }),
@@ -139,10 +146,12 @@ export function createRuntimeProfile(
     });
     profilers.add(profiler);
     page.on('close', () => {
+      terminalCause ??= 'cdp-disconnected';
       profiler.disconnect();
-      finalizeNavigation?.();
+      finalizeNavigation?.('page-closed');
     });
     const disconnected = () => {
+      terminalCause ??= 'cdp-disconnected';
       profiler.disconnect();
       finalizeNavigation?.('cdp-disconnected');
     };

@@ -280,7 +280,10 @@ export function createReadinessSampler(state, options, receipt) {
   function stop(code) {
     if (stopping) return stopping;
     const token = epoch;
-    if (code) markerCodes.add(code);
+    if (code) {
+      markerCodes.add(code);
+      routeCodes.add(code);
+    }
     fence();
     epoch++;
     stopping = stopWork(token);

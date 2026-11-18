@@ -46,6 +46,7 @@ function createNavigationDiagnostic(state, options) {
   const attempt = {};
   const problems = new Set();
   let finalization;
+  let claimed = false;
   const receipt = () => {
     const clock = options.clock();
     return {
@@ -76,6 +77,7 @@ function createNavigationDiagnostic(state, options) {
   }
   function finalize(code) {
     if (phase === 'finalized') return finalization;
+    if (code === 'page-closed') code = phase === 'armed' ? 'cdp-disconnected' : undefined;
     if (code) problems.add(code);
     if (omittedRequests) problems.add('request-limit');
     phase = 'finalized';
@@ -101,12 +103,13 @@ function createNavigationDiagnostic(state, options) {
     ['observing', 'failed-tail'].includes(phase) && pending.get(id) !== null;
   return {
     start,
+    arm() {
+      if (claimed || phase !== 'armed') return;
+      claimed = true;
+      if (options.claim && !options.claim(finalize)) phase = 'finalized';
+    },
     async begin() {
       if (phase !== 'armed') return;
-      if (options.claim && !options.claim(finalize)) {
-        phase = 'finalized';
-        return;
-      }
       if (!options.claim) phase = 'observing';
       await sampler?.begin();
     },
@@ -303,6 +306,7 @@ export function observeNavigation(state, record, diagnosticOptions) {
     actionSettled: (status, value) => diagnostic?.actionSettled(status, value),
     outcome: (status, value) => diagnostic?.outcome(status, value),
     async begin() {
+      diagnostic?.arm();
       await snapshot('before');
       if (diagnostic) await diagnostic.begin();
       active = true;
