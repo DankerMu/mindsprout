@@ -12,8 +12,12 @@ function diagnosticGetClass(url, type) {
   return undefined;
 }
 
+function diagnosticRequestMethod(request) {
+  return ['PUT', 'GET'].includes(request?.method) ? request.method : 'unavailable';
+}
+
 function diagnosticRequestClass(request, type, origin) {
-  if (!['PUT', 'GET'].includes(request?.method)) return undefined;
+  if (diagnosticRequestMethod(request) === 'unavailable') return undefined;
   let url;
   try {
     url = new URL(request.url);
@@ -39,18 +43,29 @@ function createNavigationDiagnostic(options) {
       epochMs: finiteOrNull(clock.epochMs),
     };
   };
+  function redirect(data) {
+    const previous = pending.get(data.requestId);
+    if (!previous || !data.redirectResponse) return false;
+    previous.responseStatus = finiteOrNull(data.redirectResponse.status);
+    previous.redirectTimestampSeconds = finiteOrNull(data.timestamp);
+    previous.redirectReceipt = receipt();
+    previous.completion = 'redirected';
+    return true;
+  }
   return {
     request(data) {
+      if (pending.get(data.requestId) === null) return;
+      const redirected = redirect(data);
       const requestClass = diagnosticRequestClass(data.request, data.type, options.origin);
-      if (!requestClass) return;
+      if (!requestClass && !redirected) return;
       if (requests.length >= 64) {
         omittedRequests++;
         return;
       }
       const row = {
         ordinal: requests.length + 1,
-        requestClass,
-        method: data.request.method,
+        requestClass: requestClass ?? 'redirect-out-of-scope',
+        method: diagnosticRequestMethod(data.request),
         requestTimestampSeconds: finiteOrNull(data.timestamp),
         requestReceipt: receipt(),
         packets: 0,
@@ -58,7 +73,8 @@ function createNavigationDiagnostic(options) {
         encodedDataLength: 0,
       };
       requests.push(row);
-      pending.set(data.requestId, row);
+      if (!requestClass) row.completion = 'out-of-scope';
+      pending.set(data.requestId, requestClass ? row : null);
     },
     response(data) {
       const row = pending.get(data.requestId);
