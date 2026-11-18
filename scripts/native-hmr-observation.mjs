@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { deadline } from './native-hmr-support.mjs';
-import { finiteOrNull } from './native-hmr-profile-projection.mjs';
+import { bracket, finiteOrNull, limits } from './native-hmr-profile-projection.mjs';
 
 function diagnosticGetClass(url, type) {
   if (type === 'Script') return 'script';
@@ -31,16 +31,25 @@ function diagnosticRequestClass(request, type, origin) {
   return diagnosticGetClass(url, type);
 }
 
+function originalClock(input) {
+  const value = typeof input === 'function' ? input() : input;
+  return bracket({ epochMs: value.at, elapsedMs: value.ms });
+}
+
 function createNavigationDiagnostic(options) {
   if (!options) return undefined;
   const requests = [];
   const pending = new Map();
   let omittedRequests = 0;
+  let phase = 'armed';
+  const attempt = {};
+  const problems = new Set();
   const receipt = () => {
     const clock = options.clock();
     return {
       elapsedMs: finiteOrNull(clock.elapsedMs),
       epochMs: finiteOrNull(clock.epochMs),
+      phase,
     };
   };
   function redirect(data) {
@@ -52,13 +61,67 @@ function createNavigationDiagnostic(options) {
     previous.completion = 'redirected';
     return true;
   }
+  function finalize(code) {
+    if (phase === 'finalized') return;
+    if (code) problems.add(code);
+    if (omittedRequests) problems.add('request-limit');
+    phase = 'finalized';
+    pending.clear();
+    options.sink({
+      ...attempt,
+      requests,
+      omittedRequests,
+      status: problems.size ? 'partial' : 'complete',
+      codes: [...problems],
+    });
+  }
+  function start(value) {
+    if (phase !== 'armed') return;
+    if (options.claim && !options.claim(finalize)) {
+      phase = 'finalized';
+      return;
+    }
+    const start = originalClock(value);
+    attempt.budget = {
+      start,
+      deadline: {
+        epochMs: finiteOrNull(start.epochMs + 5000),
+        elapsedMs: finiteOrNull(start.elapsedMs + 5000),
+      },
+    };
+    phase = 'observing';
+  }
+  const acceptsRequest = (id) =>
+    ['observing', 'failed-tail'].includes(phase) && pending.get(id) !== null;
   return {
+    start,
+    begin() {
+      if (!options.claim) phase = 'observing';
+    },
+    actionSettled(status, value) {
+      if (phase !== 'observing' || attempt.action) return;
+      attempt.action = {
+        status: status === 'fulfilled' ? 'fulfilled' : 'rejected',
+        at: originalClock(value),
+      };
+    },
+    outcome(status, value) {
+      if (phase !== 'observing' || attempt.outcome) return;
+      attempt.outcome = {
+        status: ['ready', 'action-failed', 'readiness-failed'].includes(status)
+          ? status
+          : 'unavailable',
+        at: originalClock(value),
+      };
+      if (status === 'ready') finalize();
+      else phase = 'failed-tail';
+    },
     request(data) {
-      if (pending.get(data.requestId) === null) return;
+      if (!acceptsRequest(data.requestId)) return;
       const redirected = redirect(data);
       const requestClass = diagnosticRequestClass(data.request, data.type, options.origin);
       if (!requestClass && !redirected) return;
-      if (requests.length >= 64) {
+      if (requests.length >= limits.createRequests) {
         omittedRequests = Math.min(Number.MAX_SAFE_INTEGER, omittedRequests + 1);
         if (pending.has(data.requestId)) pending.set(data.requestId, null);
         return;
@@ -105,13 +168,7 @@ function createNavigationDiagnostic(options) {
       pending.delete(data.requestId);
     },
     end() {
-      pending.clear();
-      options.sink({
-        requests,
-        omittedRequests,
-        status: omittedRequests ? 'partial' : 'complete',
-        codes: omittedRequests ? ['request-limit'] : [],
-      });
+      if (!options.claim) finalize();
     },
   };
 }
@@ -133,8 +190,8 @@ export function observeNavigation(state, record, diagnosticOptions) {
         loaderId: data.loaderId,
       });
     }
-    if (!active) return;
     diagnostic?.request(data);
+    if (!active) return;
     const url = new URL(data.request.url);
     if (data.type !== 'Script' && !url.searchParams.has('_rsc')) return;
     if (requests.size >= 256) {
@@ -224,8 +281,12 @@ export function observeNavigation(state, record, diagnosticOptions) {
     }
   };
   return {
+    start: (value) => diagnostic?.start(value),
+    actionSettled: (status, value) => diagnostic?.actionSettled(status, value),
+    outcome: (status, value) => diagnostic?.outcome(status, value),
     async begin() {
       await snapshot('before');
+      diagnostic?.begin();
       active = true;
     },
     async end() {
@@ -237,6 +298,36 @@ export function observeNavigation(state, record, diagnosticOptions) {
       requests.clear();
     },
   };
+}
+
+function failedEditorVisit(navigation, actionOutcome, now) {
+  navigation?.actionSettled(actionOutcome, now);
+  navigation?.outcome(actionOutcome === 'rejected' ? 'action-failed' : 'readiness-failed', now);
+}
+
+export async function observeEditorVisit(state, action, expectedPath, { guard, readiness, now }) {
+  const navigation = expectedPath === undefined ? state.navigationObservation : undefined;
+  if (navigation) await navigation.begin();
+  let actionOutcome = 'rejected';
+  try {
+    const start = now();
+    navigation?.start(start);
+    await guard(action());
+    actionOutcome = 'fulfilled';
+    navigation?.actionSettled(actionOutcome, now);
+    await guard(readiness(state, start, 'public-navigation', expectedPath));
+    navigation?.outcome('ready', now);
+    assert.equal(
+      await state.page.getByText('保存失败', { exact: true }).count(),
+      0,
+      'Map must be persisted',
+    );
+  } catch (error) {
+    failedEditorVisit(navigation, actionOutcome, now);
+    throw error;
+  } finally {
+    if (navigation) await navigation.end();
+  }
 }
 
 const probeValues = {

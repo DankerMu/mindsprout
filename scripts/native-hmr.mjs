@@ -30,6 +30,7 @@ import { trackInitialScripts } from './native-hmr-inventory.mjs';
 import {
   saveCacheIdentity,
   observeNavigation,
+  observeEditorVisit,
   observeScripts,
   probeLiterals,
   probeTimeline,
@@ -251,7 +252,7 @@ async function attach(page, label) {
     readiness: [],
   };
   trackInitialScripts(state, observed);
-  state.navigationObservation = observeNavigation(state, record);
+  if (!profile) state.navigationObservation = observeNavigation(state, record);
   page.on('console', (message) =>
     record(
       'console',
@@ -347,25 +348,15 @@ async function attach(page, label) {
   await cdp.send('Network.enable');
   await cdp.send('Performance.enable');
   state.frameId = (await cdp.send('Page.getFrameTree')).frameTree.frame.id;
-  if (profile) await profiling.attach(page, cdp, label, browser);
+  if (profile) {
+    const diagnostic = await profiling.attach(page, cdp, label, browser, { origin });
+    state.navigationObservation = observeNavigation(state, record, diagnostic);
+  }
   return state;
 }
 const capture = (state, name) => capturePage(state, name, out);
-async function visitEditor(state, action, expectedPath) {
-  if (expectedPath === undefined) await state.navigationObservation.begin();
-  try {
-    const start = now();
-    await guard(action());
-    await guard(readiness(state, start, 'public-navigation', expectedPath));
-    assert.equal(
-      await state.page.getByText('保存失败', { exact: true }).count(),
-      0,
-      'Map must be persisted',
-    );
-  } finally {
-    if (expectedPath === undefined) await state.navigationObservation.end();
-  }
-}
+const visitEditor = (state, action, expectedPath) =>
+  observeEditorVisit(state, action, expectedPath, { guard, readiness, now });
 async function homeBack(state) {
   await guard(state.page.goBack({ waitUntil: 'commit', timeout: 5000 }));
   await guard(
