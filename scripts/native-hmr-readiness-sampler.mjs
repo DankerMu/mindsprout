@@ -1,5 +1,11 @@
 import { deadline } from './native-hmr-support.mjs';
-import { boundedInteger, finite, integer, limits } from './native-hmr-profile-projection.mjs';
+import {
+  boundedInteger,
+  finite,
+  integer,
+  limits,
+  validMarkerState,
+} from './native-hmr-profile-projection.mjs';
 
 const bindingName = '__mindsproutReadinessSample';
 const samplerName = '__mindsproutReadinessSampler';
@@ -92,10 +98,7 @@ function validSample(value) {
     Boolean(boundedInteger(value.ordinal, limits.markerSamples)) &&
     finite(value.timeOriginMs) &&
     finite(value.nowMs) &&
-    ['present', 'absent'].includes(value.presence) &&
-    ['visible', 'hidden'].includes(value.visibility) &&
-    ['home', 'editor', 'other'].includes(value.route) &&
-    !(value.presence === 'absent' && value.visibility === 'visible')
+    validMarkerState(value)
   );
 }
 

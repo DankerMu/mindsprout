@@ -398,16 +398,14 @@ function safeCreateNetwork(value) {
   if (!Array.isArray(value.requests))
     return { ...partial('missing-network-observation'), requests: [], omittedRequests: 0 };
   const requests = value.requests.slice(0, limits.createRequests).map(safeCreateRequest);
-  const codes = Array.isArray(value.codes)
-    ? value.codes.filter((code) => createCodes.has(code)).slice(0, createCodes.size)
-    : [];
+  const codes = createChannelCodes(value, 'omittedRequests');
   if (requests.includes(null)) codes.push('malformed-create-observation');
   if (value.requests.length > limits.createRequests) codes.push('request-limit');
   return {
     status: value.status === 'complete' && !codes.length ? 'complete' : 'partial',
     codes: [...new Set(codes)],
     requests: requests.filter((request) => request !== null),
-    omittedRequests: finiteOrNull(value.omittedRequests),
+    omittedRequests: boundedInteger(value.omittedRequests, Number.MAX_SAFE_INTEGER),
   };
 }
 
@@ -418,10 +416,13 @@ function createSettlement(value, statuses) {
   };
 }
 
-function createChannelCodes(value) {
-  return Array.isArray(value?.codes)
+function createChannelCodes(value, count) {
+  const codes = Array.isArray(value?.codes)
     ? [...new Set(value.codes.filter((code) => createCodes.has(code)))].slice(0, createCodes.size)
     : [];
+  if (boundedInteger(value?.[count], Number.MAX_SAFE_INTEGER) === null)
+    codes.push('malformed-create-observation');
+  return codes;
 }
 
 function browserClock(value) {
@@ -431,10 +432,18 @@ function browserClock(value) {
   };
 }
 
+export function validMarkerState(value) {
+  if (!value) return false;
+  return (
+    ['present', 'absent'].includes(value.presence) &&
+    ['visible', 'hidden'].includes(value.visibility) &&
+    ['home', 'editor', 'other'].includes(value.route) &&
+    !(value.presence === 'absent' && value.visibility === 'visible')
+  );
+}
+
 function safeMarkerSample(value) {
-  if (!value || !['present', 'absent'].includes(value.presence)) return null;
-  if (!['visible', 'hidden'].includes(value.visibility)) return null;
-  if (!['home', 'editor', 'other'].includes(value.route)) return null;
+  if (!validMarkerState(value)) return null;
   if (!boundedInteger(value.ordinal, limits.markerSamples)) return null;
   if (!finite(value.browser?.timeOriginMs) || !finite(value.browser?.nowMs)) return null;
   return {
@@ -456,7 +465,7 @@ function firstVisibleBracket(samples) {
 function safeMarker(value) {
   if (!Array.isArray(value?.samples))
     return { ...partial('missing-marker-observation'), samples: [], omittedSamples: 0 };
-  const codes = createChannelCodes(value);
+  const codes = createChannelCodes(value, 'omittedSamples');
   const projected = value.samples.slice(0, limits.markerSamples).map(safeMarkerSample);
   if (projected.includes(null)) codes.push('invalid-marker-sample');
   if (value.samples.length > limits.markerSamples) codes.push('sample-limit');
@@ -466,7 +475,7 @@ function safeMarker(value) {
     codes: [...new Set(codes)],
     samples,
     firstVisible: firstVisibleBracket(samples),
-    omittedSamples: finiteOrNull(value.omittedSamples),
+    omittedSamples: boundedInteger(value.omittedSamples, Number.MAX_SAFE_INTEGER),
     shutdown: value.shutdown === 'stopped' ? 'stopped' : 'unknown',
   };
 }
@@ -480,7 +489,7 @@ function safeRoute(value) {
 function safeRoutes(value) {
   if (!Array.isArray(value?.observations))
     return { ...partial('missing-route-observation'), observations: [], omittedRecords: 0 };
-  const codes = createChannelCodes(value);
+  const codes = createChannelCodes(value, 'omittedRecords');
   const observations = value.observations.slice(0, limits.createRoutes).map(safeRoute);
   if (observations.includes(null)) codes.push('invalid-route-observation');
   if (value.observations.length > limits.createRoutes) codes.push('route-limit');
@@ -488,8 +497,38 @@ function safeRoutes(value) {
     status: value.status === 'complete' && !codes.length ? 'complete' : 'partial',
     codes: [...new Set(codes)],
     observations: observations.filter((entry) => entry !== null),
-    omittedRecords: finiteOrNull(value.omittedRecords),
+    omittedRecords: boundedInteger(value.omittedRecords, Number.MAX_SAFE_INTEGER),
   };
+}
+
+function validCreateBudget(value) {
+  if (!value?.start || !value.deadline) return false;
+  return (
+    finite(value.start.epochMs) &&
+    finite(value.start.elapsedMs) &&
+    finite(value.deadline.epochMs) &&
+    finite(value.deadline.elapsedMs) &&
+    value.deadline.epochMs === value.start.epochMs + 5000 &&
+    value.deadline.elapsedMs === value.start.elapsedMs + 5000
+  );
+}
+
+function validCreateSettlement(value, statuses) {
+  return (
+    statuses.includes(value?.status) && finite(value.at?.epochMs) && finite(value.at?.elapsedMs)
+  );
+}
+
+function validCreateContext(value) {
+  return (
+    modes.includes(value.mode) &&
+    pages.includes(value.page) &&
+    boundedInteger(value.generation, limits.generations - 1) !== null &&
+    boundedInteger(value.trial, 4) !== null &&
+    validCreateBudget(value.budget) &&
+    validCreateSettlement(value.action, ['fulfilled', 'rejected']) &&
+    validCreateSettlement(value.outcome, ['ready', 'action-failed', 'readiness-failed'])
+  );
 }
 
 export function safePublicCreate(value) {
@@ -497,7 +536,7 @@ export function safePublicCreate(value) {
   const marker = safeMarker(value.marker);
   const routes = safeRoutes(value.routes);
   const channels = [network, marker, routes];
-  return {
+  const summary = {
     status: channels.every((channel) => channel.status === 'complete') ? 'complete' : 'partial',
     codes: [...new Set(channels.flatMap((channel) => channel.codes))],
     attempt: 1,
@@ -513,6 +552,16 @@ export function safePublicCreate(value) {
     routes,
     marker,
   };
+  if (!validCreateContext(value)) {
+    summary.status = 'partial';
+    if (!summary.codes.includes('malformed-create-observation'))
+      summary.codes.push('malformed-create-observation');
+  }
+  return summary;
+}
+
+function compactOmissions(count, length) {
+  return count === null ? null : Math.min(Number.MAX_SAFE_INTEGER, count + length);
 }
 
 export function compactPublicCreate(value) {
@@ -524,9 +573,9 @@ export function compactPublicCreate(value) {
       ...value.network,
       status: 'partial',
       codes: [...value.network.codes, 'summary-too-large'],
-      omittedRequests: Math.min(
-        Number.MAX_SAFE_INTEGER,
-        value.network.omittedRequests + value.network.requests.length,
+      omittedRequests: compactOmissions(
+        value.network.omittedRequests,
+        value.network.requests.length,
       ),
       requests: [],
     },
@@ -534,19 +583,16 @@ export function compactPublicCreate(value) {
       ...value.marker,
       status: 'partial',
       codes: [...value.marker.codes, 'summary-too-large'],
-      omittedSamples: Math.min(
-        Number.MAX_SAFE_INTEGER,
-        value.marker.omittedSamples + value.marker.samples.length,
-      ),
+      omittedSamples: compactOmissions(value.marker.omittedSamples, value.marker.samples.length),
       samples: [],
     },
     routes: {
       ...value.routes,
       status: 'partial',
       codes: [...value.routes.codes, 'summary-too-large'],
-      omittedRecords: Math.min(
-        Number.MAX_SAFE_INTEGER,
-        value.routes.omittedRecords + value.routes.observations.length,
+      omittedRecords: compactOmissions(
+        value.routes.omittedRecords,
+        value.routes.observations.length,
       ),
       observations: [],
     },
