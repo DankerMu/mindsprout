@@ -97,3 +97,75 @@ test('safe public-create evidence preserves the original budget and failure afte
   noSecrets(summary);
   assert.doesNotMatch(JSON.stringify(summary), /private-get|private-id|localhost/);
 });
+
+test('malformed standalone requests consume no hops and missing redirect methods terminate attribution', async () => {
+  const cdp = new EventEmitter();
+  cdp.send = async () => ({ metrics: [] });
+  const snapshots = [];
+  const observation = observeNavigation({ cdp, label: 'retained-editor' }, () => undefined, {
+    origin: 'http://localhost:3000',
+    clock: () => ({ epochMs: 1800000000000, elapsedMs: 0 }),
+    sink: (snapshot) => snapshots.push(snapshot),
+  });
+  await observation.begin();
+  for (const request of [
+    { method: 'PUT', url: 'malformed-private-url' },
+    { url: 'http://localhost:3000/api/maps/private-id' },
+    undefined,
+  ]) {
+    cdp.emit('Network.requestWillBeSent', {
+      requestId: 'ignored-private-id',
+      type: 'Fetch',
+      request,
+      timestamp: 1,
+    });
+  }
+  cdp.emit('Network.requestWillBeSent', {
+    requestId: 'private-chain',
+    type: 'Fetch',
+    request: { method: 'PUT', url: 'http://localhost:3000/api/maps/private-id' },
+    timestamp: 2,
+  });
+  cdp.emit('Network.requestWillBeSent', {
+    requestId: 'private-chain',
+    type: 'Fetch',
+    request: { url: 'http://localhost:3000/api/maps/private-id' },
+    timestamp: 3,
+    redirectResponse: { status: 307 },
+  });
+  cdp.emit('Network.loadingFinished', {
+    requestId: 'private-chain',
+    timestamp: 4,
+    encodedDataLength: 999,
+  });
+  await observation.end();
+  const [snapshot] = snapshots;
+  assert.deepEqual(
+    snapshot.requests.map(({ ordinal, requestClass, method, responseStatus, completion }) => ({
+      ordinal,
+      requestClass,
+      method,
+      responseStatus,
+      completion,
+    })),
+    [
+      {
+        ordinal: 1,
+        requestClass: 'map-put',
+        method: 'PUT',
+        responseStatus: 307,
+        completion: 'redirected',
+      },
+      {
+        ordinal: 2,
+        requestClass: 'redirect-out-of-scope',
+        method: 'unavailable',
+        responseStatus: undefined,
+        completion: 'out-of-scope',
+      },
+    ],
+  );
+  assert.equal(snapshot.omittedRequests, 0);
+  assert.equal(snapshot.requests[1].completionTimestampSeconds, undefined);
+  assert.doesNotMatch(JSON.stringify(snapshot), /private-|localhost|malformed-private-url/);
+});
