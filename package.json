@@ -21,7 +21,7 @@
     "native:test": "node scripts/native-package.mjs test",
     "native:package:test": "node scripts/native-package.test.mjs",
     "native:browser": "node scripts/native-hmr.mjs",
-    "native:browser:test": "node --test scripts/native-hmr-support.test.mjs scripts/native-hmr-baseline.test.mjs scripts/native-hmr-observation.test.mjs scripts/native-hmr-profile.test.mjs scripts/native-hmr-profile-projection.test.mjs scripts/native-hmr-profile-collection.test.mjs scripts/native-hmr-profile-isolation.test.mjs scripts/native-hmr-browser-profile.test.mjs scripts/native-hmr-runtime-profile.test.mjs scripts/native-hmr-readiness.test.mjs scripts/native-hmr-readiness-lifecycle.test.mjs",
+    "native:browser:test": "node --test scripts/native-hmr-support.test.mjs scripts/native-hmr-baseline.test.mjs scripts/native-hmr-observation.test.mjs scripts/native-hmr-profile.test.mjs scripts/native-hmr-profile-projection.test.mjs scripts/native-hmr-profile-collection.test.mjs scripts/native-hmr-profile-isolation.test.mjs scripts/native-hmr-browser-profile.test.mjs scripts/native-hmr-runtime-profile.test.mjs scripts/native-hmr-readiness.test.mjs scripts/native-hmr-readiness-lifecycle.test.mjs scripts/native-hmr-readiness-publication.test.mjs",
     "native:browser:regression": "node --test scripts/native-hmr-runner.test.mjs",
     "native:installed": "node scripts/native-installed.mjs",
     "native:installed:test": "node scripts/native-installed.test.mjs",

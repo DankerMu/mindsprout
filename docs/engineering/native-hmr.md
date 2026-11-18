@@ -128,6 +128,8 @@ Sampling is profile-only and begins before the original clock. Its cadence, samp
 
 Success fences collector acceptance before later navigation and requests bounded best-effort sampler disposal. A disposal timeout leaves shutdown unknown, not stopped; residual page work remains bounded by autonomous expiry or page closure. Failure keeps sampling only during existing capture/teardown, with every post-outcome receipt labelled `failed-tail`. Closure, interruption or publication finalizes evidence without a grace period. Missing route or marker evidence remains partial. Compact publication preserves attempt identity, budget, outcome, first-observed brackets and channel omission/status fields within the same total safe-output cap.
 
+Invalid provenance, budget, settlement or omission counts cannot produce complete evidence. Unknown omission counts remain null, including in compact output; rejected marker states cannot establish a visibility bracket.
+
 ### Failure-scoped CI diagnosis
 
 The [installed-native action](../../.github/actions/native-installed-runtime/action.yml) keeps both qualification commands unprofiled. Only an eligible, non-cancelled Darwin browser-step failure selects one separately labelled diagnostic execution of the failed mode in fresh output.

@@ -7,8 +7,8 @@
 
 ## 2. Observe sampled visibility without changing readiness
 
-- [ ] 2.1 Add real-Chromium regressions for absent/hidden/visible marker, opacity0, SPA URL/history or GET completion without ready, first-observed brackets, stalls/navigation/crash and hostile binding data. Cover late visibility during existing capture; test acknowledged success disposal and held disposal across1000ms/homeBack, measuring page-side samples separately from collector acceptance. Controlled cases test measurement semantics, not #199 reproduction. Run red before implementation.
-- [ ] 2.2 Implement lifecycle-owned sampling/route observation with armed/observing/failed-tail/abandoned/finalized states. Bound samples128/cadence50ms and autonomous6400ms expiry checked before layout reads; no late-result wait. Verify timeout/disconnect epochs, immutable brackets/outcome and best-effort disposal partial status; late callbacks cannot revive acceptance and residual work stops within autonomous bounds/page close without extending cleanup. Update guide limitations; no product/interception changes.
+- [x] 2.1 Add real-Chromium regressions for absent/hidden/visible marker, opacity0, SPA URL/history or GET completion without ready, first-observed brackets, stalls/navigation/crash and hostile binding data. Cover late visibility during existing capture; test acknowledged success disposal and held disposal across1000ms/homeBack, measuring page-side samples separately from collector acceptance. Controlled cases test measurement semantics, not #199 reproduction. Run red before implementation.
+- [x] 2.2 Implement lifecycle-owned sampling/route observation with armed/observing/failed-tail/abandoned/finalized states. Bound samples128/cadence50ms and autonomous6400ms expiry checked before layout reads; no late-result wait. Verify timeout/disconnect epochs, immutable brackets/outcome and best-effort disposal partial status; late callbacks cannot revive acceptance and residual work stops within autonomous bounds/page close without extending cleanup. Update guide limitations; no product/interception changes.
 
 ## 3. Preserve safe publication and bounded teardown
 
