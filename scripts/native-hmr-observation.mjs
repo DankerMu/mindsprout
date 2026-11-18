@@ -192,7 +192,12 @@ export function observeNavigation(state, record, diagnosticOptions) {
     }
     diagnostic?.request(data);
     if (!active) return;
-    const url = new URL(data.request.url);
+    let url;
+    try {
+      url = new URL(data.request.url);
+    } catch {
+      return;
+    }
     if (data.type !== 'Script' && !url.searchParams.has('_rsc')) return;
     if (requests.size >= 256) {
       omittedRequests++;

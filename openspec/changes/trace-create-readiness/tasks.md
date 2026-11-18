@@ -2,8 +2,8 @@
 
 ## 1. Attribute request and budget evidence
 
-- [ ] 1.1 Extend existing native observer/runtime/projection test seams with behavioral regressions for PUT→RSC→GET and exact original budget/outcome. Cover redirectResponse with reused requestId, method changes, excluded hops and stale events. Follow hop65 with response/data/completion and prove hop64 cannot mutate; standalone out-of-scope requests consume no capacity. Observe semantic red via `pnpm native:browser:test`; defaults issue no new commands/records.
-- [ ] 1.2 Extend `scripts/native-hmr-observation.mjs`, `native-hmr.mjs`, `native-hmr-runtime-profile.mjs` and existing projection/collection seams in place; preserve baseline result/clock/cleanup ordering and emit fixed partial channel states. Verify observer→runtime→safe-file assertions green, including original failure unchanged after late responses. Update native guide request/clock interpretation and document the diagnostic decision in this group; docs/decisions gates must pass.
+- [x] 1.1 Extend existing native observer/runtime/projection test seams with behavioral regressions for PUT→RSC→GET and exact original budget/outcome. Cover redirectResponse with reused requestId, method changes, excluded hops and stale events. Follow hop65 with response/data/completion and prove hop64 cannot mutate; standalone out-of-scope requests consume no capacity. Observe semantic red via `pnpm native:browser:test`; defaults issue no new commands/records.
+- [x] 1.2 Extend `scripts/native-hmr-observation.mjs`, `native-hmr.mjs`, `native-hmr-runtime-profile.mjs` and existing projection/collection seams in place; preserve baseline result/clock/cleanup ordering and emit fixed partial channel states. Verify observer→runtime→safe-file assertions green, including original failure unchanged after late responses. Update native guide request/clock interpretation and document the diagnostic decision in this group; docs/decisions gates must pass.
 
 ## 2. Observe sampled visibility without changing readiness
 
