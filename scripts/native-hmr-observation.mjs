@@ -59,7 +59,8 @@ function createNavigationDiagnostic(options) {
       const requestClass = diagnosticRequestClass(data.request, data.type, options.origin);
       if (!requestClass && !redirected) return;
       if (requests.length >= 64) {
-        omittedRequests++;
+        omittedRequests = Math.min(Number.MAX_SAFE_INTEGER, omittedRequests + 1);
+        if (pending.has(data.requestId)) pending.set(data.requestId, null);
         return;
       }
       const row = {
@@ -105,7 +106,12 @@ function createNavigationDiagnostic(options) {
     },
     end() {
       pending.clear();
-      options.sink({ requests, omittedRequests });
+      options.sink({
+        requests,
+        omittedRequests,
+        status: omittedRequests ? 'partial' : 'complete',
+        codes: omittedRequests ? ['request-limit'] : [],
+      });
     },
   };
 }

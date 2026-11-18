@@ -335,6 +335,89 @@ test('redirect responses stay with preceding hops and excluded replacements term
   assert.doesNotMatch(JSON.stringify(diagnostics), /private-|foreign|localhost/);
 });
 
+test('hop 65 closes retained redirect attribution without charging standalone excluded requests', async () => {
+  const cdp = new EventEmitter();
+  cdp.send = async () => ({ metrics: [] });
+  const diagnostics = [];
+  const observation = observeNavigation({ cdp, label: 'setup' }, () => undefined, {
+    origin: 'http://localhost:3000',
+    clock: () => ({ elapsedMs: 120, epochMs: 1800000000120 }),
+    sink: (data) => diagnostics.push(data),
+  });
+  await observation.begin();
+  for (let index = 0; index < 70; index++) {
+    for (const request of [
+      { method: 'GET', url: 'https://foreign.invalid/api/maps/private-id' },
+      { method: 'POST', url: 'http://localhost:3000/api/maps/private-id' },
+    ]) {
+      cdp.emit('Network.requestWillBeSent', {
+        requestId: `ignored-${index}-${request.method}`,
+        type: 'Fetch',
+        request,
+        timestamp: 1,
+      });
+    }
+  }
+  for (let hop = 1; hop <= 65; hop++) {
+    cdp.emit('Network.requestWillBeSent', {
+      requestId: 'private-chain',
+      type: 'Fetch',
+      request: { method: 'PUT', url: 'http://localhost:3000/api/maps/private-id' },
+      timestamp: 10 + hop,
+      ...(hop > 1 ? { redirectResponse: { status: 307 } } : {}),
+    });
+  }
+  cdp.emit('Network.responseReceived', {
+    requestId: 'private-chain',
+    timestamp: 75.1,
+    response: { status: 418 },
+  });
+  cdp.emit('Network.dataReceived', {
+    requestId: 'private-chain',
+    timestamp: 75.2,
+    dataLength: 999,
+    encodedDataLength: 999,
+  });
+  cdp.emit('Network.loadingFinished', {
+    requestId: 'private-chain',
+    timestamp: 75.3,
+    encodedDataLength: 999,
+  });
+  cdp.emit('Network.requestWillBeSent', {
+    requestId: 'private-chain',
+    type: 'Fetch',
+    request: { method: 'PUT', url: 'http://localhost:3000/api/maps/private-id' },
+    timestamp: 76,
+    redirectResponse: { status: 302 },
+  });
+  await observation.end();
+  const [snapshot] = diagnostics;
+  assert.equal(snapshot.requests.length, 64);
+  assert.equal(snapshot.requests[0].ordinal, 1);
+  const last = snapshot.requests[63];
+  assert.deepEqual(
+    {
+      ordinal: last.ordinal,
+      responseStatus: last.responseStatus,
+      redirectTimestampSeconds: last.redirectTimestampSeconds,
+      completion: last.completion,
+      dataLength: last.dataLength,
+      firstDataTimestampSeconds: last.firstDataTimestampSeconds,
+    },
+    {
+      ordinal: 64,
+      responseStatus: 307,
+      redirectTimestampSeconds: 75,
+      completion: 'redirected',
+      dataLength: 0,
+      firstDataTimestampSeconds: undefined,
+    },
+  );
+  assert.equal(snapshot.omittedRequests, 1);
+  assert.equal(snapshot.status, 'partial');
+  assert.deepEqual(snapshot.codes, ['request-limit']);
+});
+
 test('probe literals follow the active qualification mode', () => {
   assert.deepEqual(probeLiterals('source-change'), ['Native HMR A', 'Native HMR B']);
   assert.deepEqual(probeLiterals('restored-lifecycle'), [
