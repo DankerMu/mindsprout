@@ -8,7 +8,7 @@ import test from 'node:test';
 import { chromium } from '@playwright/test';
 import { observeNavigation } from './native-hmr-observation.mjs';
 import { createRuntimeProfile, launchNativeBrowser } from './native-hmr-runtime-profile.mjs';
-import { cpu, digest, noSecrets, temporary } from './native-hmr-profile-fixtures.mjs';
+import { cpu, deferred, digest, noSecrets, temporary } from './native-hmr-profile-fixtures.mjs';
 import { waitForObserved } from './native-hmr-support.mjs';
 
 test('safe public-create evidence preserves the original budget and failure after late network delivery', async (t) => {
@@ -292,3 +292,179 @@ test('real Chromium samples absent hidden and opacity-zero visibility without tr
   });
   assert.doesNotMatch(JSON.stringify(evidence), /private-fixture|127[.]0[.]0[.]1|localhost/);
 });
+
+async function liveReadiness(t) {
+  const repo = temporary(t);
+  const output = path.join(repo, 'output');
+  fs.mkdirSync(output);
+  const started = performance.now();
+  const now = () => ({ at: Date.now(), ms: performance.now() - started });
+  const profiling = createRuntimeProfile(
+    { profile: true, repo, out: output, mode: 'source-change', started },
+    () => ({ generation: 0, trial: 0 }),
+  );
+  profiling.prepare({ target: 'aarch64-apple-darwin', binarySha256: digest }, {});
+  const server = createServer((request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end(
+      '<!doctype html><div data-testid="map-editor-ready" style="width:20px;height:20px"></div>',
+    );
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  let browserServer;
+  let browser;
+  let closed = false;
+  async function close() {
+    if (closed) return;
+    closed = true;
+    const errors = [];
+    await profiling.closeBrowser(browser, browserServer, errors);
+    await new Promise((resolve) => server.close(resolve));
+    assert.deepEqual(errors, []);
+  }
+  t.after(close);
+  browserServer = await launchNativeBrowser();
+  browser = await chromium.connect(browserServer.wsEndpoint());
+  const page = await browser.newPage();
+  await page.goto(origin);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Page.enable');
+  await cdp.send('Network.enable');
+  await cdp.send('Performance.enable');
+  const diagnostic = await profiling.attach(page, cdp, 'retained-editor', browser, { origin });
+  const observation = observeNavigation(
+    { page, cdp, label: 'retained-editor' },
+    () => undefined,
+    diagnostic,
+  );
+  const events = new EventEmitter();
+  const received = [];
+  cdp.on('Runtime.bindingCalled', ({ name, payload }) => {
+    if (name !== '__mindsproutReadinessSample') return;
+    received.push(JSON.parse(payload));
+    events.emit('event');
+  });
+  return {
+    page,
+    cdp,
+    observation,
+    now,
+    received,
+    sampled: (predicate) =>
+      waitForObserved(events, () => received.some(predicate), 1000, 'Fixture sample'),
+    async finish() {
+      await close();
+      await profiling.finish(true);
+      return JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'))
+        .publicCreate;
+    },
+  };
+}
+
+async function countSamplerWork(page) {
+  await page.evaluate(() => {
+    const getBox = globalThis.Element.prototype.getBoundingClientRect;
+    const schedule = globalThis.setTimeout;
+    globalThis.__readinessWork = { reads: 0, holdNext: false, delayed: null };
+    globalThis.Element.prototype.getBoundingClientRect = function (...args) {
+      if (this.getAttribute('data-testid') === 'map-editor-ready')
+        globalThis.__readinessWork.reads++;
+      return getBox.apply(this, args);
+    };
+    globalThis.setTimeout = (callback, delay, ...args) => {
+      if (callback.name !== 'sample') return schedule(callback, delay, ...args);
+      return schedule(
+        () => {
+          if (globalThis.__readinessWork.holdNext) {
+            globalThis.__readinessWork.holdNext = false;
+            globalThis.__readinessWork.delayed = callback;
+          } else callback();
+        },
+        delay,
+        ...args,
+      );
+    };
+  });
+}
+
+for (const held of [false, true]) {
+  test(`successful readiness fences collection with ${held ? 'held' : 'acknowledged'} real sampler disposal`, async (t) => {
+    const fixture = await liveReadiness(t);
+    const { page, observation, now, received } = fixture;
+    await countSamplerWork(page);
+    await observation.begin();
+    observation.start(now());
+    observation.actionSettled('fulfilled', now());
+    await page.evaluate(() => globalThis.history.pushState({}, '', '/maps/private-success'));
+    await fixture.sampled((sample) => sample.visibility === 'visible' && sample.route === 'editor');
+    assert.equal(await page.getByTestId('map-editor-ready').isVisible(), true);
+    const evaluate = page.evaluate.bind(page);
+    const disposal = deferred();
+    if (held) {
+      page.evaluate = (fn, args) =>
+        fn.name === 'disposeSampler'
+          ? disposal.promise.then(() => evaluate(fn, args))
+          : evaluate(fn, args);
+    }
+    const beforeSuccess = received.filter((sample) => sample.ordinal);
+    const success = now();
+    observation.outcome('ready', success);
+    await observation.end();
+    await page.goBack();
+    const atHome = await evaluate(() => globalThis.__readinessWork.reads);
+    if (held) {
+      assert(
+        atHome > beforeSuccess.length,
+        'Page work continues independently of collector acceptance',
+      );
+      await evaluate(() => {
+        globalThis.__readinessWork.holdNext = true;
+      });
+      await page.waitForFunction(() => globalThis.__readinessWork.delayed !== null);
+      const beforeExpiry = await evaluate(() => globalThis.__readinessWork.reads);
+      await page.waitForFunction(
+        (expires) => performance.now() >= expires,
+        beforeSuccess[0].nowMs + 6500,
+      );
+      const afterExpiry = await evaluate(() => {
+        globalThis.__readinessWork.delayed();
+        return globalThis.__readinessWork.reads;
+      });
+      assert.equal(
+        afterExpiry,
+        beforeExpiry,
+        'A delayed callback past expiry must not read layout',
+      );
+      disposal.resolve();
+    } else {
+      await evaluate(() => new Promise((resolve) => setTimeout(resolve, 100)));
+      assert.equal(await evaluate(() => globalThis.__readinessWork.reads), atHome);
+      assert.equal(
+        await evaluate(() => Object.hasOwn(globalThis, '__mindsproutReadinessSampler')),
+        false,
+      );
+    }
+    const evidence = await fixture.finish();
+    assert.deepEqual(evidence.outcome, {
+      status: 'ready',
+      at: { epochMs: success.at, elapsedMs: success.ms },
+    });
+    assert.deepEqual(
+      evidence.routes.observations.map((entry) => entry.route),
+      ['editor'],
+    );
+    assert(evidence.marker.samples.length <= beforeSuccess.length);
+    assert.equal(
+      evidence.marker.samples.some((sample) => sample.receipt.phase === 'failed-tail'),
+      false,
+    );
+    assert.deepEqual(evidence.marker.firstVisible.at, {
+      timeOriginMs: beforeSuccess[0].timeOriginMs,
+      nowMs: beforeSuccess[0].nowMs,
+    });
+    assert.equal(evidence.marker.shutdown, held ? 'unknown' : 'stopped');
+    assert.equal(evidence.marker.codes.includes('sampler-disposal-timeout'), held);
+    noSecrets(evidence);
+  });
+}
