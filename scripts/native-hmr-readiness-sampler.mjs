@@ -136,8 +136,14 @@ function validSample(value) {
   );
 }
 
-export function createReadinessSampler(state, options, receipt) {
-  const { page, cdp } = state;
+function createSamplerBinding({
+  page,
+  cdp,
+  executionContext,
+  abandoned,
+  onCleanup,
+  onSetupFailure,
+}) {
   const ownership = {
     ownerKey: `__mindsproutReadinessOwner_${randomUUID().replaceAll('-', '')}`,
     epoch: 1,
@@ -148,6 +154,112 @@ export function createReadinessSampler(state, options, receipt) {
     released: false,
     timeOriginMs: null,
   };
+  let cleanupPromise;
+  let cleanupRunning = false;
+  const parameters = () => ({
+    bindingName,
+    samplerName,
+    ownerKey: ownership.ownerKey,
+    epoch: ownership.epoch,
+    timeOriginMs: ownership.timeOriginMs,
+  });
+  async function begin(setup) {
+    if (typeof page?.evaluate !== 'function') {
+      onSetupFailure('missing-marker-observation');
+      return;
+    }
+    try {
+      await deadline(setup(), 1000, 'Readiness sampler setup');
+    } catch (error) {
+      onSetupFailure(
+        error.message === 'Readiness sampler setup exceeded 1000ms'
+          ? 'sampler-setup-timeout'
+          : 'sampler-setup-failed',
+      );
+    }
+  }
+  async function prepare() {
+    const prepared = await page.evaluate(prepareBinding, parameters());
+    if (prepared.status !== 'prepared') throw new Error('Sampler binding conflict');
+    ownership.timeOriginMs = prepared.timeOriginMs;
+    ownership.revision++;
+  }
+  async function add() {
+    ownership.issued = true;
+    ownership.revision++;
+    const added = cdp.send('Runtime.addBinding', {
+      name: bindingName,
+      executionContextId: executionContext(),
+    });
+    added.catch(() => undefined);
+    // Capture in the same CDP context before awaiting an acknowledgement that may arrive late.
+    const captured = await cdp.send('Runtime.callFunctionOn', {
+      executionContextId: executionContext(),
+      functionDeclaration: captureBinding.toString(),
+      arguments: [{ value: parameters() }],
+      returnByValue: true,
+    });
+    if (captured.result?.value === true) ownership.revision++;
+    else throw new Error('Binding ownership unavailable');
+    if (abandoned(ownership.epoch)) void cleanup();
+    await added;
+  }
+  function install() {
+    return page.evaluate(installSampler, {
+      ...parameters(),
+      interval: limits.markerIntervalMs,
+      maximum: limits.markerSamples,
+      lifetime: limits.markerLifetimeMs,
+    });
+  }
+  async function dispose() {
+    try {
+      return await page.evaluate(disposeSampler, parameters());
+    } finally {
+      if (ownership.issued && !ownership.removed) {
+        await cdp.send('Runtime.removeBinding', { name: bindingName });
+        ownership.removed = true;
+      }
+    }
+  }
+  function cleanupResult(result) {
+    if (['stopped', 'context-lost'].includes(result)) {
+      ownership.released = true;
+      onCleanup('stopped');
+    } else onCleanup('sampler-disposal-failed');
+  }
+  async function stopWork() {
+    if (page?.isClosed?.()) {
+      cleanupResult('stopped');
+      return;
+    }
+    try {
+      const result = await deadline(dispose(), 1000, 'Readiness sampler disposal');
+      cleanupResult(result);
+    } catch (error) {
+      onCleanup(
+        error.message === 'Readiness sampler disposal exceeded 1000ms'
+          ? 'sampler-disposal-timeout'
+          : 'sampler-disposal-failed',
+      );
+    }
+  }
+  function cleanup() {
+    if (ownership.released || ownership.revision === 0) return Promise.resolve();
+    if (ownership.attempted === ownership.revision) return cleanupPromise;
+    if (cleanupRunning) return cleanupPromise.then(cleanup);
+    ownership.attempted = ownership.revision;
+    cleanupRunning = true;
+    cleanupPromise = stopWork().finally(() => {
+      cleanupRunning = false;
+    });
+    return cleanupPromise;
+  }
+  return { begin, prepare, add, install, cleanup };
+}
+
+export function createReadinessSampler(state, options, receipt) {
+  const { page, cdp } = state;
   const samples = [];
   const observations = [];
   const markerCodes = new Set();
@@ -161,10 +273,20 @@ export function createReadinessSampler(state, options, receipt) {
   let omittedSamples = 0;
   let omittedRecords = 0;
   let shutdown = 'unknown';
-  let cleanupPromise;
-  let cleanupRunning = false;
   let sealed = false;
   let stopping;
+  const bindingOwner = createSamplerBinding({
+    page,
+    cdp,
+    executionContext: () => contextId,
+    abandoned: (token) => !accepting && epoch !== token,
+    onSetupFailure: abandon,
+    onCleanup(code) {
+      if (sealed) return;
+      if (code === 'stopped') shutdown = 'stopped';
+      else markerCodes.add(code);
+    },
+  });
   const listeners = [];
   const listen = (event, handler) => {
     cdp.on(event, handler);
@@ -183,7 +305,7 @@ export function createReadinessSampler(state, options, receipt) {
     }
     epoch++;
     fence();
-    void cleanupOwned();
+    void bindingOwner.cleanup();
   }
   function rejectSample(code) {
     markerCodes.add(code);
@@ -265,33 +387,6 @@ export function createReadinessSampler(state, options, receipt) {
     });
     listen('Runtime.executionContextsCleared', () => abandon('sampler-context-lost'));
   }
-  const ownerParameters = () => ({
-    bindingName,
-    samplerName,
-    ownerKey: ownership.ownerKey,
-    epoch: ownership.epoch,
-    timeOriginMs: ownership.timeOriginMs,
-  });
-  async function addOwnedBinding() {
-    ownership.issued = true;
-    ownership.revision++;
-    const added = cdp.send('Runtime.addBinding', {
-      name: bindingName,
-      executionContextId: contextId,
-    });
-    added.catch(() => undefined);
-    // Capture in the same CDP context before awaiting an acknowledgement that may arrive late.
-    const captured = await cdp.send('Runtime.callFunctionOn', {
-      executionContextId: contextId,
-      functionDeclaration: captureBinding.toString(),
-      arguments: [{ value: ownerParameters() }],
-      returnByValue: true,
-    });
-    if (captured.result?.value === true) ownership.revision++;
-    else throw new Error('Binding ownership unavailable');
-    if (!accepting && epoch !== ownership.epoch) void cleanupOwned();
-    await added;
-  }
   async function setup(token) {
     if (!frameId) frameId = (await cdp.send('Page.getFrameTree')).frameTree.frame.id;
     if (epoch !== token) return;
@@ -299,95 +394,24 @@ export function createReadinessSampler(state, options, receipt) {
     await cdp.send('Runtime.enable');
     if (epoch !== token) return;
     if (!integer(contextId)) throw new Error('Missing main execution context');
-    const prepared = await page.evaluate(prepareBinding, ownerParameters());
-    if (prepared.status !== 'prepared') throw new Error('Sampler binding conflict');
-    ownership.timeOriginMs = prepared.timeOriginMs;
-    ownership.revision++;
+    await bindingOwner.prepare();
     if (epoch !== token) {
-      void cleanupOwned();
+      void bindingOwner.cleanup();
       return;
     }
-    await addOwnedBinding();
+    await bindingOwner.add();
     if (epoch !== token) {
-      void cleanupOwned();
+      void bindingOwner.cleanup();
       return;
     }
     accepting = true;
     sampling = true;
-    const result = await page.evaluate(installSampler, {
-      bindingName,
-      samplerName,
-      ownerKey: ownership.ownerKey,
-      epoch: token,
-      interval: limits.markerIntervalMs,
-      maximum: limits.markerSamples,
-      lifetime: limits.markerLifetimeMs,
-    });
+    const result = await bindingOwner.install();
     if (epoch !== token) {
-      void cleanupOwned();
+      void bindingOwner.cleanup();
       return;
     }
     if (result !== 'installed') throw new Error('Sampler installation unavailable');
-  }
-  async function begin() {
-    if (typeof page?.evaluate !== 'function') {
-      abandon('missing-marker-observation');
-      return;
-    }
-    try {
-      await deadline(setup(epoch), 1000, 'Readiness sampler setup');
-    } catch (error) {
-      abandon(
-        error.message === 'Readiness sampler setup exceeded 1000ms'
-          ? 'sampler-setup-timeout'
-          : 'sampler-setup-failed',
-      );
-    }
-  }
-  async function dispose() {
-    try {
-      return await page.evaluate(disposeSampler, ownerParameters());
-    } finally {
-      if (ownership.issued && !ownership.removed) {
-        await cdp.send('Runtime.removeBinding', { name: bindingName });
-        ownership.removed = true;
-      }
-    }
-  }
-  function cleanupResult(result) {
-    if (['stopped', 'context-lost'].includes(result)) {
-      ownership.released = true;
-      if (!sealed) shutdown = 'stopped';
-    } else if (!sealed) markerCodes.add('sampler-disposal-failed');
-  }
-
-  async function stopWork() {
-    if (page?.isClosed?.()) {
-      cleanupResult('stopped');
-      return;
-    }
-    try {
-      const result = await deadline(dispose(), 1000, 'Readiness sampler disposal');
-      cleanupResult(result);
-    } catch (error) {
-      if (!sealed)
-        markerCodes.add(
-          error.message === 'Readiness sampler disposal exceeded 1000ms'
-            ? 'sampler-disposal-timeout'
-            : 'sampler-disposal-failed',
-        );
-    }
-  }
-  function cleanupOwned() {
-    if (ownership.released || ownership.revision === 0) return Promise.resolve();
-    if (ownership.attempted === ownership.revision) return cleanupPromise;
-    if (cleanupRunning) return cleanupPromise.then(cleanupOwned);
-    ownership.attempted = ownership.revision;
-    cleanupRunning = true;
-    cleanupPromise = stopWork().finally(() => {
-      cleanupRunning = false;
-    });
-    return cleanupPromise;
   }
   function stop(code) {
     if (stopping) return stopping;
@@ -397,7 +421,7 @@ export function createReadinessSampler(state, options, receipt) {
     }
     fence();
     epoch++;
-    stopping = cleanupOwned();
+    stopping = bindingOwner.cleanup();
     return stopping;
   }
   function snapshot() {
@@ -420,5 +444,5 @@ export function createReadinessSampler(state, options, receipt) {
       },
     };
   }
-  return { begin, stop, snapshot };
+  return { begin: () => bindingOwner.begin(() => setup(epoch)), stop, snapshot };
 }
