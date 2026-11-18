@@ -237,6 +237,105 @@ test('profiled public creation retains classified PUT and RSC network delivery',
   assert.doesNotMatch(JSON.stringify(diagnostics), /private-|localhost|_rsc/);
 });
 
+test('redirect responses stay with preceding hops and excluded replacements terminate attribution', async () => {
+  const cdp = new EventEmitter();
+  cdp.send = async () => ({ metrics: [] });
+  const diagnostics = [];
+  const observation = observeNavigation({ cdp, label: 'setup' }, () => undefined, {
+    origin: 'http://localhost:3000',
+    clock: () => ({ elapsedMs: 120, epochMs: 1800000000120 }),
+    sink: (data) => diagnostics.push(data),
+  });
+  await observation.begin();
+  cdp.emit('Network.requestWillBeSent', {
+    requestId: 'private-chain',
+    type: 'Fetch',
+    request: { method: 'PUT', url: 'http://localhost:3000/api/maps/private-id' },
+    timestamp: 10,
+  });
+  cdp.emit('Network.requestWillBeSent', {
+    requestId: 'private-chain',
+    type: 'Fetch',
+    request: { method: 'GET', url: 'http://localhost:3000/api/maps/private-id' },
+    timestamp: 11,
+    redirectResponse: { status: 303 },
+  });
+  cdp.emit('Network.requestWillBeSent', {
+    requestId: 'private-chain',
+    type: 'Fetch',
+    request: { method: 'GET', url: 'https://foreign.invalid/api/maps/private-id' },
+    timestamp: 12,
+    redirectResponse: { status: 307 },
+  });
+  cdp.emit('Network.responseReceived', {
+    requestId: 'private-chain',
+    timestamp: 12.1,
+    response: { status: 418 },
+  });
+  cdp.emit('Network.dataReceived', {
+    requestId: 'private-chain',
+    timestamp: 12.2,
+    dataLength: 999,
+    encodedDataLength: 999,
+  });
+  cdp.emit('Network.loadingFinished', {
+    requestId: 'private-chain',
+    timestamp: 12.3,
+    encodedDataLength: 999,
+  });
+  cdp.emit('Network.requestWillBeSent', {
+    requestId: 'private-chain',
+    type: 'Fetch',
+    request: { method: 'GET', url: 'http://localhost:3000/api/maps/private-id' },
+    timestamp: 13,
+    redirectResponse: { status: 302 },
+  });
+  await observation.end();
+  assert.deepEqual(
+    diagnostics
+      .flatMap((entry) => entry.requests)
+      .map((entry) => ({
+        ordinal: entry.ordinal,
+        requestClass: entry.requestClass,
+        method: entry.method,
+        responseStatus: entry.responseStatus,
+        redirectTimestampSeconds: entry.redirectTimestampSeconds,
+        completion: entry.completion,
+        dataLength: entry.dataLength,
+      })),
+    [
+      {
+        ordinal: 1,
+        requestClass: 'map-put',
+        method: 'PUT',
+        responseStatus: 303,
+        redirectTimestampSeconds: 11,
+        completion: 'redirected',
+        dataLength: 0,
+      },
+      {
+        ordinal: 2,
+        requestClass: 'map-get',
+        method: 'GET',
+        responseStatus: 307,
+        redirectTimestampSeconds: 12,
+        completion: 'redirected',
+        dataLength: 0,
+      },
+      {
+        ordinal: 3,
+        requestClass: 'redirect-out-of-scope',
+        method: 'GET',
+        responseStatus: undefined,
+        redirectTimestampSeconds: undefined,
+        completion: 'out-of-scope',
+        dataLength: 0,
+      },
+    ],
+  );
+  assert.doesNotMatch(JSON.stringify(diagnostics), /private-|foreign|localhost/);
+});
+
 test('probe literals follow the active qualification mode', () => {
   assert.deepEqual(probeLiterals('source-change'), ['Native HMR A', 'Native HMR B']);
   assert.deepEqual(probeLiterals('restored-lifecycle'), [
