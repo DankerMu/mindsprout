@@ -49,6 +49,7 @@ export function createRuntimeProfile(
   let profiles,
     serverStart,
     network,
+    finalizeCreate,
     interrupted = false;
 
   function prepare(addon, result) {
@@ -109,8 +110,31 @@ export function createRuntimeProfile(
     if (enabled) network = { timestamp: data.timestamp, wallTime: data.wallTime, page: label };
   }
 
-  async function attach(page, cdp, label, browser) {
+  async function attach(page, cdp, label, browser, navigation) {
     if (!enabled) return;
+    let finalizeNavigation;
+    let attemptContext;
+    let terminalCause =
+      page.isClosed?.() || browser.isConnected?.() === false ? 'cdp-disconnected' : undefined;
+    const diagnostic = navigation
+      ? {
+          origin: navigation.origin,
+          clock,
+          claim(finalize) {
+            if (finalizeCreate) return false;
+            attemptContext = { ...context(), page: label, mode };
+            finalizeCreate = finalize;
+            finalizeNavigation = finalize;
+            const cause = interrupted ? 'interrupted' : terminalCause;
+            if (cause) {
+              finalize(cause);
+              return false;
+            }
+            return true;
+          },
+          sink: (value) => profiles.addPublicCreate({ ...value, ...attemptContext }),
+        }
+      : undefined;
     const profiler = createBrowserProfiler({
       enabled: true,
       cdp,
@@ -121,10 +145,21 @@ export function createRuntimeProfile(
       reserve: profiles.reserveBrowserInterval,
     });
     profilers.add(profiler);
-    page.on('close', () => profiler.disconnect());
-    page.on('crash', () => profiler.disconnect());
-    browser.on('disconnected', () => profiler.disconnect());
+    page.on('close', () => {
+      terminalCause ??= 'cdp-disconnected';
+      profiler.disconnect();
+      finalizeNavigation?.('page-closed');
+    });
+    const disconnected = () => {
+      terminalCause ??= 'cdp-disconnected';
+      profiler.disconnect();
+      finalizeNavigation?.('cdp-disconnected');
+    };
+    page.on('crash', disconnected);
+    browser.on('disconnected', disconnected);
+    cdp.on('close', disconnected);
     await profiler.start();
+    return diagnostic;
   }
 
   async function suspend() {
@@ -143,6 +178,7 @@ export function createRuntimeProfile(
     try {
       await deadline(
         (async () => {
+          if (finalizeCreate) await finalizeCreate();
           if (enabled) await Promise.all([...profilers].map((profiler) => profiler.close()));
           await browser?.close();
         })(),
@@ -159,6 +195,7 @@ export function createRuntimeProfile(
 
   function interrupt() {
     interrupted = true;
+    finalizeCreate?.('interrupted');
     for (const profiler of profilers) profiler.interrupt();
   }
 
@@ -179,6 +216,7 @@ export function createRuntimeProfile(
 
   async function finish(serverStopped) {
     if (!profiles) return;
+    if (finalizeCreate) await finalizeCreate();
     for (const profiler of profilers) {
       profiler.finalize();
       profiles.recordBrowserProblems(profiler.snapshot().codes);

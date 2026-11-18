@@ -16,6 +16,8 @@ import {
   safeInterval,
   filteredCodes,
   safeGap,
+  safePublicCreate,
+  compactPublicCreate,
 } from './native-hmr-profile-projection.mjs';
 
 const same = (a, b) => a.dev === b.dev && a.ino === b.ino;
@@ -288,6 +290,10 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
     addBrowserGap,
     reserveBrowserInterval,
     recordBrowserProblems,
+    addPublicCreate(value) {
+      if (!enabled || state.publicCreate) return;
+      state.publicCreate = safePublicCreate(value, identity.mode);
+    },
     collectServer: (context) => collectServerProfile(state, context),
     finish: (options) => finishNativeProfile(state, options),
   };
@@ -442,6 +448,13 @@ function preserveOwnedProfiles(state, serverStopped) {
   }
 }
 
+function withPublicCreate(summary, value) {
+  if (!value) return summary;
+  summary.publicCreate = value;
+  if (value.status !== 'complete') summary.status = 'partial';
+  return summary;
+}
+
 function profileSummary(state) {
   const { problems, generations, intervals } = state;
   const summary = {
@@ -462,7 +475,7 @@ function profileSummary(state) {
   };
   if (!generations.length) summary.codes.push('missing-profile');
   if (!intervals.length) summary.codes.push('missing-browser-profile');
-  return summary;
+  return withPublicCreate(summary, state.publicCreate);
 }
 
 function omittedStatus(value) {
@@ -501,6 +514,7 @@ function compactSummary(summary) {
     generations: summary.generations.slice(0, limits.generations).map(compactGeneration),
     intervals: summary.intervals.slice(0, limits.intervals).map(compactInterval),
     gaps: summary.gaps.slice(0, limits.intervals).map(safeGap),
+    ...(summary.publicCreate ? { publicCreate: compactPublicCreate(summary.publicCreate) } : {}),
   };
 }
 

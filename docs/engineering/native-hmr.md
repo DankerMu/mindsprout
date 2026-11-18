@@ -104,6 +104,26 @@ The collector retains at most eight gap records under the existing interval-coun
 
 Missing, invalid, unstable, over-limit, disconnected, or interrupted collection produces fixed partial codes independently of the functional result. [Implementation limits](../../scripts/native-hmr-profile-projection.mjs) own the file/run, record/sample, generation/interval, and safe-output caps. These bound ingestion and retained evidence, not Next's raw producer memory/disk or CDP allocation before receipt. No-follow capped file reads and bounded CDP operations do not establish a hard producer-memory limit.
 
+### Public-create evidence
+
+With `--profile`, `publicCreate` attributes one first-create attempt to its mode, generation, trial and page. Its budget copies the original readiness start and five-second deadline synchronously; action settlement and readiness outcome are separate observations. Neither later delivery nor another navigation can replace that outcome. [Decision 0031](../../decisions/implemented/testing/0031-public-create-readiness-evidence.md) owns this diagnostic choice.
+
+The network channel classifies same-origin item PUT/GET, editor RSC and scripts without retaining URLs, map identifiers, headers or bodies. Each redirect response belongs to the preceding hop. Excluded replacements terminate attribution; over-cap replacements retain the preceding redirect response but cannot accept subsequent response/data/completion into that hop. Standalone excluded requests consume no retained request slots. The request bound lives in [projection limits](../../scripts/native-hmr-profile-projection.mjs).
+
+Network timestamp fields ending in `Seconds` use the CDP monotonic domain; collector receipts use the [collector clock](#profile-evidence-and-interpretation). `redirectTimestampSeconds` is the replacement request event's timestamp, not an inferred response-arrival timestamp. A completed GET proves network delivery, not parsing, repository resolution, editor-session construction or rendering. Conversely, network `completion: failed` does not establish a failed application save. CDP completion timestamps need not follow response-event receipt; preserve them without reordering or cross-clock correction.
+
+The marker channel samples presence and Playwright-compatible visibility without reading DOM text. Opacity alone is not invisibility. Browser `timeOriginMs` and `nowMs` remain separate from collector clocks. `firstVisible` brackets the first observed visible sample with its preceding sample; it does not claim an exact visibility transition or visibility within the original deadline. Same-document route observations carry only collector receipts and do not assert a React commit.
+
+Sampling is profile-only and begins before the original clock. Its cadence, sample/route caps and autonomous lifetime are bounded by [projection limits](../../scripts/native-hmr-profile-projection.mjs); expiry is checked before layout reads, even after a stalled callback. Invalid or out-of-order binding payloads produce fixed partial codes without retaining their raw content.
+
+An attempt owns terminal cleanup before its first awaited snapshot. Interruption or disconnection before the readiness clock prevents sampler setup and leaves the unobserved budget/outcome unknown. Coded abandonment marks network, marker and route channels partial; a healthy route listener can legitimately observe no transitions.
+
+Binding ownership is tracked independently of sampler installation. Setup preserves pre-existing globals; cleanup checks the originating document and captured function/object identities before removing owned page resources. A late acknowledgement may trigger bounded owned cleanup, but cannot revive collection or revise published evidence.
+
+Success fences collector acceptance before later navigation and requests bounded best-effort sampler disposal. A disposal timeout leaves shutdown unknown, not stopped; residual page work remains bounded by autonomous expiry or page closure. Failure keeps sampling only during existing capture/teardown, with every post-outcome receipt labelled `failed-tail`. Closure, interruption or publication finalizes evidence without a grace period. Missing route or marker evidence remains partial. Compact publication preserves attempt identity, budget, outcome, first-observed brackets and channel omission/status fields within the same total safe-output cap.
+
+Invalid provenance, budget, settlement or omission counts cannot produce complete evidence. Unknown omission counts remain null, including in compact output; rejected marker states cannot establish a visibility bracket.
+
 ### Failure-scoped CI diagnosis
 
 The [installed-native action](../../.github/actions/native-installed-runtime/action.yml) keeps both qualification commands unprofiled. Only an eligible, non-cancelled Darwin browser-step failure selects one separately labelled diagnostic execution of the failed mode in fresh output.
