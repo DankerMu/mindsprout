@@ -68,6 +68,8 @@ export async function liveReadiness(t, { profile = true } = {}) {
     }
     events.emit('event');
   });
+  const readEvidence = () =>
+    JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8')).publicCreate;
   return {
     page,
     browser,
@@ -77,6 +79,7 @@ export async function liveReadiness(t, { profile = true } = {}) {
     now,
     received,
     requests,
+    readEvidence,
     sampled: (predicate) =>
       waitForObserved(events, () => received.some(predicate), 1000, 'Fixture sample'),
     async finish() {
@@ -86,8 +89,7 @@ export async function liveReadiness(t, { profile = true } = {}) {
         assert.equal(fs.existsSync(path.join(output, 'safe')), false);
         return undefined;
       }
-      return JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'))
-        .publicCreate;
+      return readEvidence();
     },
   };
 }
