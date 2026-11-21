@@ -284,11 +284,13 @@ function cacheFiles(root, directory = root) {
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .flatMap((entry) => {
       const full = path.join(directory, entry.name);
-      if (entry.isDirectory()) return cacheFiles(root, full);
-      const bytes = fs.readFileSync(full);
+      const symlink = entry.isSymbolicLink();
+      if (!symlink && entry.isDirectory()) return cacheFiles(root, full);
+      const bytes = symlink ? fs.readlinkSync(full, { encoding: 'buffer' }) : fs.readFileSync(full);
       return [
         {
           path: path.relative(root, full),
+          type: symlink ? 'symlink' : 'file',
           size: bytes.length,
           sha256: createHash('sha256').update(bytes).digest('hex'),
         },
@@ -304,7 +306,9 @@ export function cacheIdentity(directory) {
     files,
     bytes: files.reduce((sum, item) => sum + item.size, 0),
     sha256: createHash('sha256')
-      .update(files.map((item) => `${item.sha256} ${item.size} ${item.path}\n`).join(''))
+      .update(
+        files.map((item) => `${item.type} ${item.sha256} ${item.size} ${item.path}\n`).join(''),
+      )
       .digest('hex'),
   };
 }
