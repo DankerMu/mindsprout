@@ -10,7 +10,7 @@
 ## 2. Verify integration and deliver
 
 - [x] 2.1 Run existing `pnpm e2e e2e/account-auth.spec.ts`, preserving native POST/415, redirect, HTTP/noise, session, and new-tab recovery assertions; run typecheck and scoped lint.
-- [ ] 2.2 Complete risk-scaled cross-review and current-head required CI; merge and archive this change only with green gates.
+- [x] 2.2 Complete risk-scaled cross-review and current-head required CI; merge and archive this change only with green gates.
 
 ## Risk packs
 
