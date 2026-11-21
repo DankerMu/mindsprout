@@ -278,33 +278,42 @@ export async function probeSnapshot(state, probe, values, stage, elapsed) {
   };
 }
 
+function cacheEntry(relativePath, full, symlink) {
+  const bytes = symlink ? fs.readlinkSync(full, { encoding: 'buffer' }) : fs.readFileSync(full);
+  return {
+    path: relativePath,
+    type: symlink ? 'symlink' : 'file',
+    size: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+}
+
 function cacheFiles(root, directory = root) {
   return fs
     .readdirSync(directory, { withFileTypes: true })
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .flatMap((entry) => {
       const full = path.join(directory, entry.name);
-      if (entry.isDirectory()) return cacheFiles(root, full);
-      const bytes = fs.readFileSync(full);
-      return [
-        {
-          path: path.relative(root, full),
-          size: bytes.length,
-          sha256: createHash('sha256').update(bytes).digest('hex'),
-        },
-      ];
+      const symlink = entry.isSymbolicLink();
+      if (!symlink && entry.isDirectory()) return cacheFiles(root, full);
+      return [cacheEntry(path.relative(root, full), full, symlink)];
     });
 }
 
 export function cacheIdentity(directory) {
-  if (!fs.existsSync(directory)) return { absent: true, files: [], sha256: null };
-  const files = cacheFiles(directory);
+  // A trailing slash makes lstat resolve a directory link instead of inspecting it.
+  const cache = directory.replace(/\/+$/, '') || directory;
+  const root = fs.lstatSync(cache, { throwIfNoEntry: false });
+  if (!root) return { absent: true, files: [], sha256: null };
+  const files = root.isSymbolicLink() ? [cacheEntry('.', cache, true)] : cacheFiles(cache);
   return {
     absent: false,
     files,
     bytes: files.reduce((sum, item) => sum + item.size, 0),
     sha256: createHash('sha256')
-      .update(files.map((item) => `${item.sha256} ${item.size} ${item.path}\n`).join(''))
+      .update(
+        files.map((item) => `${item.type} ${item.sha256} ${item.size} ${item.path}\n`).join(''),
+      )
       .digest('hex'),
   };
 }

@@ -13,6 +13,7 @@ import {
   observeScripts,
   probeLiterals,
   probeValue,
+  saveCacheIdentity,
   scriptProvenance,
 } from './native-hmr-observation.mjs';
 
@@ -222,14 +223,16 @@ test('cache identity hashes every file by path, size and content', () => {
     fs.writeFileSync(path.join(root, 'cache/a.txt'), 'a');
     const identity = cacheIdentity(path.join(root, 'cache'));
     const files = [
-      { path: 'a.txt', size: 1, sha256: sha256('a') },
-      { path: path.join('b', 'z.bin'), size: 2, sha256: sha256('zz') },
+      { path: 'a.txt', type: 'file', size: 1, sha256: sha256('a') },
+      { path: path.join('b', 'z.bin'), type: 'file', size: 2, sha256: sha256('zz') },
     ];
     assert.deepEqual(identity, {
       absent: false,
       files,
       bytes: 3,
-      sha256: sha256(files.map((item) => `${item.sha256} ${item.size} ${item.path}\n`).join('')),
+      sha256: sha256(
+        `file ${sha256('a')} 1 a.txt\nfile ${sha256('zz')} 2 ${path.join('b', 'z.bin')}\n`,
+      ),
     });
     fs.writeFileSync(path.join(root, 'cache/a.txt'), 'b');
     assert.notEqual(cacheIdentity(path.join(root, 'cache')).sha256, identity.sha256);
@@ -237,6 +240,241 @@ test('cache identity hashes every file by path, size and content', () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('warm cache identity includes files and a terminal directory link, not its target', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-warm-cache-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cache = path.join(root, 'cache');
+  const sentinel = path.join(root, 'external', 'sentinel.txt');
+  fs.mkdirSync(path.join(cache, 'b'), { recursive: true });
+  fs.writeFileSync(path.join(cache, 'a.txt'), 'a');
+  fs.writeFileSync(path.join(cache, 'b', 'z.bin'), 'zz');
+  fs.mkdirSync(path.dirname(sentinel));
+  fs.writeFileSync(sentinel, 'outside the cache');
+  fs.symlinkSync('../external', path.join(cache, 'modules'), 'dir');
+
+  const identity = cacheIdentity(cache);
+  assert.deepEqual(identity.files, [
+    { path: 'a.txt', type: 'file', size: 1, sha256: sha256('a') },
+    { path: path.join('b', 'z.bin'), type: 'file', size: 2, sha256: sha256('zz') },
+    { path: 'modules', type: 'symlink', size: 11, sha256: sha256('../external') },
+  ]);
+  assert.equal(identity.absent, false);
+  assert.equal(identity.bytes, 14);
+  fs.writeFileSync(sentinel, 'different external contents');
+  assert.deepEqual(cacheIdentity(cache), identity);
+});
+
+test('saveCacheIdentity persists warm-cache entries without exposing link text', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-cache-persistence-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cache = path.join(root, 'cache');
+  const output = path.join(root, 'cache-identity.json');
+  fs.mkdirSync(cache);
+  fs.mkdirSync(path.join(root, 'external'));
+  fs.writeFileSync(path.join(root, 'external', 'sentinel.txt'), 'outside the cache');
+  fs.writeFileSync(path.join(cache, 'a.txt'), 'a');
+  fs.symlinkSync('../external', path.join(cache, 'modules'), 'dir');
+
+  const summary = {
+    absent: false,
+    bytes: 12,
+    sha256: 'a9a9c779556119b2cff2853cdbf9af1853dda1be4b795f50458284a75ae51268',
+  };
+  assert.deepEqual(saveCacheIdentity(cache, output), { ...summary, files: 2 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(output, 'utf8')), {
+    ...summary,
+    files: [
+      { path: 'a.txt', type: 'file', size: 1, sha256: sha256('a') },
+      { path: 'modules', type: 'symlink', size: 11, sha256: sha256('../external') },
+    ],
+  });
+});
+
+test('cache identity distinguishes a file and link with the same path and bytes', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-cache-entry-type-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cache = path.join(root, 'cache');
+  const entry = path.join(cache, 'entry');
+  const linkText = '../peer.txt';
+  fs.mkdirSync(cache);
+  fs.writeFileSync(path.join(root, 'peer.txt'), 'different target contents');
+  fs.writeFileSync(entry, linkText);
+  const file = cacheIdentity(cache);
+  fs.unlinkSync(entry);
+  fs.symlinkSync(linkText, entry);
+  const link = cacheIdentity(cache);
+
+  assert.notEqual(file.sha256, link.sha256);
+  const fields = {
+    path: 'entry',
+    size: 11,
+    sha256: '76b0e9e2cb4364014e528256da58b317a36c632c1be90aed68648919c44c038f',
+  };
+  assert.deepEqual(file.files, [{ ...fields, type: 'file' }]);
+  assert.deepEqual(link.files, [{ ...fields, type: 'symlink' }]);
+});
+
+test('changing only the link text changes cache identity for the same target', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-cache-link-text-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cache = path.join(root, 'cache');
+  const link = path.join(cache, 'link');
+  fs.mkdirSync(cache);
+  fs.writeFileSync(path.join(root, 'target.txt'), 'unchanged');
+  fs.symlinkSync('../target.txt', link);
+  const before = cacheIdentity(cache);
+  fs.unlinkSync(link);
+  fs.symlinkSync('.././target.txt', link);
+  assert.notEqual(cacheIdentity(cache).sha256, before.sha256);
+});
+
+test('cache identity records a dangling link using its link text byte length', (t) => {
+  const cache = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-dangling-cache-link-'));
+  t.after(() => fs.rmSync(cache, { recursive: true, force: true }));
+  fs.symlinkSync('missing-缺失', path.join(cache, 'dangling'));
+  assert.deepEqual(cacheIdentity(cache).files, [
+    { path: 'dangling', type: 'symlink', size: 14, sha256: sha256('missing-缺失') },
+  ]);
+});
+
+test('cache identity stops at a link to an ancestor directory', (t) => {
+  const cache = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-cache-ancestor-link-'));
+  t.after(() => fs.rmSync(cache, { recursive: true, force: true }));
+  const nested = path.join(cache, 'nested');
+  fs.mkdirSync(nested);
+  fs.symlinkSync('..', path.join(nested, 'ancestor'), 'dir');
+  assert.deepEqual(cacheIdentity(cache).files, [
+    { path: path.join('nested', 'ancestor'), type: 'symlink', size: 2, sha256: sha256('..') },
+  ]);
+});
+
+test('cache identity keeps both aliases without duplicating an external directory', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-cache-link-aliases-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cache = path.join(root, 'cache');
+  fs.mkdirSync(cache);
+  fs.mkdirSync(path.join(root, 'external'));
+  fs.writeFileSync(path.join(root, 'external', 'sentinel.txt'), 'outside the cache');
+  fs.symlinkSync('../external', path.join(cache, 'z-link'), 'dir');
+  fs.symlinkSync('../external', path.join(cache, 'a-link'), 'dir');
+  const entry = { type: 'symlink', size: 11, sha256: sha256('../external') };
+  const identity = cacheIdentity(cache);
+  assert.deepEqual(identity.files, [
+    { path: 'a-link', ...entry },
+    { path: 'z-link', ...entry },
+  ]);
+  assert.equal(identity.bytes, 22);
+});
+
+function assertRootIdentity(cache, output, identity) {
+  const { files, ...summary } = identity;
+  assert.deepEqual(
+    {
+      direct: cacheIdentity(cache),
+      saved: saveCacheIdentity(cache, output),
+      persisted: JSON.parse(fs.readFileSync(output, 'utf8')),
+    },
+    { direct: identity, saved: { ...summary, files: files.length }, persisted: identity },
+  );
+}
+
+test('direct and persisted cache identity record a directory root link without following it', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-cache-root-link-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cache = path.join(root, 'cache');
+  const external = path.join(root, 'external');
+  const sentinel = path.join(external, 'sentinel.txt');
+  const output = path.join(root, 'identity.json');
+  fs.mkdirSync(external);
+  fs.writeFileSync(sentinel, 'outside the cache');
+  fs.symlinkSync('external', cache, 'dir');
+
+  const identity = {
+    absent: false,
+    files: [{ path: '.', type: 'symlink', size: 8, sha256: sha256('external') }],
+    bytes: 8,
+    sha256: '62359607e4ece01e5ec68019a2c8c604d1048364e0898ece19fa49b790c8258c',
+  };
+  assertRootIdentity(cache, output, identity);
+  const directory = cacheIdentity(external);
+  assert.deepEqual(directory.files, [
+    { path: 'sentinel.txt', type: 'file', size: 17, sha256: sha256('outside the cache') },
+  ]);
+  assert.notEqual(directory.sha256, identity.sha256);
+
+  fs.writeFileSync(sentinel, 'different external contents');
+  assertRootIdentity(cache, output, identity);
+});
+
+test('a trailing separator does not turn a cache root link into its target directory', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-cache-root-separator-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cache = path.join(root, 'cache');
+  const output = path.join(root, 'identity.json');
+  fs.mkdirSync(path.join(root, 'external'));
+  fs.symlinkSync('external', cache, 'dir');
+
+  assertRootIdentity(cache + path.sep, output, {
+    absent: false,
+    files: [{ path: '.', type: 'symlink', size: 8, sha256: sha256('external') }],
+    bytes: 8,
+    sha256: '62359607e4ece01e5ec68019a2c8c604d1048364e0898ece19fa49b790c8258c',
+  });
+});
+
+test('direct and persisted cache identity change when only root link text changes', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-cache-root-link-text-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cache = path.join(root, 'cache');
+  const output = path.join(root, 'identity.json');
+  fs.mkdirSync(path.join(root, 'external'));
+  fs.symlinkSync('external', cache, 'dir');
+  const fingerprints = () => ({
+    direct: cacheIdentity(cache).sha256,
+    persisted: saveCacheIdentity(cache, output).sha256,
+  });
+  const before = fingerprints();
+
+  fs.unlinkSync(cache);
+  fs.symlinkSync('./external', cache, 'dir');
+  const after = fingerprints();
+  assert.notEqual(after.direct, before.direct);
+  assert.notEqual(after.persisted, before.persisted);
+});
+
+const unresolvedRootLinks = [
+  {
+    kind: 'dangling',
+    text: 'missing-缺失',
+    size: 14,
+    digest: 'ffa944bf5a88c51cb8b69c5246d837c4e40ef5d27b850588c7a67653578d309d',
+  },
+  {
+    kind: 'self-cyclic',
+    text: 'cache',
+    size: 5,
+    digest: '00325bd9100697ed805dfb19092bbd5ec3d92475323f9bc368c576d028fe354c',
+  },
+];
+
+for (const { kind, text, size, digest } of unresolvedRootLinks) {
+  test(`direct and persisted cache identity distinguish a ${kind} root link from absence`, (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-unresolved-cache-root-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const cache = path.join(root, 'cache');
+    const output = path.join(root, 'identity.json');
+    assertRootIdentity(cache, output, { absent: true, files: [], sha256: null });
+
+    fs.symlinkSync(text, cache);
+    assertRootIdentity(cache, output, {
+      absent: false,
+      files: [{ path: '.', type: 'symlink', size, sha256: sha256(text) }],
+      bytes: size,
+      sha256: digest,
+    });
+  });
+}
 
 test('script observer keeps per-request bodies, timings and cache provenance', async () => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), 'mindsprout-script-observer-'));

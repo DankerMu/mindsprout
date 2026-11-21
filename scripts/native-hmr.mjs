@@ -57,6 +57,7 @@ const valueB = 'Native HMR B';
 const values = [valueA, valueB];
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const file = (name) => path.join(out, name);
+const cachePathExists = (name) => fs.lstatSync(name, { throwIfNoEntry: false }) !== undefined;
 const started = performance.now();
 const result = {
   mode,
@@ -596,8 +597,8 @@ function restoreOwnedFiles(errors) {
     }
     if (cacheOwned) {
       try {
-        if (fs.existsSync(cache)) fs.renameSync(cache, file('cache-observed'));
-        if (fs.existsSync(file('cache-original'))) fs.renameSync(file('cache-original'), cache);
+        if (cachePathExists(cache)) fs.renameSync(cache, file('cache-observed'));
+        if (cachePathExists(file('cache-original'))) fs.renameSync(file('cache-original'), cache);
         cacheOwned = false;
       } catch (error) {
         errors.push(error.message);
@@ -631,10 +632,10 @@ async function startRuntime() {
   assert(!process.env.__INTERNAL_CUSTOM_TURBOPACK_BINDINGS, 'Custom bindings are not permitted');
   result.addon = await nativeIdentity(candidateManifest);
   prepareSource();
-  if (fs.existsSync(cache)) fs.renameSync(cache, file('cache-original'));
+  if (cachePathExists(cache)) fs.renameSync(cache, file('cache-original'));
   cacheOwned = true;
   result.cacheIdentity = saveCacheIdentity(file('cache-original'), file('cache-identity.json'));
-  if (fs.existsSync(file('cache-original')))
+  if (cachePathExists(file('cache-original')))
     fs.cpSync(file('cache-original'), cache, { recursive: true, preserveTimestamps: true });
   await startServer(mode === 'restored-lifecycle' ? 'probe79-A' : undefined);
   browserServer = await chromium.launchServer(
