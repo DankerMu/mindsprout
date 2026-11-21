@@ -278,6 +278,16 @@ export async function probeSnapshot(state, probe, values, stage, elapsed) {
   };
 }
 
+function cacheEntry(relativePath, full, symlink) {
+  const bytes = symlink ? fs.readlinkSync(full, { encoding: 'buffer' }) : fs.readFileSync(full);
+  return {
+    path: relativePath,
+    type: symlink ? 'symlink' : 'file',
+    size: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+}
+
 function cacheFiles(root, directory = root) {
   return fs
     .readdirSync(directory, { withFileTypes: true })
@@ -286,21 +296,16 @@ function cacheFiles(root, directory = root) {
       const full = path.join(directory, entry.name);
       const symlink = entry.isSymbolicLink();
       if (!symlink && entry.isDirectory()) return cacheFiles(root, full);
-      const bytes = symlink ? fs.readlinkSync(full, { encoding: 'buffer' }) : fs.readFileSync(full);
-      return [
-        {
-          path: path.relative(root, full),
-          type: symlink ? 'symlink' : 'file',
-          size: bytes.length,
-          sha256: createHash('sha256').update(bytes).digest('hex'),
-        },
-      ];
+      return [cacheEntry(path.relative(root, full), full, symlink)];
     });
 }
 
 export function cacheIdentity(directory) {
-  if (!fs.existsSync(directory)) return { absent: true, files: [], sha256: null };
-  const files = cacheFiles(directory);
+  // A trailing slash makes lstat resolve a directory link instead of inspecting it.
+  const cache = directory.replace(/\/+$/, '') || directory;
+  const root = fs.lstatSync(cache, { throwIfNoEntry: false });
+  if (!root) return { absent: true, files: [], sha256: null };
+  const files = root.isSymbolicLink() ? [cacheEntry('.', cache, true)] : cacheFiles(cache);
   return {
     absent: false,
     files,

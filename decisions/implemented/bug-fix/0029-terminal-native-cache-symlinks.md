@@ -10,11 +10,13 @@ date: 2026-11-21
 
 ## Problem
 
-A warm Next development cache can contain directory symlinks. Treating every non-directory entry as a regular file sends those links through `readFileSync`, which fails with `EISDIR` before the native browser starts. Following the targets instead would make cache identity depend on external files and could recurse through ancestor cycles.
+A warm Next development cache can contain directory symlinks or be a symlink itself. Reading a directory link as a regular file fails with `EISDIR` before the native browser starts. Following targets instead makes identity depend on external files, admits cycles, and confuses an unresolved root link with a missing cache.
 
 ## Decision
 
-Fingerprint a symlink using only its raw link text bytes. The entry records their byte length and SHA-256, not the text or the target's metadata. Include the entry type in the report and aggregate digest so equal bytes at the same path cannot make a regular file and a link interchangeable.
+Fingerprint a symlink using only its raw link text bytes. The entry records their byte length and SHA-256, not the text or the target's metadata. A root link contributes a single terminal entry at `.`. Include the entry type in the report and aggregate digest so equal bytes at the same path cannot make a regular file and a link interchangeable.
+
+Use no-follow path-existence guards for cache backup, working copy, and restoration. A link is present even if its target cannot resolve, so the runner does not skip its original entry or lose it during cleanup.
 
 ## Alternatives considered
 
@@ -23,4 +25,4 @@ Fingerprint a symlink using only its raw link text bytes. The entry records thei
 
 ## Consequences
 
-Dangling links, links to ancestors, and separate aliases all remain independent terminal entries. Target-content changes alone are intentionally invisible. Aggregate digests are comparable within one runner version; regular-file paths, sizes, and content hashes keep their meaning. The [native HMR guide](../../../docs/engineering/native-hmr.md#browser-behavior-contracts) defines the report and cleanup contracts. This decision covers fingerprinting only; it does not supersede [decision 0021](0021-native-hmr-registration-maintenance.md) or change cache copying, cleanup, or probe gates.
+Dangling links, links to ancestors, and separate aliases all remain independent terminal entries. Target-content changes alone are intentionally invisible. Aggregate digests are comparable within one runner version; regular-file paths, sizes, and content hashes keep their meaning. The [native HMR guide](../../../docs/engineering/native-hmr.md#browser-behavior-contracts) defines the report and cleanup contracts. This decision does not supersede [decision 0021](0021-native-hmr-registration-maintenance.md) or change copy options, cleanup ordering, or probe gates.
