@@ -1,0 +1,73 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { performance } from 'node:perf_hooks';
+import { chromium } from '@playwright/test';
+import { createRuntimeProfile, launchNativeBrowser } from './native-hmr-runtime-profile.mjs';
+
+async function run() {
+  const [mode, directory] = process.argv.slice(2);
+  const profiling = createRuntimeProfile(
+    {
+      profile: mode === 'profile',
+      repo: directory,
+      out: directory,
+      mode: 'source-change',
+      started: performance.now(),
+    },
+    () => ({ generation: 0, trial: 0 }),
+  );
+  let rejectInterrupt, releaseCleanup;
+  const interrupted = new Promise((_, reject) => {
+    rejectInterrupt = reject;
+  });
+  interrupted.catch(() => undefined);
+  const cleanupReleased = new Promise((resolve) => {
+    releaseCleanup = resolve;
+  });
+  let signalReceived = false;
+  const removeSignals = profiling.registerSignals((error) => {
+    signalReceived = true;
+    rejectInterrupt(error);
+  });
+  const onMessage = (message) => {
+    if (message.type === 'finish-cleanup') releaseCleanup();
+    if (message.type === 'cleanup') rejectInterrupt(new Error('Test cleanup'));
+  };
+  process.on('message', onMessage);
+  const errors = [];
+  let browserServer, browser, browserProcess;
+  try {
+    browserServer = await launchNativeBrowser();
+    browserProcess = browserServer.process();
+    browser = await chromium.connect(browserServer.wsEndpoint());
+    process.send({ type: 'ready', browserPid: browserProcess.pid });
+    await interrupted;
+  } catch (error) {
+    if (!signalReceived) throw error;
+  } finally {
+    browserServer = await profiling.closeBrowser(browser, browserServer, errors);
+    process.send({ type: 'browser-closed' });
+    await cleanupReleased;
+    const browserExited =
+      browserProcess !== undefined &&
+      (browserProcess.exitCode !== null || browserProcess.signalCode !== null);
+    fs.writeFileSync(
+      path.join(directory, 'cleanup.json'),
+      JSON.stringify({
+        cleanupCompleted: browserServer === undefined && browserExited && errors.length === 0,
+        signalReceived,
+        browserExited,
+        errors,
+      }),
+    );
+    removeSignals();
+    process.off('message', onMessage);
+    process.disconnect();
+  }
+  process.exitCode = 1;
+}
+
+run().catch(() => {
+  process.stderr.write('Browser signal fixture failed\n');
+  process.exitCode = 2;
+});

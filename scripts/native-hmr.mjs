@@ -14,7 +14,6 @@ import {
   deadline,
   listening,
   processGroup,
-  stopOwnedProcessGroup,
   waitForReadiness,
   capturePage,
   nativeIdentity,
@@ -35,12 +34,10 @@ import {
   probeLiterals,
   probeTimeline,
 } from './native-hmr-observation.mjs';
+import { parseNativeBrowserArgs } from './native-hmr-profile.mjs';
+import { createRuntimeProfile, launchNativeBrowser } from './native-hmr-runtime-profile.mjs';
 
-const [mode, output, candidateManifest] = process.argv.slice(2);
-assert(
-  ['restored-lifecycle', 'source-change'].includes(mode) && output,
-  'Usage: pnpm native:browser restored-lifecycle|source-change FRESH_OUTPUT_DIRECTORY [CANDIDATE_MANIFEST]',
-);
+const { mode, output, candidateManifest, profile } = parseNativeBrowserArgs(process.argv.slice(2));
 const repo = process.cwd();
 const out = path.resolve(output);
 const origin = 'http://localhost:3000';
@@ -84,6 +81,10 @@ let retained, window;
 const pendingBodies = new Set();
 const chunks = [];
 const readies = [];
+const profiling = createRuntimeProfile({ profile, repo, out, mode, started }, () => ({
+  generation,
+  trial,
+}));
 const now = () => ({ at: Date.now(), ms: performance.now() - started });
 const save = (name, value) => {
   fs.writeFileSync(file(name + '.pending'), JSON.stringify(value, null, 2) + '\n');
@@ -104,10 +105,7 @@ interrupted.catch(() => {
   // Guard races observe the original rejection even when a signal arrives between operations.
 });
 const guard = (promise) => Promise.race([promise, interrupted]);
-const sigterm = () => interrupt(new Error('Interrupted by SIGTERM'));
-const sigint = () => interrupt(new Error('Interrupted by SIGINT'));
-process.on('SIGTERM', sigterm);
-process.on('SIGINT', sigint);
+const removeSignalHandlers = profiling.registerSignals(interrupt);
 
 function handles() {
   save('handles.json', {
@@ -137,10 +135,16 @@ function cas(bytes) {
 }
 async function startServer(value) {
   generation++;
+  profiling.beginServer();
   const fd = fs.openSync(file(`server-${generation}.log`), 'wx');
   const env = { ...process.env };
   if (value) env[variable] = value;
-  server = spawn('pnpm', ['dev'], { cwd: repo, env, detached: true, stdio: ['ignore', fd, fd] });
+  server = spawn('pnpm', profile ? ['dev', '--experimental-cpu-prof'] : ['dev'], {
+    cwd: repo,
+    env,
+    detached: true,
+    stdio: ['ignore', fd, fd],
+  });
   fs.closeSync(fd);
   serverExit = new Promise((resolve, reject) => {
     server.once('close', resolve);
@@ -178,11 +182,13 @@ async function startServer(value) {
 async function stopServer() {
   if (!server) return;
   const owned = server;
-  await stopOwnedProcessGroup(owned, serverExit);
+  const group = await profiling.stopServer(owned, serverExit);
   server = undefined;
   record('server-stopped', { pid: owned.pid });
+  await profiling.collectServer(owned.pid, group);
 }
-function pauseBrowser() {
+async function pauseBrowser() {
+  if (profile) await profiling.suspend();
   const child = browserServer.process();
   assert(
     child.exitCode === null && child.signalCode === null && child.pid !== process.pid,
@@ -194,6 +200,7 @@ function pauseBrowser() {
   );
   process.kill(-child.pid, 'SIGSTOP');
   pausedBrowser = child;
+  if (profile) profiling.paused();
   const group = processGroup(child.pid);
   record('browser-stopped', { pid: child.pid, group });
   handles();
@@ -202,7 +209,7 @@ function pauseBrowser() {
     'Browser pause was not confirmed',
   );
 }
-function resumeBrowser() {
+async function resumeBrowser(collect = true) {
   if (!pausedBrowser) return;
   assert.equal(browserServer.process(), pausedBrowser, 'Browser ownership changed');
   assert(
@@ -213,10 +220,13 @@ function resumeBrowser() {
     processGroup(pausedBrowser.pid).some((item) => item.pid === pausedBrowser.pid),
     'Owned browser leader disappeared',
   );
-  process.kill(-pausedBrowser.pid, 'SIGCONT');
-  record('browser-resumed', { pid: pausedBrowser.pid });
+  const child = pausedBrowser;
+  process.kill(-child.pid, 'SIGCONT');
   pausedBrowser = undefined;
+  const resumed = profile ? profiling.resume(collect) : undefined;
+  record('browser-resumed', { pid: child.pid });
   handles();
+  await resumed;
 }
 async function readiness(state, start, label, expectedPath) {
   const elapsedMs = await waitForReadiness(state, start, expectedPath, started);
@@ -254,6 +264,7 @@ async function attach(page, label) {
   );
   page.on('crash', () => record('crash', {}, label));
   cdp.on('Network.requestWillBeSent', (data) => {
+    profiling.recordNetwork(data, label);
     record(
       'browser-request',
       {
@@ -336,6 +347,7 @@ async function attach(page, label) {
   await cdp.send('Network.enable');
   await cdp.send('Performance.enable');
   state.frameId = (await cdp.send('Page.getFrameTree')).frameTree.frame.id;
+  if (profile) await profiling.attach(page, cdp, label, browser);
   return state;
 }
 const capture = (state, name) => capturePage(state, name, out);
@@ -517,12 +529,12 @@ async function restoredLifecycle(mapPath) {
       await guard(retained.page.goto(origin, { waitUntil: 'commit', timeout: 5000 }));
     await guard(sleep(3000));
     assert.equal(await retained.page.getByTestId(probe).textContent(), currentValue);
-    pauseBrowser();
-    await stopServer();
     phase = 'restart-observation';
+    await pauseBrowser();
+    await stopServer();
     window = { documents: 0, reloads: 0, restarts: 0, connected: [], subscriptions: [] };
     const api = await startServer(condition.value);
-    resumeBrowser();
+    await resumeBrowser();
     await guard(sleep(15000));
     await Promise.all([...pendingBodies, ...retained.readiness]);
     const apiFirst = Boolean(
@@ -568,17 +580,11 @@ function prepareSource() {
 }
 async function stopOwnedProcesses(errors) {
   try {
-    resumeBrowser();
+    await resumeBrowser(false);
   } catch (error) {
     errors.push(error.message);
   }
-  try {
-    await deadline(browser?.close() || Promise.resolve(), 5000, 'Browser close');
-    await deadline(browserServer?.close() || Promise.resolve(), 5000, 'Browser process close');
-    browserServer = undefined;
-  } catch (error) {
-    errors.push(error.message);
-  }
+  browserServer = await profiling.closeBrowser(browser, browserServer, errors);
   try {
     await stopServer();
   } catch (error) {
@@ -625,12 +631,14 @@ async function cleanup() {
   await stopOwnedProcesses(errors);
   restoreOwnedFiles(errors);
   recordCleanup(errors);
+  await profiling.finish(!server);
 }
 async function startRuntime() {
   assert(!(await listening()), 'Port 3000 occupied; refusing an unowned runtime');
   assert(!Object.hasOwn(process.env, variable), 'Synthetic probe variable already set');
   assert(!process.env.__INTERNAL_CUSTOM_TURBOPACK_BINDINGS, 'Custom bindings are not permitted');
   result.addon = await nativeIdentity(candidateManifest);
+  if (!profiling.prepare(result.addon, result)) return;
   prepareSource();
   if (cachePathExists(cache)) fs.renameSync(cache, file('cache-original'));
   cacheOwned = true;
@@ -638,11 +646,7 @@ async function startRuntime() {
   if (cachePathExists(file('cache-original')))
     fs.cpSync(file('cache-original'), cache, { recursive: true, preserveTimestamps: true });
   await startServer(mode === 'restored-lifecycle' ? 'probe79-A' : undefined);
-  browserServer = await chromium.launchServer(
-    process.env.PLAYWRIGHT_CHROMIUM_PATH
-      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH }
-      : {},
-  );
+  browserServer = await launchNativeBrowser();
   browser = await chromium.connect(browserServer.wsEndpoint());
   const context = await browser.newContext();
   context.setDefaultTimeout(5000);
@@ -656,6 +660,7 @@ async function run() {
   fs.mkdirSync(out, { recursive: false });
   try {
     const context = await startRuntime();
+    if (!context) return;
     const mapPath = await publicMap(retained, origin, guard, visitEditor, homeBack);
     if (mode === 'restored-lifecycle') await restoredLifecycle(mapPath);
     else await sourceChange(context, mapPath);
@@ -683,8 +688,7 @@ async function run() {
     save('chunks.json', chunks);
     save('readiness.json', readies);
     save('result.json', result);
-    process.off('SIGTERM', sigterm);
-    process.off('SIGINT', sigint);
+    removeSignalHandlers();
     process.exitCode = result.status === 'passed' ? 0 : 1;
     console.log(
       JSON.stringify({

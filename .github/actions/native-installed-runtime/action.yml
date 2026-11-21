@@ -48,11 +48,37 @@ runs:
     - run: pnpm native:browser:test
       shell: bash
     - name: Installed restored-lifecycle counterexample
+      id: native_restored
       run: pnpm native:browser restored-lifecycle .run/native-installed/restored
       shell: bash
     - name: Installed source HMR and first SPA navigation
+      id: native_source
       run: pnpm native:browser source-change .run/native-installed/source
       shell: bash
+    - name: Diagnose a failed Darwin browser qualification
+      id: native_diagnostic
+      if: ${{ always() && !cancelled() && runner.os == 'macOS' && (steps.native_restored.outcome == 'failure' || steps.native_source.outcome == 'failure') }}
+      shell: bash
+      env:
+        NATIVE_RESTORED_OUTCOME: ${{ steps.native_restored.outcome }}
+        NATIVE_SOURCE_OUTCOME: ${{ steps.native_source.outcome }}
+        NATIVE_PROFILE_CANCELLED: ${{ job.status == 'cancelled' }}
+        NATIVE_PROFILE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        NATIVE_PROFILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        mode="$(node scripts/native-hmr-profile.mjs --select-diagnostic)"
+        if [[ -n "$mode" ]]; then
+          echo "attempted=true" >> "$GITHUB_OUTPUT"
+          pnpm native:browser "$mode" .run/native-diagnostic --profile
+        fi
+    - name: Upload safe native diagnostic summary
+      if: ${{ always() && steps.native_diagnostic.outputs.attempted == 'true' }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: native-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.target }}
+        path: .run/native-diagnostic/safe/summary.json
+        if-no-files-found: error
+        retention-days: 14
     - name: Production build with the installed addon
       run: pnpm build
       shell: bash
