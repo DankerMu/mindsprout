@@ -9,7 +9,7 @@
 ## 2. Prove the native warm-cache consumer
 
 - [x] 2.1 Run the real native browser consumer on Node 22.23.4 with an owned local Postgres and a warm `.next/dev` containing a directory symlink to an external sentinel directory. Retain evidence that preflight completes, probe startup is reached, original assertions and cleanup pass, and the original cache/link identity is restored; do not rerun the previously observed throwaway failure wrapper.
-- [ ] 2.2 Run `pnpm change-scope origin/main`, scoped ESLint/Prettier, `pnpm test:guardrails`, and `openspec validate cache-symlink-fingerprint --strict --no-interactive`; freeze the reviewed SHA for required installed/candidate CI and independent expanded review.
+- [x] 2.2 Run `pnpm change-scope origin/main`, scoped ESLint/Prettier, `pnpm test:guardrails`, and `openspec validate cache-symlink-fingerprint --strict --no-interactive`; freeze the reviewed SHA for required installed/candidate CI and independent expanded review.
 
 ## Risk packs
 
