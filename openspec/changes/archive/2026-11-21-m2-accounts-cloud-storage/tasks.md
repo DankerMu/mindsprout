@@ -82,7 +82,7 @@ Minimal mergeable slice: 1.1 - the runner and test-database lifecycle are self-v
 
 ## 2. Map payload validation
 
-- [ ] 2.1 Add `parseMindMap(input): MindMap` to `src/contexts/map/domain` (design D4). It uses strict Zod schemas over the M1 `MindMap` shape and enforces the forest invariants:
+- [x] 2.1 Add `parseMindMap(input): MindMap` to `src/contexts/map/domain` (design D4). It uses strict Zod schemas over the M1 `MindMap` shape and enforces the forest invariants:
   - at least one root;
   - no `position` on `roots[0]`;
   - a finite `position` on every other root, and none on any non-root node;
