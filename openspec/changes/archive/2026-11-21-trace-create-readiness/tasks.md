@@ -18,7 +18,7 @@
 ## 4. Prove integration and evidence interpretation
 
 - [x] 4.1 On Node22.23.4 with real Chromium and owned scratch Postgres, run both installed-native modes with `--profile`, an unprofiled control, and signal/failure teardown. Verify stage records or explicit partials, original functional exits, source/cache/profile/process restoration and dropped scratch DB. Inspect literal safe payload fields/string values/caps and distinguish sampling brackets from exact timestamps. Keep local non-reproduction explicit.
-- [ ] 4.2 Run `pnpm change-scope <verified-base>`, scoped lint/format, `pnpm test:guardrails`, strict validation and independent high-risk gate/privacy/state review. Freeze the reviewed SHA and obtain its required installed/candidate CI results plus one attributable eligible Darwin diagnostic capture; retain original failure/artifacts and analyze only same-invocation measurements. If no eligible natural failure occurs, report capture pending rather than induce timeout or rerun for green. No merge into frozen PR221/219; retarget only after dependency landing and fresh scope/checks.
+- [x] 4.2 Run `pnpm change-scope <verified-base>`, scoped lint/format, `pnpm test:guardrails`, strict validation and independent high-risk gate/privacy/state review. Freeze the reviewed SHA and obtain its required installed/candidate CI results plus one attributable eligible Darwin diagnostic capture; retain original failure/artifacts and analyze only same-invocation measurements. If no eligible natural failure occurs, report capture pending rather than induce timeout or rerun for green. No merge into frozen PR221/219; retarget only after dependency landing and fresh scope/checks.
 
 ## Risk packs
 
