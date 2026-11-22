@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { safeNextPath } from '../../shared/safe-next-path';
+import { useSessionNavigation } from './session-navigation';
 
 const ERROR_MESSAGES: Record<number, string> = {
   400: '请输入用户名和密码',
@@ -20,6 +21,8 @@ export function CredentialsForm({
   next: string | null;
 }) {
   const router = useRouter();
+  const { publicAuthMounted, resumeAuthenticatedNavigation } = useSessionNavigation();
+  useEffect(publicAuthMounted, [publicAuthMounted]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const label = mode === 'login' ? '登录' : '注册';
@@ -38,8 +41,12 @@ export function CredentialsForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      if (response.ok) router.push(safeNextPath(next));
-      else setError(ERROR_MESSAGES[response.status] ?? REQUEST_FAILED);
+      if (response.ok) {
+        resumeAuthenticatedNavigation();
+        router.push(safeNextPath(next));
+      } else {
+        setError(ERROR_MESSAGES[response.status] ?? REQUEST_FAILED);
+      }
     } catch {
       setError(REQUEST_FAILED);
     } finally {

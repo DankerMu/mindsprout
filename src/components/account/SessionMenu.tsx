@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { useSessionNavigation } from './session-navigation';
 import styles from './SessionMenu.module.css';
 
 interface SessionInfo {
@@ -21,6 +22,7 @@ async function loadSession(): Promise<SessionInfo | undefined> {
 
 export function SessionMenu() {
   const router = useRouter();
+  const { signOutStarted } = useSessionNavigation();
   const [failed, setFailed] = useState(false);
   const [session, setSession] = useState<SessionInfo>();
   const request = useRef<Promise<SessionInfo | undefined>>(undefined);
@@ -43,6 +45,7 @@ export function SessionMenu() {
         body: '{}',
       });
       if (response.ok) {
+        signOutStarted();
         router.push('/login');
         return;
       }

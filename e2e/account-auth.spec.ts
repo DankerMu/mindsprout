@@ -1,8 +1,15 @@
-import { test, expect, type Page, type Response as BrowserResponse } from '@playwright/test';
+import {
+  test,
+  expect,
+  type Page,
+  type Request as BrowserRequest,
+  type Response as BrowserResponse,
+} from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { createMindMap } from '../src/contexts/map/domain/create-mind-map';
 import { envelopeOf, readRecord, seedRecords } from './support/seed';
 import { collectExpectedResponses } from './support/expected-responses';
+import { E2E_ADMIN_PASSWORD, E2E_ADMIN_USERNAME } from './support/session';
 
 test('account-auth: Register and land signed in', async ({ page }) => {
   const username = `alice-${randomUUID()}`;
@@ -81,37 +88,137 @@ test('account-auth: Signed-out visit returns after registration from sign-in', a
   expect(await observed.noise()).toEqual([]);
 });
 
-test('account-auth: Sign out', async ({ page, playwright }) => {
-  const noise: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') noise.push(message.text());
+test('account-auth: Sign out wins over a delayed library 401', async ({ page, playwright }) => {
+  const pendingList = gate();
+  const listArrived = gate();
+  const listRequests: BrowserRequest[] = [];
+  const pendingLogin = gate();
+  const loginArrived = gate();
+  const noise = collectExpectedResponses(page, [{ url: '/api/maps', status: 401 }]);
+  const expiryNavigations: string[] = [];
+  const isPath = (path: string) => (url: URL) => url.pathname === path;
+  const signedUp = await page.request.post('/api/auth/register', {
+    data: { username: `signout-${randomUUID()}`, password: 'pw' },
   });
-  page.on('pageerror', (error) => {
-    noise.push(String(error));
+  expect(signedUp.status()).toBe(201);
+  const cookiesBefore = await page.context().cookies();
+  const oldCookie = cookiesBefore.find((cookie) => cookie.name === 'mindsprout_session');
+  if (!oldCookie) throw new Error('Registration did not issue a session cookie');
+
+  page.on('request', (request) => {
+    const { pathname, search } = new URL(request.url());
+    if (pathname === '/login' && new URLSearchParams(search).has('next'))
+      expiryNavigations.push(search);
   });
-  const username = `alice-${randomUUID()}`;
-  await page.goto('/register');
-  await page.getByLabel('用户名').fill(username);
-  await page.getByLabel('密码').fill('pw');
-  await page.getByRole('button', { name: '注册' }).click();
-  await expect(page.getByTestId('session-username')).toHaveText(username);
-  const cookie = (await page.context().cookies()).find(
-    (item) => item.name === 'mindsprout_session',
-  );
-  expect(cookie).toBeDefined();
-  await page.getByRole('button', { name: '退出登录' }).click();
-  await expect(page).toHaveURL('/login');
+  await page.route(isPath('/api/maps'), async (route) => {
+    listRequests.push(route.request());
+    listArrived.release();
+    await pendingList.promise;
+    await route.continue();
+  });
+  await page.route(isPath('/login'), async (route) => {
+    if (!new URL(route.request().url()).searchParams.has('next')) loginArrived.release();
+    await pendingLogin.promise;
+    await route.continue();
+  });
+  try {
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await listArrived.promise;
+    const logout = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/auth/logout',
+    );
+    await page.getByRole('button', { name: '退出登录' }).click();
+    expect((await logout).status()).toBe(204);
+    await loginArrived.promise;
+    await expect(page.getByTestId('app-ready')).toBeVisible();
+    pendingList.release();
+    for (const request of listRequests) expect((await request.response())?.status()).toBe(401);
+    // Keep the outgoing document mounted until the denied fetch has been processed.
+    await expect(page.getByTestId('app-ready')).toBeVisible();
+    await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    pendingLogin.release();
+    await expect(page).toHaveURL('/login');
+    await expect(page.getByTestId('login-ready')).toBeVisible();
+    expect(expiryNavigations).toEqual([]);
+    expect((await page.context().cookies()).map(({ name }) => name)).not.toContain(
+      'mindsprout_session',
+    );
+    await page.screenshot({ path: '.run/ui-evidence/account-signout-race.png' });
+    expect(await noise.noise()).toEqual([]);
+  } finally {
+    pendingList.release();
+    pendingLogin.release();
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  }
   const replay = await playwright.request.newContext({
     baseURL: new URL(page.url()).origin,
-    extraHTTPHeaders: { Cookie: `mindsprout_session=${cookie?.value ?? ''}` },
+    extraHTTPHeaders: { Cookie: `mindsprout_session=${oldCookie.value}` },
   });
   try {
     expect((await replay.get('/api/auth/session')).status()).toBe(401);
   } finally {
     await replay.dispose();
   }
-  expect(noise).toEqual([]);
 });
+
+for (const surface of ['library', 'admin list', 'admin reset'] as const) {
+  test(`account-auth: Genuine ${surface} expiry opens a fresh login document`, async ({ page }) => {
+    const path = surface === 'library' ? '/' : '/admin';
+    const listUrl = surface === 'library' ? '/api/maps' : '/api/admin/users';
+    const responseUrl =
+      surface === 'admin reset' ? /\/api\/admin\/users\/[^/]+\/password-reset$/ : listUrl;
+    const observed = collectExpectedResponses(page, [{ url: responseUrl, status: 401 }]);
+    const account =
+      surface === 'library'
+        ? { username: `expiry-${randomUUID()}`, password: 'pw' }
+        : { username: E2E_ADMIN_USERNAME, password: E2E_ADMIN_PASSWORD };
+    const mode = surface === 'library' ? 'register' : 'login';
+    const setup = await page.request.post(`/api/auth/${mode}`, { data: account });
+    expect(setup.status()).toBe(surface === 'library' ? 201 : 200);
+    const pendingList = gate();
+    const document = page.waitForRequest(
+      (request) => request.isNavigationRequest() && new URL(request.url()).pathname === '/login',
+    );
+    if (surface !== 'admin reset') {
+      await page.route(`**${listUrl}`, async (route) => {
+        await pendingList.promise;
+        await route.continue();
+      });
+    }
+    try {
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
+      await expect(page.getByTestId('session-username')).toHaveText(account.username);
+      expect((await page.request.post('/api/auth/logout', { data: {} })).status()).toBe(204);
+      const denied = page.waitForResponse((response) => {
+        const { pathname } = new URL(response.url());
+        return typeof responseUrl === 'string'
+          ? pathname === responseUrl
+          : responseUrl.test(pathname);
+      });
+      if (surface === 'admin reset') {
+        page.once('dialog', (dialog) => dialog.accept());
+        await page
+          .getByRole('button', { name: `重置密码 ${account.username}`, exact: true })
+          .click();
+      } else {
+        pendingList.release();
+      }
+      expect((await denied).status()).toBe(401);
+      const expected = `/login?next=${encodeURIComponent(path)}`;
+      expect(new URL((await document).url()).search).toBe(new URL(expected, page.url()).search);
+      await expect(page).toHaveURL(expected);
+      await expect(page.getByTestId('login-ready')).toBeVisible();
+      await page.screenshot({
+        path: `.run/ui-evidence/account-expiry-${surface.replace(' ', '-')}.png`,
+        caret: 'initial',
+      });
+      expect(await observed.noise()).toEqual([]);
+    } finally {
+      pendingList.release();
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+    }
+  });
+}
 
 test('account-auth: Sign in', async ({ page, request }) => {
   const username = `alice-${randomUUID()}`;

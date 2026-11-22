@@ -1,7 +1,19 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { usePathname } from 'next/navigation';
+import {
+  resumeFromPublicAuth,
+  SessionNavigationScope,
+} from '../../components/account/session-navigation';
 import type { MapRepository } from '../../contexts/map/domain/map-repository';
 import { HttpMapRepository } from '../../contexts/map/infrastructure/persistence/http-map-repository';
 import { readCookie, SESSION_BINDING_COOKIE } from '../../shared/session-binding';
@@ -48,10 +60,21 @@ interface ProviderProps {
 
 export function MapRepositoryProvider(props: ProviderProps) {
   // Shared layouts do not rerender for changed route children; subscribe to navigation.
-  usePathname();
+  const pathname = usePathname();
+  const isPublicAuth = pathname === '/login' || pathname === '/register';
+  const wasPublicAuth = useRef(false);
+  // Commit the route boundary before protected request effects capture their epoch.
+  useLayoutEffect(() => {
+    if (wasPublicAuth.current && !isPublicAuth) resumeFromPublicAuth();
+    wasPublicAuth.current = isPublicAuth;
+  }, [pathname, isPublicAuth]);
   const binding = props.open === undefined ? documentBinding() : undefined;
   // Reset before child effects can use another account's ready repository (decision 0028).
-  return <RepositoryProvider key={binding} {...props} />;
+  return (
+    <SessionNavigationScope>
+      <RepositoryProvider key={binding} {...props} />
+    </SessionNavigationScope>
+  );
 }
 
 function RepositoryProvider({ children, open }: ProviderProps) {

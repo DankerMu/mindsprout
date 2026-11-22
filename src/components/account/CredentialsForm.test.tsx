@@ -1,10 +1,19 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { heldResult } from '../../../tests/support/map-library';
 import { CredentialsForm } from './CredentialsForm';
+import { SessionNavigationScope, useSessionNavigation } from './session-navigation';
 
 failOnConsoleNoise();
 afterEach(() => vi.unstubAllGlobals());
@@ -27,7 +36,9 @@ function setup(
   vi.stubGlobal('fetch', fetch);
   const form = (
     <AppRouterContext value={router}>
-      <CredentialsForm mode={mode} next={next} />
+      <SessionNavigationScope>
+        <CredentialsForm mode={mode} next={next} />
+      </SessionNavigationScope>
     </AppRouterContext>
   );
   if (earlyInput) {
@@ -229,3 +240,30 @@ describe.each(['login', 'register'] as const)('account-auth: %s', (mode) => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 });
+
+it.each(['login', 'register'] as const)(
+  'activates the next navigation epoch before pushing after hydrated %s success',
+  async (mode) => {
+    const { result } = renderHook(useSessionNavigation, { wrapper: SessionNavigationScope });
+    result.current.signOutStarted();
+    const { fetch, router } = setup(mode);
+    const publicEpoch = result.current.captureEpoch();
+    const redirectAllowedOnPush = vi.fn();
+    router.push.mockImplementation(() => {
+      const navigation = result.current;
+      redirectAllowedOnPush(navigation.canRedirectOnExpiry(navigation.captureEpoch()));
+    });
+    fetch.mockResolvedValueOnce(new Response(null, { status: 500 }));
+    submit();
+    await screen.findByRole('alert');
+    expect(result.current.canRedirectOnExpiry(publicEpoch)).toBe(false);
+    expect(router.push).not.toHaveBeenCalled();
+    fetch.mockResolvedValueOnce(new Response(null, { status: mode === 'login' ? 200 : 201 }));
+    submit();
+    await waitFor(() => {
+      expect(router.push).toHaveBeenCalledExactlyOnceWith('/');
+    });
+    expect(redirectAllowedOnPush).toHaveBeenCalledExactlyOnceWith(true);
+    expect(result.current.canRedirectOnExpiry(publicEpoch)).toBe(false);
+  },
+);

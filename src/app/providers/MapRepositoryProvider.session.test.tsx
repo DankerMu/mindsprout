@@ -1,10 +1,17 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
+import { PathnameContext } from 'next/dist/shared/lib/hooks-client-context.shared-runtime';
 import { StrictMode } from 'react';
 import { renderToString } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { mapOf, node } from '../../../tests/support/map-domain';
 import { MapFetch } from '../../../tests/support/map-fetch';
+import { heldResult } from '../../../tests/support/map-library';
+import { AdminUserList } from '../../components/account/AdminUserList';
+import { CredentialsForm } from '../../components/account/CredentialsForm';
+import { SessionMenu } from '../../components/account/SessionMenu';
+import { MapLibraryClient } from '../MapLibraryClient';
 import { StorageUnauthorizedError } from '../../contexts/map/domain/errors';
 import { HttpMapRepository } from '../../contexts/map/infrastructure/persistence/http-map-repository';
 import {
@@ -183,3 +190,160 @@ it('rejects credential-only legacy queued saves after Bob signs in and lets Bob 
   await bobSession.repository.put(own);
   expect(await bobSession.repository.get(own.id)).toStrictEqual(own);
 });
+
+function navigationHarness() {
+  const list = heldResult<Response>();
+  const afterRemount = heldResult<Response>();
+  const logout = heldResult<Response>();
+  const binding = crypto.randomUUID();
+  const denied = () => new Response(null, { status: 401 });
+  const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+    if (url === '/api/auth/session') return Response.json({ username: 'Alice', isAdmin: true });
+    if (url === '/api/auth/logout') return logout.promise;
+    if (url === '/api/auth/login' || url === '/api/auth/register') return new Response();
+    if (url === '/api/maps') {
+      const requestBinding = new Headers(init?.headers).get('x-mindsprout-session-binding');
+      return requestBinding === binding ? list.promise : afterRemount.promise;
+    }
+    if (url === '/api/admin/users') return list.promise;
+    if (url === '/api/admin/users/alice/password-reset') return afterRemount.promise;
+    throw new Error('Unexpected fetch in session navigation test');
+  });
+  const router = {
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    bfcacheId: 'session-navigation',
+  };
+  const assign = vi.fn();
+  vi.stubGlobal('location', { pathname: '/', assign });
+  vi.stubGlobal('fetch', fetch);
+  vi.stubGlobal('confirm', () => true);
+  document.cookie = `mindsprout_session_binding=${binding}; Path=/`;
+  function tree(path: string, { admin = false, retainAdmin = false } = {}) {
+    return (
+      <StrictMode>
+        <AppRouterContext value={router}>
+          <PathnameContext value={path}>
+            <MapRepositoryProvider>
+              {retainAdmin && <AdminUserList />}
+              {path === '/login' || path === '/register' ? (
+                <CredentialsForm mode={path === '/login' ? 'login' : 'register'} next="/" />
+              ) : (
+                <>
+                  <SessionMenu />
+                  {admin ? !retainAdmin && <AdminUserList /> : <MapLibraryClient />}
+                </>
+              )}
+            </MapRepositoryProvider>
+          </PathnameContext>
+        </AppRouterContext>
+      </StrictMode>
+    );
+  }
+  async function signOut() {
+    fireEvent.click(await screen.findByRole('button', { name: '退出登录' }));
+    await act(async () => {
+      logout.resolve(new Response(null, { status: 204 }));
+      await logout.promise;
+    });
+    expect(router.push).toHaveBeenCalledExactlyOnceWith('/login');
+  }
+  return { list, afterRemount, logout, denied, fetch, router, assign, tree, signOut };
+}
+
+it.each(['library list', 'remounted library list', 'admin list', 'admin reset'])(
+  'keeps exact /login when a live %s returns 401 during sign-out navigation',
+  async (surface) => {
+    const t = navigationHarness();
+    const admin = surface.startsWith('admin');
+    const path = admin ? '/admin' : '/';
+    const view = render(t.tree(path, { admin }));
+    await act(() => openSessionRepository());
+    const listUrl = admin ? '/api/admin/users' : '/api/maps';
+    if (surface === 'admin reset') {
+      await act(async () => {
+        t.list.resolve(
+          Response.json([
+            { id: 'alice', username: 'Alice', createdAt: '2026-11-22T00:00:00Z', isAdmin: true },
+          ]),
+        );
+        await t.list.promise;
+      });
+      fireEvent.click(await screen.findByRole('button', { name: '重置密码 Alice' }));
+      expect(t.fetch.mock.calls.at(-1)?.[0]).toBe('/api/admin/users/alice/password-reset');
+    } else {
+      await waitFor(() => {
+        expect(t.fetch.mock.calls.some(([url]) => url === listUrl)).toBe(true);
+      });
+    }
+    await t.signOut();
+    if (surface === 'remounted library list') {
+      document.cookie = 'mindsprout_session_binding=; Path=/; Max-Age=0';
+      view.rerender(t.tree(path));
+      await waitFor(() => {
+        const reads = t.fetch.mock.calls.filter(([url]) => url === listUrl);
+        expect(new Headers(reads.at(-1)?.[1]?.headers).get('x-mindsprout-session-binding')).toBe(
+          '',
+        );
+      });
+    }
+    await act(async () => {
+      const pending =
+        surface === 'library list' || surface === 'admin list' ? t.list : t.afterRemount;
+      pending.resolve(t.denied());
+      await pending.promise;
+    });
+    expect(t.assign).not.toHaveBeenCalled();
+    view.rerender(t.tree('/login'));
+    expect(screen.getByTestId('login-ready')).toBeTruthy();
+    view.rerender(t.tree('/'));
+    await act(() => openSessionRepository());
+  },
+);
+
+it.each(['/login', '/register', 'route boundary'])(
+  'retires pre-sign-out loads and restores later genuine expiry through %s',
+  async (entry) => {
+    const t = navigationHarness();
+    const view = render(t.tree('/admin', { retainAdmin: true }));
+    await t.signOut();
+    view.rerender(t.tree(entry === 'route boundary' ? '/login' : entry, { retainAdmin: true }));
+    if (entry !== 'route boundary') {
+      fireEvent.click(screen.getByRole('button', { name: entry === '/login' ? '登录' : '注册' }));
+      await waitFor(() => {
+        expect(t.router.push.mock.calls).toEqual([['/login'], ['/']]);
+      });
+    }
+    view.rerender(t.tree('/', { retainAdmin: true }));
+    await act(async () => {
+      t.list.resolve(t.denied());
+      await t.list.promise;
+    });
+    expect(t.assign.mock.calls).toEqual([['/login?next=%2F']]);
+  },
+);
+
+it.each(['server failure', 'network failure'])(
+  'lets a live list expiry redirect after sign-out %s',
+  async (failure) => {
+    const t = navigationHarness();
+    render(t.tree('/'));
+    fireEvent.click(await screen.findByRole('button', { name: '退出登录' }));
+    await act(async () => {
+      if (failure === 'network failure') t.logout.reject(new TypeError('offline'));
+      else t.logout.resolve(new Response(null, { status: 500 }));
+      await t.logout.promise.catch(() => undefined);
+    });
+    expect(screen.getByRole('alert').textContent).toBe('请求失败，请重试');
+    expect(t.router.push).not.toHaveBeenCalled();
+    await act(async () => {
+      t.list.resolve(t.denied());
+      await t.list.promise;
+    });
+    expect(t.assign).toHaveBeenCalledExactlyOnceWith('/login?next=%2F');
+  },
+);

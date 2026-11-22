@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
+import { useSessionNavigation } from './session-navigation';
 
 interface AccountInfo {
   id: string;
@@ -69,6 +70,7 @@ function TemporaryPassword({ password, onClose }: { password: string; onClose: (
   );
 }
 export function AdminUserList() {
+  const { captureEpoch, canRedirectOnExpiry } = useSessionNavigation();
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [reset, setReset] = useState<ResetState>({ status: 'idle' });
   const locked = useRef(false);
@@ -79,12 +81,13 @@ export function AdminUserList() {
     let cancelled = false;
     const isCurrent = () => !cancelled;
     async function load() {
+      const epoch = captureEpoch();
       try {
         const response = await fetch('/api/admin/users');
         if (!isCurrent()) return;
         if (response.status === 401) {
           setState({ status: 'expired' });
-          loginAfterExpiry();
+          if (canRedirectOnExpiry(epoch)) loginAfterExpiry();
         } else if (response.status === 403) {
           setState({ status: 'forbidden' });
         } else if (response.status === 200) {
@@ -102,7 +105,7 @@ export function AdminUserList() {
       cancelled = true;
       mounted.current = false;
     };
-  }, []);
+  }, [captureEpoch, canRedirectOnExpiry]);
 
   async function resetPassword(id: string, username: string, button: HTMLButtonElement) {
     if (
@@ -114,6 +117,7 @@ export function AdminUserList() {
     trigger.current = button;
     setReset({ status: 'pending' });
     const isCurrent = () => mounted.current;
+    const epoch = captureEpoch();
     try {
       const response = await fetch(`/api/admin/users/${id}/password-reset`, {
         method: 'POST',
@@ -124,7 +128,7 @@ export function AdminUserList() {
       if (response.status === 401) {
         setReset({ status: 'idle' });
         setState({ status: 'expired' });
-        loginAfterExpiry();
+        if (canRedirectOnExpiry(epoch)) loginAfterExpiry();
         return;
       }
       if (response.status !== 200) throw new Error('Reset failed');

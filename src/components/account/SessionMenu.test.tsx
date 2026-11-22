@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { heldResult } from '../../../tests/support/map-library';
 import { SessionMenu } from './SessionMenu';
+import { SessionNavigationScope } from './session-navigation';
 
 failOnConsoleNoise();
 afterEach(() => vi.unstubAllGlobals());
@@ -25,7 +26,9 @@ function setup() {
   const menu = (
     <StrictMode>
       <AppRouterContext value={router}>
-        <SessionMenu />
+        <SessionNavigationScope>
+          <SessionMenu />
+        </SessionNavigationScope>
       </AppRouterContext>
     </StrictMode>
   );

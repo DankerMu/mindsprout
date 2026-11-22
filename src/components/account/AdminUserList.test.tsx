@@ -1,10 +1,18 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StrictMode } from 'react';
+import {
+  act,
+  fireEvent,
+  render as renderInDom,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { heldResult } from '../../../tests/support/map-library';
 import { AdminUserList } from './AdminUserList';
+import { SessionNavigationScope } from './session-navigation';
 
 failOnConsoleNoise();
 afterEach(() => vi.unstubAllGlobals());
@@ -12,6 +20,10 @@ const accounts = [
   { id: 'b', username: ' Bob ', createdAt: '2026-11-15T10:00:00.000Z', isAdmin: false },
   { id: 'a', username: 'owner', createdAt: '2026-11-14T09:00:00.000Z', isAdmin: true },
 ];
+
+function render(element: ReactElement, reactStrictMode = false) {
+  return renderInDom(element, { wrapper: SessionNavigationScope, reactStrictMode });
+}
 
 function setup() {
   const fetch = vi.fn<typeof globalThis.fetch>();
@@ -33,7 +45,13 @@ it('loads only on the client and preserves exact API order, usernames, times and
   const { fetch, assign } = setup();
   const response = heldResult<Response>();
   fetch.mockReturnValue(response.promise);
-  expect(renderToString(<AdminUserList />)).toContain('正在读取用户列表');
+  expect(
+    renderToString(
+      <SessionNavigationScope>
+        <AdminUserList />
+      </SessionNavigationScope>,
+    ),
+  ).toContain('正在读取用户列表');
   expect(fetch).not.toHaveBeenCalled();
   render(<AdminUserList />);
   expect(screen.getByRole('status').textContent).toBe('正在读取用户列表');
@@ -111,11 +129,7 @@ it.each([200, 403, 500])(
     fetch
       .mockReturnValueOnce(discarded.promise)
       .mockResolvedValueOnce(Response.json(accounts, { status }));
-    render(
-      <StrictMode>
-        <AdminUserList />
-      </StrictMode>,
-    );
+    render(<AdminUserList />, true);
     if (status === 200) await screen.findByText('owner');
     else await screen.findByText(status === 403 ? '无权访问' : '无法读取用户列表');
     const before = document.body.innerHTML;
@@ -136,11 +150,7 @@ it.each(['200', '403', 'network'])(
     fetch
       .mockReturnValueOnce(discarded.promise)
       .mockResolvedValueOnce(new Response(null, { status: 403 }));
-    render(
-      <StrictMode>
-        <AdminUserList />
-      </StrictMode>,
-    );
+    render(<AdminUserList />, true);
     await screen.findByText('无权访问');
     await act(async () => {
       if (outcome === 'network') discarded.reject(new TypeError('offline'));
