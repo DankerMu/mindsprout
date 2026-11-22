@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { safeNextPath } from '../../shared/safe-next-path';
@@ -22,6 +23,9 @@ export function CredentialsForm({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const label = mode === 'login' ? '登录' : '注册';
+  const otherPath = mode === 'login' ? '/register' : '/login';
+  const otherHref =
+    next === null ? otherPath : `${otherPath}?next=${encodeURIComponent(safeNextPath(next))}`;
 
   async function submit(credentials: FormData) {
     const username = credentials.get('username');
@@ -74,6 +78,10 @@ export function CredentialsForm({
         {pending && <p role="status">提交中…</p>}
         {error !== null && <p role="alert">{error}</p>}
       </form>
+      <p>
+        {mode === 'login' ? '还没有账号？' : '已有账号？'}
+        <Link href={otherHref}>{mode === 'login' ? '注册' : '登录'}</Link>
+      </p>
     </main>
   );
 }
