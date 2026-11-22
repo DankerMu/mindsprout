@@ -30,10 +30,36 @@ function command(root: string, env: Partial<NodeJS.ProcessEnv>) {
   });
 }
 function undisclosed(output: string, url: string) {
-  for (const value of [url, new URL(url).password, 'bootstrap-secret-marker']) {
-    expect(output).not.toContain(value);
-  }
+  expect(output).not.toContain(url);
+  const password = new URL(url).password;
+  if (password) expect(output).not.toContain(password);
+  expect(output).not.toContain('bootstrap-secret-marker');
 }
+
+describe('database setup redaction assertion', () => {
+  const passwordless = 'postgres://fixture@example.invalid/test';
+  // URL parsing escapes the space, so the raw URL does not contain the parsed password.
+  const passwordBearing = 'postgres://fixture:fixture password@example.invalid/test';
+
+  it.each([
+    ['passwordless', passwordless],
+    ['password-bearing', passwordBearing],
+  ])('accepts clean output for a %s URL', (_kind, url) => {
+    undisclosed('Database setup failed; check database configuration.', url);
+  });
+
+  it.each([
+    ['complete passwordless URL', passwordless, passwordless],
+    ['bootstrap sentinel with a passwordless URL', passwordless, 'bootstrap-secret-marker'],
+    ['complete password-bearing URL', passwordBearing, passwordBearing],
+    ['parsed password', passwordBearing, 'fixture%20password'],
+    ['bootstrap sentinel with a password-bearing URL', passwordBearing, 'bootstrap-secret-marker'],
+  ])('rejects output containing the %s', (_kind, url, disclosure) => {
+    expect(() => {
+      undisclosed(`Database setup failed: ${disclosure}`, url);
+    }).toThrow(expect.objectContaining({ name: 'AssertionError', expected: disclosure }));
+  });
+});
 
 describe('development database setup command', () => {
   it('loads a file-only URL and commits migration before executing bootstrap', async () => {
