@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { StrictMode } from 'react';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { sampleMap, UPDATED_AT } from '../../../tests/support/map-domain';
 import { ControlledLibrary, heldResult } from '../../../tests/support/map-library';
 import type { Held } from '../../../tests/support/map-repository-stub';
 import { UnsupportedSchemaVersionError } from '../../contexts/map/domain/errors';
+import { SessionNavigationScope } from '../account/session-navigation';
 import { MapLibrary } from './MapLibrary';
 
 const NOW = '2026-11-07T12:34:56.789Z';
@@ -28,11 +28,10 @@ afterEach(() => {
 async function setup(repository = new ControlledLibrary(), maps = [TARGET, PEER]) {
   for (const map of maps) await repository.storage.put(map);
   const navigate = vi.fn();
-  const view = render(
-    <StrictMode>
-      <MapLibrary repository={repository} navigate={navigate} />
-    </StrictMode>,
-  );
+  const view = render(<MapLibrary repository={repository} navigate={navigate} />, {
+    wrapper: SessionNavigationScope,
+    reactStrictMode: true,
+  });
   await screen.findAllByRole('listitem');
   return { repository, navigate, view };
 }
@@ -299,11 +298,7 @@ describe.each(['get', 'put', 'delete'] as const)('pending %s lifetime', (phase) 
       await replacement.storage.put(currentMap);
       if (ending === 'unmount') view.unmount();
       else {
-        view.rerender(
-          <StrictMode>
-            <MapLibrary repository={replacement} navigate={navigate} />
-          </StrictMode>,
-        );
+        view.rerender(<MapLibrary repository={replacement} navigate={navigate} />);
         await screen.findByRole('link', { name: 'Current map' });
       }
       await settle(pending, outcome);
@@ -339,11 +334,7 @@ it('does not let an obsolete completion unlock a replacement library mutation', 
   await current.storage.put(TARGET);
   await current.storage.put(PEER);
   const pending = holdMutation(current, 'delete');
-  view.rerender(
-    <StrictMode>
-      <MapLibrary repository={current} navigate={navigate} />
-    </StrictMode>,
-  );
+  view.rerender(<MapLibrary repository={current} navigate={navigate} />);
   await screen.findByRole('button', { name: '删除 A' });
   openMutation('delete');
   await submitMutation('delete');

@@ -1,7 +1,20 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { usePathname } from 'next/navigation';
+import {
+  isSignOutPending,
+  resumeFromPublicAuth,
+  SessionNavigationScope,
+} from '../../components/account/session-navigation';
 import type { MapRepository } from '../../contexts/map/domain/map-repository';
 import { HttpMapRepository } from '../../contexts/map/infrastructure/persistence/http-map-repository';
 import { readCookie, SESSION_BINDING_COOKIE } from '../../shared/session-binding';
@@ -46,12 +59,33 @@ interface ProviderProps {
   open?: () => Promise<MapRepository>;
 }
 
+function isPublicAuthPath(pathname: string): boolean {
+  return pathname === '/login' || pathname === '/register';
+}
+
 export function MapRepositoryProvider(props: ProviderProps) {
   // Shared layouts do not rerender for changed route children; subscribe to navigation.
-  usePathname();
+  const pathname = usePathname();
+  const previousPathname = useRef(pathname);
+  // Commit the route boundary before protected request effects capture their epoch.
+  useLayoutEffect(() => {
+    const from = previousPathname.current;
+    previousPathname.current = pathname;
+    if (!from || !pathname || from === pathname || isPublicAuthPath(pathname)) return;
+    if (isPublicAuthPath(from)) {
+      resumeFromPublicAuth();
+    } else if (isSignOutPending()) {
+      // A document replacement cannot be discarded by another App Router transition.
+      window.location.replace('/login');
+    }
+  }, [pathname]);
   const binding = props.open === undefined ? documentBinding() : undefined;
   // Reset before child effects can use another account's ready repository (decision 0028).
-  return <RepositoryProvider key={binding} {...props} />;
+  return (
+    <SessionNavigationScope>
+      <RepositoryProvider key={binding} {...props} />
+    </SessionNavigationScope>
+  );
 }
 
 function RepositoryProvider({ children, open }: ProviderProps) {

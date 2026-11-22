@@ -10,6 +10,7 @@ import {
 import { createMindMap } from '../../contexts/map/domain/create-mind-map';
 import type { MapRepository, MapSummary } from '../../contexts/map/domain/map-repository';
 import { byRecency } from '../../contexts/map/domain/summary-order';
+import { useSessionNavigation } from '../account/session-navigation';
 
 interface LibraryLifetime {
   cancelled: boolean;
@@ -192,6 +193,7 @@ export function MapLibrary({
   repository: MapRepository;
   navigate: (href: string) => void;
 }) {
+  const { captureEpoch, canRedirectOnExpiry } = useSessionNavigation();
   const [loaded, setLoaded] = useState<LibraryState | null>(null);
   const activeLifetime = useRef<LibraryLifetime | null>(null);
   const [creation, setCreation] = useState<{
@@ -213,6 +215,7 @@ export function MapLibrary({
   useEffect(() => {
     const lifetime: LibraryLifetime = { cancelled: false, pending: false };
     activeLifetime.current = lifetime;
+    const epoch = captureEpoch();
     void repository.list().then(
       (maps) => {
         if (!lifetime.cancelled) setLoaded({ status: 'ready', maps, repository, lifetime });
@@ -220,6 +223,7 @@ export function MapLibrary({
       (error: unknown) => {
         if (lifetime.cancelled) return;
         if (error instanceof StorageUnauthorizedError) {
+          if (!canRedirectOnExpiry(epoch)) return;
           // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- Decision 0025: expired loads require a fresh document.
           window.location.assign('/login?next=' + encodeURIComponent(window.location.pathname));
           return;
@@ -230,7 +234,7 @@ export function MapLibrary({
     return () => {
       lifetime.cancelled = true;
     };
-  }, [repository]);
+  }, [repository, captureEpoch, canRedirectOnExpiry]);
   async function create() {
     const lifetime = activeLifetime.current;
     if (lifetime === null || isCancelled(lifetime) || lifetime.pending) return;

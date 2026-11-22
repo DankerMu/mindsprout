@@ -1,12 +1,20 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render as renderInDom,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { StrictMode } from 'react';
+import type { ReactElement } from 'react';
 import type { MapSummary } from '../../contexts/map/domain/map-repository';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { httpRepository, MapFetch } from '../../../tests/support/map-fetch';
 import { RecordingRepository } from '../../../tests/support/map-repository-stub';
 import type { MindMap } from '../../contexts/map/domain/types';
 import { heldResult, memoryLibrary } from '../../../tests/support/map-library';
+import { SessionNavigationScope } from '../account/session-navigation';
 import { MapLibrary } from './MapLibrary';
 
 failOnConsoleNoise();
@@ -14,6 +22,10 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+function render(element: ReactElement, reactStrictMode = false) {
+  return renderInDom(element, { wrapper: SessionNavigationScope, reactStrictMode });
+}
 
 const EARLY = '2026-11-05T10:00:00.000Z';
 const LATE = '2026-11-05T11:00:00.000Z';
@@ -176,11 +188,7 @@ describe('MapLibrary', () => {
           return this.calls++ === 0 ? stale.promise : current.promise;
         }
       }
-      render(
-        <StrictMode>
-          <MapLibrary repository={new HeldRepository()} navigate={vi.fn()} />
-        </StrictMode>,
-      );
+      render(<MapLibrary repository={new HeldRepository()} navigate={vi.fn()} />, true);
       await act(async () => {
         current.resolve([{ id: 'live', title: 'Live', updatedAt: LATE }]);
         await current.promise;
@@ -227,11 +235,7 @@ describe('MapLibrary', () => {
     vi.setSystemTime(new Date('2026-11-06T12:34:56.789Z'));
     const repository = memoryLibrary();
     const navigate = vi.fn();
-    render(
-      <StrictMode>
-        <MapLibrary repository={repository} navigate={navigate} />
-      </StrictMode>,
-    );
+    render(<MapLibrary repository={repository} navigate={navigate} />, true);
     await screen.findByText('还没有导图');
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '新建导图' }));
@@ -329,18 +333,10 @@ describe('MapLibrary', () => {
       const current = new LibraryWriteRepository();
       const pending = current.holdNext();
       const navigate = vi.fn();
-      const view = render(
-        <StrictMode>
-          <MapLibrary repository={old} navigate={navigate} />
-        </StrictMode>,
-      );
+      const view = render(<MapLibrary repository={old} navigate={navigate} />, true);
       fireEvent.click(await screen.findByRole('button', { name: '新建导图' }));
       expect(old.puts).toHaveLength(1);
-      view.rerender(
-        <StrictMode>
-          <MapLibrary repository={current} navigate={navigate} />
-        </StrictMode>,
-      );
+      view.rerender(<MapLibrary repository={current} navigate={navigate} />);
       const button = await screen.findByRole('button', { name: '新建导图' });
       fireEvent.click(button);
       expect(current.puts).toHaveLength(1);
@@ -436,11 +432,7 @@ describe('library load session expiry', () => {
     const discarded = heldResult<Response>();
     server.respondNext(() => discarded.promise);
     const repository = httpRepository(server);
-    render(
-      <StrictMode>
-        <MapLibrary repository={repository} navigate={vi.fn()} />
-      </StrictMode>,
-    );
+    render(<MapLibrary repository={repository} navigate={vi.fn()} />, true);
     const requestsBeforeRelease = server.requests.length;
     await act(async () => {
       discarded.resolve(new Response(null, { status: 401 }));
