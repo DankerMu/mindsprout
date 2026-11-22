@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The home page lists the user's maps and lets them create, open, rename and delete maps stored in the browser.
+The home page lists the signed-in user's cloud maps and lets them create, open, rename and delete maps.
 
 ## Requirements
 
