@@ -122,7 +122,7 @@ export function createRuntimeProfile(
             attemptContext = { ...context(), page: label, mode };
             finalizeCreate = finalize;
             finalizeNavigation = finalize;
-            const cause = interrupted ? 'interrupted' : terminalCause;
+            const cause = interruption ? 'interrupted' : terminalCause;
             if (cause) {
               finalize(cause);
               return false;
