@@ -239,7 +239,11 @@ function navigationHarness() {
             <MapRepositoryProvider key={providerKey}>
               {retainAdmin && <AdminUserList />}
               {path === '/login' || path === '/register' ? (
-                <CredentialsForm mode={path === '/login' ? 'login' : 'register'} next="/" />
+                <CredentialsForm
+                  mode={path === '/login' ? 'login' : 'register'}
+                  next="/"
+                  nativeUnavailable={false}
+                />
               ) : (
                 <>
                   <SessionMenu />
