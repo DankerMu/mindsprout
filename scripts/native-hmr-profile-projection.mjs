@@ -10,6 +10,11 @@ export const limits = {
   generations: 5,
   intervals: 8,
   summary: 1024 * 1024,
+  createRequests: 64,
+  createRoutes: 16,
+  markerSamples: 128,
+  markerIntervalMs: 50,
+  markerLifetimeMs: 6400,
 };
 export const modes = ['restored-lifecycle', 'source-change'];
 export const pages = ['retained-editor', 'first-navigation', 'fresh-editor'];
@@ -317,5 +322,289 @@ export function safeInterval(value) {
     after: bracket(input.after),
     cpu,
     documentTransitions: transitions,
+  };
+}
+
+const createRequestClasses = [
+  'map-put',
+  'map-get',
+  'editor-rsc',
+  'script',
+  'redirect-out-of-scope',
+];
+const createCodes = new Set([
+  'request-limit',
+  'cdp-disconnected',
+  'interrupted',
+  'missing-network-observation',
+  'malformed-create-observation',
+  'create-provenance-mismatch',
+  'summary-too-large',
+  'missing-marker-observation',
+  'missing-route-observation',
+  'invalid-marker-sample',
+  'unordered-marker-sample',
+  'invalid-route-observation',
+  'sample-limit',
+  'route-limit',
+  'sampler-expired',
+  'sampler-context-lost',
+  'sampler-setup-timeout',
+  'sampler-setup-failed',
+  'sampler-disposal-timeout',
+  'sampler-disposal-failed',
+]);
+
+function createReceipt(value) {
+  return {
+    ...bracket(value),
+    phase: ['armed', 'observing', 'failed-tail'].includes(value?.phase)
+      ? value.phase
+      : 'unavailable',
+  };
+}
+
+function safeCreateRequest(value) {
+  if (!value || !createRequestClasses.includes(value.requestClass)) return null;
+  const ordinal = boundedInteger(value.ordinal, limits.createRequests);
+  if (!ordinal) return null;
+  const request = {
+    ordinal,
+    requestClass: value.requestClass,
+    method: ['PUT', 'GET'].includes(value.method) ? value.method : 'unavailable',
+    completion: ['finished', 'failed', 'redirected', 'out-of-scope'].includes(value.completion)
+      ? value.completion
+      : 'unavailable',
+  };
+  for (const field of [
+    'requestTimestampSeconds',
+    'responseTimestampSeconds',
+    'firstDataTimestampSeconds',
+    'lastDataTimestampSeconds',
+    'completionTimestampSeconds',
+    'redirectTimestampSeconds',
+    'responseStatus',
+    'packets',
+    'dataLength',
+    'encodedDataLength',
+    'completionEncodedDataLength',
+  ])
+    request[field] = finiteOrNull(value[field]);
+  for (const field of ['requestReceipt', 'responseReceipt', 'completionReceipt', 'redirectReceipt'])
+    request[field] = createReceipt(value[field]);
+  return request;
+}
+
+function safeCreateNetwork(value) {
+  if (!Array.isArray(value.requests))
+    return { ...partial('missing-network-observation'), requests: [], omittedRequests: 0 };
+  const requests = value.requests.slice(0, limits.createRequests).map(safeCreateRequest);
+  const codes = createChannelCodes(value, 'omittedRequests');
+  if (requests.includes(null)) codes.push('malformed-create-observation');
+  if (value.requests.length > limits.createRequests) codes.push('request-limit');
+  const retained = requests.filter((request) => request !== null);
+  return {
+    status: value.status === 'complete' && !codes.length ? 'complete' : 'partial',
+    codes: [...new Set(codes)],
+    requests: retained,
+    omittedRequests: omissionTotal(
+      boundedInteger(value.omittedRequests, Number.MAX_SAFE_INTEGER),
+      value.requests.length - retained.length,
+    ),
+  };
+}
+
+function createSettlement(value, statuses) {
+  return {
+    status: statuses.includes(value?.status) ? value.status : 'unavailable',
+    at: bracket(value?.at),
+  };
+}
+
+function createChannelCodes(value, count) {
+  const codes = Array.isArray(value?.codes)
+    ? [...new Set(value.codes.filter((code) => createCodes.has(code)))].slice(0, createCodes.size)
+    : [];
+  if (boundedInteger(value?.[count], Number.MAX_SAFE_INTEGER) === null)
+    codes.push('malformed-create-observation');
+  return codes;
+}
+
+function browserClock(value) {
+  return {
+    timeOriginMs: finiteOrNull(value?.timeOriginMs),
+    nowMs: finiteOrNull(value?.nowMs),
+  };
+}
+
+export function validMarkerState(value) {
+  if (!value) return false;
+  return (
+    ['present', 'absent'].includes(value.presence) &&
+    ['visible', 'hidden'].includes(value.visibility) &&
+    ['home', 'editor', 'other'].includes(value.route) &&
+    !(value.presence === 'absent' && value.visibility === 'visible')
+  );
+}
+
+function safeMarkerSample(value) {
+  if (!validMarkerState(value)) return null;
+  if (!boundedInteger(value.ordinal, limits.markerSamples)) return null;
+  if (!finite(value.browser?.timeOriginMs) || !finite(value.browser?.nowMs)) return null;
+  return {
+    ordinal: value.ordinal,
+    presence: value.presence,
+    visibility: value.visibility,
+    route: value.route,
+    browser: browserClock(value.browser),
+    receipt: createReceipt(value.receipt),
+  };
+}
+
+function firstVisibleBracket(samples) {
+  const index = samples.findIndex((sample) => sample.visibility === 'visible');
+  if (index < 0) return null;
+  return { at: samples[index].browser, previous: samples[index - 1]?.browser ?? null };
+}
+
+function safeMarker(value) {
+  if (!Array.isArray(value?.samples))
+    return { ...partial('missing-marker-observation'), samples: [], omittedSamples: 0 };
+  const codes = createChannelCodes(value, 'omittedSamples');
+  const projected = value.samples.slice(0, limits.markerSamples).map(safeMarkerSample);
+  if (projected.includes(null)) codes.push('invalid-marker-sample');
+  if (value.samples.length > limits.markerSamples) codes.push('sample-limit');
+  const samples = projected.filter((sample) => sample !== null);
+  return {
+    status: value.status === 'complete' && !codes.length ? 'complete' : 'partial',
+    codes: [...new Set(codes)],
+    samples,
+    firstVisible: firstVisibleBracket(samples),
+    omittedSamples: omissionTotal(
+      boundedInteger(value.omittedSamples, Number.MAX_SAFE_INTEGER),
+      value.samples.length - samples.length,
+    ),
+    shutdown: value.shutdown === 'stopped' ? 'stopped' : 'unknown',
+  };
+}
+
+function safeRoute(value) {
+  if (!value || !['home', 'editor', 'other'].includes(value.route)) return null;
+  if (!boundedInteger(value.ordinal, limits.createRoutes)) return null;
+  return { ordinal: value.ordinal, route: value.route, receipt: createReceipt(value.receipt) };
+}
+
+function safeRoutes(value) {
+  if (!Array.isArray(value?.observations))
+    return { ...partial('missing-route-observation'), observations: [], omittedRecords: 0 };
+  const codes = createChannelCodes(value, 'omittedRecords');
+  const observations = value.observations.slice(0, limits.createRoutes).map(safeRoute);
+  if (observations.includes(null)) codes.push('invalid-route-observation');
+  if (value.observations.length > limits.createRoutes) codes.push('route-limit');
+  const retained = observations.filter((entry) => entry !== null);
+  return {
+    status: value.status === 'complete' && !codes.length ? 'complete' : 'partial',
+    codes: [...new Set(codes)],
+    observations: retained,
+    omittedRecords: omissionTotal(
+      boundedInteger(value.omittedRecords, Number.MAX_SAFE_INTEGER),
+      value.observations.length - retained.length,
+    ),
+  };
+}
+
+function validCreateBudget(value) {
+  if (!value?.start || !value.deadline) return false;
+  return (
+    finite(value.start.epochMs) &&
+    finite(value.start.elapsedMs) &&
+    finite(value.deadline.epochMs) &&
+    finite(value.deadline.elapsedMs) &&
+    value.deadline.epochMs === value.start.epochMs + 5000 &&
+    value.deadline.elapsedMs === value.start.elapsedMs + 5000
+  );
+}
+
+function validCreateSettlement(value, statuses) {
+  return (
+    statuses.includes(value?.status) && finite(value.at?.epochMs) && finite(value.at?.elapsedMs)
+  );
+}
+
+function validCreateContext(value) {
+  return (
+    modes.includes(value.mode) &&
+    pages.includes(value.page) &&
+    boundedInteger(value.generation, limits.generations - 1) !== null &&
+    boundedInteger(value.trial, 4) !== null &&
+    validCreateBudget(value.budget) &&
+    validCreateSettlement(value.action, ['fulfilled', 'rejected']) &&
+    validCreateSettlement(value.outcome, ['ready', 'action-failed', 'readiness-failed'])
+  );
+}
+
+export function safePublicCreate(value, expectedMode) {
+  const network = safeCreateNetwork(value);
+  const marker = safeMarker(value.marker);
+  const routes = safeRoutes(value.routes);
+  const channels = [network, marker, routes];
+  const summary = {
+    status: channels.every((channel) => channel.status === 'complete') ? 'complete' : 'partial',
+    codes: [...new Set(channels.flatMap((channel) => channel.codes))],
+    attempt: 1,
+    mode: modes.includes(value.mode) ? value.mode : null,
+    ...intervalContext(value),
+    budget: {
+      start: bracket(value.budget?.start),
+      deadline: bracket(value.budget?.deadline),
+    },
+    action: createSettlement(value.action, ['fulfilled', 'rejected']),
+    outcome: createSettlement(value.outcome, ['ready', 'action-failed', 'readiness-failed']),
+    network,
+    routes,
+    marker,
+  };
+  if (!validCreateContext(value)) {
+    summary.status = 'partial';
+    if (!summary.codes.includes('malformed-create-observation'))
+      summary.codes.push('malformed-create-observation');
+  }
+  if (value.mode !== expectedMode) {
+    summary.status = 'partial';
+    summary.codes.push('create-provenance-mismatch');
+  }
+  return summary;
+}
+
+function omissionTotal(count, length) {
+  return count === null ? null : Math.min(Number.MAX_SAFE_INTEGER, count + length);
+}
+
+export function compactPublicCreate(value) {
+  return {
+    ...value,
+    status: 'partial',
+    codes: [...value.codes, 'summary-too-large'],
+    network: {
+      ...value.network,
+      status: 'partial',
+      codes: [...value.network.codes, 'summary-too-large'],
+      omittedRequests: omissionTotal(value.network.omittedRequests, value.network.requests.length),
+      requests: [],
+    },
+    marker: {
+      ...value.marker,
+      status: 'partial',
+      codes: [...value.marker.codes, 'summary-too-large'],
+      omittedSamples: omissionTotal(value.marker.omittedSamples, value.marker.samples.length),
+      samples: [],
+    },
+    routes: {
+      ...value.routes,
+      status: 'partial',
+      codes: [...value.routes.codes, 'summary-too-large'],
+      omittedRecords: omissionTotal(value.routes.omittedRecords, value.routes.observations.length),
+      observations: [],
+    },
   };
 }
