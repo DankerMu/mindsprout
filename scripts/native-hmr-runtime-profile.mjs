@@ -1,0 +1,212 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { performance } from 'node:perf_hooks';
+import { chromium } from '@playwright/test';
+import { deadline, processGroup, stopOwnedProcessGroup } from './native-hmr-support.mjs';
+import { createNativeProfile, sourceCacheParentCode } from './native-hmr-profile-collection.mjs';
+import { createBrowserProfiler } from './native-hmr-browser-profile.mjs';
+
+export function launchNativeBrowser() {
+  // Collector-owned teardown must finish; Playwright's SIGINT exit 130 bypasses it.
+  const options = { handleSIGINT: false, handleSIGTERM: false };
+  if (process.env.PLAYWRIGHT_CHROMIUM_PATH) {
+    options.executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
+  }
+  return chromium.launchServer(options);
+}
+
+function runtimeIdentity(repo, mode, addon) {
+  let checkoutSha;
+  try {
+    checkoutSha = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: repo,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    // Local provenance can be unknown.
+  }
+  return {
+    workflowSha: process.env.NATIVE_PROFILE_WORKFLOW_SHA,
+    checkoutSha,
+    prHeadSha: process.env.NATIVE_PROFILE_HEAD_SHA,
+    runId: process.env.GITHUB_RUN_ID,
+    runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+    nodeVersion: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    nativeTarget: addon.target,
+    nativeDigest: addon.binarySha256,
+    mode,
+  };
+}
+
+export function createRuntimeProfile(
+  { profile: enabled, repo, out: output, mode, started },
+  context,
+) {
+  const profilers = new Set();
+  const clock = () => ({ epochMs: Date.now(), elapsedMs: performance.now() - started });
+  let profiles, serverStart, network, interruption;
+
+  function prepare(addon, result) {
+    if (!enabled) return true;
+    profiles = createNativeProfile({
+      enabled: true,
+      repo,
+      output,
+      identity: runtimeIdentity(repo, mode, addon),
+    });
+    const ready = profiles.prepare().status === 'complete';
+    if (!ready) result.status = 'profile-refused';
+    return ready;
+  }
+
+  function beginServer() {
+    if (!enabled) return;
+    const result = profiles.beginServer(context());
+    if (result.status !== 'complete') {
+      const error = new Error('Profile pre-start refused');
+      error.code = result.codes[0];
+      throw error;
+    }
+    network = undefined;
+    serverStart = clock();
+  }
+
+  function serverGroup(pid) {
+    if (!enabled) return [];
+    try {
+      return processGroup(pid).map((item) => item.pid);
+    } catch {
+      // Unobserved identity remains empty.
+      return [];
+    }
+  }
+
+  async function stopServer(child, exit) {
+    const group = serverGroup(child.pid);
+    await stopOwnedProcessGroup(child, exit);
+    return group;
+  }
+
+  async function collectServer(pid, group) {
+    if (!enabled) return;
+    await profiles.collectServer({
+      ...context(),
+      stopped: true,
+      launcherPid: pid,
+      processGroup: group,
+      before: serverStart,
+      after: clock(),
+      network,
+    });
+  }
+
+  function recordNetwork(data, label) {
+    if (enabled) network = { timestamp: data.timestamp, wallTime: data.wallTime, page: label };
+  }
+
+  async function attach(page, cdp, label, browser) {
+    if (!enabled) return;
+    const profiler = createBrowserProfiler({
+      enabled: true,
+      cdp,
+      clock,
+      context: () => ({ ...context(), page: label }),
+      onInterval: profiles.addBrowserInterval,
+      onGap: profiles.addBrowserGap,
+      reserve: profiles.reserveBrowserInterval,
+    });
+    profilers.add(profiler);
+    page.on('close', () => profiler.disconnect());
+    page.on('crash', () => profiler.disconnect());
+    browser.on('disconnected', () => profiler.disconnect());
+    await profiler.start();
+  }
+
+  async function suspend() {
+    if (enabled) await Promise.all([...profilers].map((profiler) => profiler.suspend()));
+  }
+
+  function paused() {
+    if (enabled) for (const profiler of profilers) profiler.paused();
+  }
+
+  async function resume(collect = true) {
+    if (enabled) await Promise.all([...profilers].map((profiler) => profiler.resume(collect)));
+  }
+
+  async function closeBrowser(browser, browserServer, errors) {
+    try {
+      await deadline(
+        (async () => {
+          if (enabled) await Promise.all([...profilers].map((profiler) => profiler.close()));
+          await browser?.close();
+        })(),
+        5000,
+        'Browser close',
+      );
+      await deadline(browserServer?.close() || Promise.resolve(), 5000, 'Browser process close');
+      return undefined;
+    } catch (error) {
+      errors.push(error.message);
+      return browserServer;
+    }
+  }
+
+  function registerSignals(reject) {
+    const signal = (name) => {
+      if (interruption) return;
+      interruption = new Error(`Interrupted by ${name}`);
+      for (const profiler of profilers) profiler.interrupt();
+      reject(interruption);
+    };
+    const sigterm = () => signal('SIGTERM');
+    const sigint = () => signal('SIGINT');
+    process.on('SIGTERM', sigterm);
+    process.on('SIGINT', sigint);
+    return () => {
+      process.off('SIGTERM', sigterm);
+      process.off('SIGINT', sigint);
+    };
+  }
+
+  function assertCacheRestorable() {
+    assert(!enabled || !sourceCacheParentCode(repo), 'Profile cache parent is unsafe');
+  }
+
+  function recordInterrupt(result, record) {
+    if (!interruption) return;
+    if (result.status !== 'cleanup-blocked') result.status = 'failed';
+    const { message } = interruption;
+    if (!result.failures.includes(message)) result.failures.push(message);
+    record('interrupt', { message });
+  }
+
+  async function finish(serverStopped) {
+    if (!profiles) return;
+    for (const profiler of profilers) {
+      profiler.finalize();
+      profiles.recordBrowserProblems(profiler.snapshot().codes);
+    }
+    await profiles.finish({ interrupted: Boolean(interruption), serverStopped });
+  }
+
+  return {
+    prepare,
+    beginServer,
+    stopServer,
+    collectServer,
+    recordNetwork,
+    attach,
+    suspend,
+    paused,
+    resume,
+    closeBrowser,
+    registerSignals,
+    finish,
+    assertCacheRestorable,
+    recordInterrupt,
+  };
+}

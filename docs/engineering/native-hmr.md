@@ -58,9 +58,69 @@ In `cache-identity.json`, entries carry a cache-relative `path` and a `type`. Fo
 
 The fingerprint includes entry types and does not read, stat, or traverse link targets. Changing link text changes the fingerprint; changing only the target's contents does not. Cache backup, working-copy and restoration guards check the path itself without following links. The original root link is restored by rename, not replaced by a copy of its target. Compare fingerprints from the same runner version. See [decision 0029](../../decisions/implemented/bug-fix/0029-terminal-native-cache-symlinks.md).
 
+The collector alone owns SIGINT/SIGTERM in both default and profiled launches; [decision 0030](../../decisions/implemented/testing/0030-native-navigation-diagnostic-profiling.md) explains the Playwright exit-130 conflict requiring this correction. Browser close and browser-process close retain their respective 5000ms budgets, and owned server-group shutdown retains its total 10,000ms budget. A nonzero interrupt exit is not restoration proof: require the actual result/cleanup records, restored source/cache identity, and closed owned runtime.
+
+The first SIGINT/SIGTERM is retained even if it arrives after the functional assertions pass. The collector finishes cleanup before reporting failure and exiting nonzero; the interruption does not replace an earlier functional failure.
+
+To exercise the actual runner's late-interrupt and linked-cache regressions, use a disposable checkout without `.next` or `.next-profiles`, port 3000 free, installed Chromium, and a migrated scratch database. Run `NATIVE_HMR_RUNNER_OUTPUT="$PWD/.run/runner-regression" pnpm native:browser:regression` with a fresh output directory on the checkout's filesystem. Stop the scratch database after the run.
+
 First public map creation also retains bounded diagnostic evidence: RSC and script response/completion timestamps, response timing/status, in-memory data-delivery totals, and browser Performance metrics immediately before its readiness clock and after the outcome. Failure captures timestamp the DOM, screenshot, URL and loader independently. These observations add no HTTP requests, body dumps, warmup, retry or extended readiness deadline; they do not attribute an unexplained slow navigation to runner pressure.
 
 The initial root commit failure is labeled `public-map root document commit`; passive Document response/completion metadata is captured even before the RSC observation window, without extra requests or body reads, and all 5000ms deadlines and no-warmup/no-retry rules remain unchanged.
+
+## Opt-in diagnostic profiling
+
+Profiling collects diagnostic evidence for a qualification failure; it neither repairs root/editor latency nor substitutes for qualification. Use the same Chromium, owned Postgres, native identity, and fresh-output prerequisites as the browser modes above:
+
+```text
+pnpm native:browser MODE FRESH_OUTPUT_DIRECTORY [CANDIDATE_MANIFEST] [--profile]
+```
+
+`MODE` is `restored-lifecycle` or `source-change`. Supply `--profile` once, last, after the candidate manifest when present. Unknown, duplicate, misplaced, or surplus arguments are refused before source/cache/profile mutation. For example:
+
+```bash
+pnpm native:browser restored-lifecycle .run/profile-restored --profile
+NEXT_TEST_NATIVE_DIR="$PWD/.run/native-package/package" pnpm native:browser source-change .run/profile-source .run/native-package/manifest.json --profile
+```
+
+Both default and profiled invocations reject the presence of `NEXT_CPU_PROF`, `NEXT_CPU_PROF_DIR`, `__NEXT_PRIVATE_CPU_PROFILE`, `NEXT_TURBOPACK_TRACING`, and `NEXT_TURBOPACK_TRACING_PATH`, including empty values. Unset them rather than relying on inherited Next profiling. The opt-in supplies Next's documented `--experimental-cpu-prof`; it does not enable opaque or remote tracing. Without `--profile`, the probe neither touches `.next-profiles` nor sends CDP Profiler commands or installs profiling listeners.
+
+Profiling requires `.next-profiles` to be absent, including no existing file, directory, or broken symlink. The collector owns its creation before source/cache mutation, verifies ownership before moves, and isolates stopped server generations before restart. Unexpected entries or ownership changes are preserved, not overwritten. Raw CPU/trace files stay under `<OUTPUT>/profile-private`; diagnostic server logs and other raw run output also remain private.
+
+Private staging and generation destinations must remain directories with the collector's recorded filesystem identity; existing raw-move targets are conflicts, not overwrite permission. A detected conflict stops the raw move and produces fixed partial diagnostics. Safe staging conflicts prevent summary publication. Pending-output cleanup removes only a regular file matching the collector-created file's identity; unrelated replacements and unknown entries are preserved. These checks cover observed conflicts, not arbitrary filesystem replacement after the last check.
+
+Trace collection checks `.next` and `.next/dev` without following links. A linked or non-directory cache component is `unsafe-file`: before startup it prevents producer launch; after shutdown it yields partial evidence without reading or moving the external trace. An absent pre-start trace needs no isolation. Other post-stop inspection or move failures report `trace-isolation-failed` and retain any valid projected spans without claiming successful raw archival.
+
+If `.next` becomes unsafe during a profiled run, cleanup preserves the cache backup instead of restoring through that path, and reports `cleanup-blocked`. Default cache handling is unchanged.
+
+### Profile evidence and interpretation
+
+For profiling artifacts, publish only `<OUTPUT>/safe/summary.json`. CI selects exactly `.run/native-diagnostic/safe/summary.json` in a separate artifact; no raw-file or directory-glob fallback is allowed. The summary contains fixed categories, numeric buckets, allowlisted spans/route classes, validated run/native identity, and observed process identity. An unobserved profile PID is null, not the pnpm launcher's PID. Function names, paths/URLs, tags, credentials, environment values, and raw exceptions are not publication fields.
+
+Keep the clock domains separate:
+
+- Collector brackets carry epoch and elapsed milliseconds.
+- Next trace `startTime` is epoch milliseconds; trace timestamp/duration are hrtime microseconds.
+- Network timestamps are monotonic seconds; `wallTime` is epoch seconds.
+- CPU start/end and sample deltas originate in microseconds on an unspecified monotonic clock; histogram buckets summarize relative seconds.
+
+CPU deltas may be signed, as in [DevTools' timestamp reconstruction](https://github.com/ChromeDevTools/devtools-frontend/blob/main/front_end/models/cpu_profile/CPUProfileDataModel.ts), but every reconstructed position must remain within the declared profile window; raw samples/deltas are preserved and only derived histogram buckets are ordered chronologically.
+
+Do not subtract across those origins or treat sample counts as CPU utilization or exact wall-clock attribution. Trace coverage is always `observed-only`: rotation and unflushed tails can omit work. A top-level document transition marks its browser interval partial with `renderer-local-coverage`, preserving valid available CPU samples and bounded first/last collector transition brackets. Same-document navigation and subframes do not imply that loss.
+
+Physical suspension evidence lives in the summary's `gaps` array, independently of sampled `intervals` and terminal-record reservations. Each record contains `generation`, `trial`, `page`, finite collector-elapsed `fromElapsedMs`/`toElapsedMs`, and fixed reason `browser-suspended`. Attribution is captured after successful SIGSTOP; successful SIGCONT closes it once, including cleanup-only resume or an abandoned profiler. A failed SIGSTOP creates no gap, and late CDP replies cannot restart abandoned collection. Gaps are not copied onto intervals.
+
+The collector retains at most eight gap records under the existing interval-count bound, without evicting sampled intervals; exceeding that bound produces `browser-gap-limit`. Compact output preserves these attributed gaps and terminal causes when detailed samples/spans exceed the safe-output byte cap.
+
+Missing, invalid, unstable, over-limit, disconnected, or interrupted collection produces fixed partial codes independently of the functional result. [Implementation limits](../../scripts/native-hmr-profile-projection.mjs) own the file/run, record/sample, generation/interval, and safe-output caps. These bound ingestion and retained evidence, not Next's raw producer memory/disk or CDP allocation before receipt. No-follow capped file reads and bounded CDP operations do not establish a hard producer-memory limit.
+
+### Failure-scoped CI diagnosis
+
+The [installed-native action](../../.github/actions/native-installed-runtime/action.yml) keeps both qualification commands unprofiled. Only an eligible, non-cancelled Darwin browser-step failure selects one separately labelled diagnostic execution of the failed mode in fresh output.
+
+The [eligibility policy](../../scripts/native-hmr-profile.mjs) requires matching failed-result evidence, verified source/cache cleanup, unchanged current source identity, and a navigation-phase failure. Initial setup failures are excluded. A restart failure needs an earlier browser-resumed event for the same generation and trial; a later cleanup resume cannot authorize replay. Missing, malformed, ambiguous, or cleanup-blocked evidence is reported ineligible without launching another probe. Successful qualifications, Linux, installation failures, and cancellation select no diagnosis.
+
+The original failed qualification, job, and required aggregate remain red whether diagnosis passes, fails, or is ineligible. Original qualification artifacts remain separate and unchanged. A useful safe summary or successful local replay is not evidence of CI capture, successful qualification, or a latency repair.
 
 ## Publication and frozen installation
 
@@ -114,3 +174,4 @@ Run `pnpm native:installed:test <qualified-build-manifest> [stock-package-direct
 - A distinct upstream [SPA-only HMR subscription gap](https://github.com/vercel/next.js/issues/98699) can leave an editor reached only through client navigation without its route-specific HMR subscription. Native registration repair does not fix that gap. The source-change regression's intentional retained-document setup proves preservation of legitimate subscribed HMR, not SPA-only subscription repair.
 - The source-change contract starts from an established target HMR connection. It does not claim to repair the separate cold-tab initial connection/global-version race; the baseline prerequisite above isolates that race without suppressing its protocol messages or accepting recovery reloads.
 - Clean source/cache identity and pinned inputs do not promise bit-for-bit compiler output across operating systems or tool installations. Manifests bind the actual built bytes; rebuilds with different bytes require different immutable assets and renewed qualification.
+- Diagnostic profiling does not establish exact compiler/runner attribution or repair root/editor latency; its [coverage and allocation limits](#profile-evidence-and-interpretation) remain explicit.
