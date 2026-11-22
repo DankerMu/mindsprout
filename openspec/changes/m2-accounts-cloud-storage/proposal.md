@@ -318,6 +318,15 @@ Blast radius: a weak walk can claim cross-device persistence while missing saved
 Selected risk packs: Cross-context identity/isolation; pending-edit/session recovery; persisted map fidelity; D13 observation completeness; screenshot/runtime evidence. Auth/RLS/API/config/packaging are covered by the finished implementation and are not changed here.
 Evidence floor: one real Playwright acceptance spec with exactly two explicitly owned browser contexts, deterministic saved-state assertions, screenshots under `.run/ui-evidence/`, all three declared responses observed, every page's unexpected console/page errors asserted empty, focused `pnpm e2e e2e/m2-acceptance.spec.ts` GREEN then full `pnpm e2e`, both with exact totals and zero skipped/flaky/unexpected results; no production, helper, config, dependency or gate edits.
 
+## Issue #173 Fixture Triage
+
+Issue type: release
+Fixture level: none
+Upstream suggested level: compact (override: this follow-on slice changes documentation and one metrics downgrade string only, with no runtime behavior)
+Blast radius: stale storage/layout claims mislead users; unsafe database instructions can expose credentials, reset a production password or assign the first administrator to the wrong registrant; an inaccurate metrics downgrade hides missing deployment observability.
+Selected risk packs: Documentation/deployment safety; Secret handling; First-admin/smoke ordering; Gate integrity for `constraints.yaml`; Dead-link/source-of-truth preservation.
+Evidence floor: normative seven-item README limitations plus retained true entries; implemented TECH layout; exact roles/URLs/migrate/setup/backup/deploy/smoke procedure; metrics text `deferred until a deployment target exists`; `pnpm docs:check`, `pnpm test:guardrails`, formatting and strict OpenSpec validation. Full reviewer+verifier examines every diff line because `constraints.yaml` is a Critical Path. No code, API, dependency, migration or OpenSpec archive in this PR.
+
 ## Impact
 
 - **New code:**
