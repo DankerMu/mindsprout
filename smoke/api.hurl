@@ -6,6 +6,31 @@ HTTP 401
 body == "{\"error\":\"unauthenticated\"}"
 header "Set-Cookie" not exists
 
+# Native form submissions return to the form; they do not authenticate.
+POST {{base_url}}/login/native?next=%2Fmaps%2Fabc
+[Options]
+location: false
+[FormParams]
+username: smoke-native-{{newUuid}}
+password: smoke-password
+
+HTTP 303
+[Asserts]
+header "Location" == "{{base_url}}/login?next=%2Fmaps%2Fabc&native=unavailable"
+header "Set-Cookie" not exists
+
+POST {{base_url}}/register/native?next=https%3A%2F%2Fevil.example
+[Options]
+location: false
+[FormParams]
+username: smoke-native-{{newUuid}}
+password: smoke-password
+
+HTTP 303
+[Asserts]
+header "Location" == "{{base_url}}/register?next=%2F&native=unavailable"
+header "Set-Cookie" not exists
+
 # Hurl's cookie jar carries the issued session into subsequent requests.
 POST {{base_url}}/api/auth/register
 Content-Type: application/json

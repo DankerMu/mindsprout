@@ -11,7 +11,7 @@ import {
   PostgresUserRepository,
 } from '@/contexts/account/infrastructure/postgres';
 import { loadEnv } from '@/shared/env';
-
+import { safeNextPath } from '@/shared/safe-next-path';
 import {
   SESSION_COOKIE,
   SESSION_BINDING_COOKIE,
@@ -45,6 +45,17 @@ function accountResources(): { ports: AuthPorts; maps: PostgresMapStore } {
 
 export function mapsForUser(userId: string): MapRepository {
   return accountResources().maps.forUser(userId);
+}
+
+export function nativeAuthFallback(request: Request, mode: 'login' | 'register'): Response {
+  const location = new URL(request.url);
+  const next = location.searchParams.get('next');
+  location.pathname = `/${mode}`;
+  location.search = '';
+  location.hash = '';
+  if (next !== null) location.searchParams.set('next', safeNextPath(next));
+  location.searchParams.set('native', 'unavailable');
+  return Response.redirect(location, 303);
 }
 
 export function requireJson(request: Request): Response | undefined {

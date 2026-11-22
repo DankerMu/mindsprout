@@ -3,6 +3,38 @@ info:
   title: "MindSprout API"
   version: "0.1.0"
 paths:
+  /login/native:
+    post:
+      summary: Return a native sign-in submission to the form
+      description: Public browser navigation, not an authentication API. The form body is ignored; no session is created and no cookie is set.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/NativeAuthNext"
+      responses:
+        "303":
+          description: Navigate with GET to the sign-in form, which displays a retry message
+          headers:
+            Location:
+              description: Same-origin sign-in URL with native=unavailable and the safe next value, if supplied
+              schema:
+                type: string
+              example: https://mindsprout.example/login?next=%2F&native=unavailable
+  /register/native:
+    post:
+      summary: Return a native registration submission to the form
+      description: Public browser navigation, not an authentication API. The form body is ignored; no account or session is created and no cookie is set.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/NativeAuthNext"
+      responses:
+        "303":
+          description: Navigate with GET to the registration form, which displays a retry message
+          headers:
+            Location:
+              description: Same-origin registration URL with native=unavailable and the safe next value, if supplied
+              schema:
+                type: string
+              example: https://mindsprout.example/register?next=%2F&native=unavailable
   /api/healthz:
     get:
       summary: Liveness and dependency probe
@@ -468,6 +500,12 @@ paths:
                 error: internal
 components:
   parameters:
+    NativeAuthNext:
+      name: next
+      in: query
+      description: Optional local navigation target after a later successful JSON submission. Unsafe values are replaced by /.
+      schema:
+        type: string
     SessionBinding:
       name: x-mindsprout-session-binding
       in: header

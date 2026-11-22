@@ -16,7 +16,13 @@ test('account-auth: Register and land signed in', async ({ page }) => {
   await page.goto('/register');
   await page.getByLabel('用户名').fill(username);
   await page.getByLabel('密码').fill('pw');
+  const registration = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === '/api/auth/register' &&
+      response.request().method() === 'POST',
+  );
   await page.getByRole('button', { name: '注册' }).click();
+  expect((await registration).status()).toBe(201);
   await expect(page).toHaveURL('/');
   await expect(page.getByTestId('app-ready')).toBeVisible();
   await expect(page.getByTestId('session-username')).toHaveText(username);
@@ -321,7 +327,13 @@ test('account-auth: Sign in', async ({ page, request }) => {
   await page.goto('/login');
   await page.getByLabel('用户名').fill(username);
   await page.getByLabel('密码').fill('pw');
+  const signIn = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === '/api/auth/login' &&
+      response.request().method() === 'POST',
+  );
   await page.getByRole('button', { name: '登录' }).click();
+  expect((await signIn).status()).toBe(200);
   await expect(page).toHaveURL('/');
   await expect(page.getByTestId('app-ready')).toBeVisible();
   const session = await page.request.get('/api/auth/session');
@@ -398,41 +410,105 @@ for (const mode of ['login', 'register'] as const) {
   });
 }
 
-async function submitNatively(page: Page, mode: 'login' | 'register', via: 'button' | 'Enter') {
+async function submitNatively(
+  page: Page,
+  mode: 'login' | 'register',
+  via: 'button' | 'Enter',
+  scenario: string,
+) {
+  const observed = collectExpectedResponses(page, []);
+  const browserRequests: string[] = [];
+  page.on('request', (request) => browserRequests.push(request.url()));
+
   const username = `native-${randomUUID()}`;
-  const password = `secret-${randomUUID()}`;
-  await page.goto(`/${mode}`);
+  const password = `fixture-${randomUUID()}`;
+  const next = '%2Fmaps%2Fabc%3Fview%3Dtree';
+  const label = mode === 'login' ? '登录' : '注册';
+  await page.goto(`/${mode}?next=${next}`);
   await page.getByLabel('用户名').fill(username);
   await page.getByLabel('密码').fill(password);
+
   const navigation = page.waitForRequest((request) => request.isNavigationRequest());
   if (via === 'Enter') await page.getByLabel('密码').press('Enter');
-  else await page.getByRole('button', { name: mode === 'login' ? '登录' : '注册' }).click();
+  else await page.getByRole('button', { name: label }).click();
   const submission = await navigation;
+  const response = await submission.response();
+  if (!response) throw new Error('Native POST did not receive a response');
   expect(submission.method()).toBe('POST');
-  expect(new URL(submission.url()).pathname).toBe(`/api/auth/${mode}`);
-  expect(submission.url()).not.toContain(username);
-  expect(submission.url()).not.toContain(password);
-  expect((await submission.response())?.status()).toBe(415);
-  await expect(page).toHaveURL(submission.url());
-  expect(page.url()).not.toContain(username);
-  expect(page.url()).not.toContain(password);
+  expect(new URL(submission.url()).pathname).toBe(`/${mode}/native`);
+  expect(new URL(submission.url()).search).toBe(`?next=${next}`);
+  expect(response.status()).toBe(303);
+  expect(await response.headerValue('set-cookie')).toBeNull();
+
+  const destination = `/${mode}?next=${next}&native=unavailable`;
+  await expect(page).toHaveURL(destination);
+  const returnedForm = submission.redirectedTo();
+  if (!returnedForm) throw new Error('Browser did not follow the native redirect');
+  expect(returnedForm.method()).toBe('GET');
+  expect(returnedForm.postData()).toBeNull();
+  expect((await returnedForm.response())?.status()).toBe(200);
+  expect(await response.headerValue('location')).toBe(page.url());
+  await expect(page.getByRole('alert')).toHaveText('页面尚未加载完成，请重试');
+  await expect(page.getByRole('form', { name: label })).toBeVisible();
+  await expect(page.getByLabel('用户名')).toHaveValue('');
+  await expect(page.getByLabel('密码')).toHaveValue('');
+  await page.screenshot({ path: `.run/ui-evidence/account-native-${scenario}.png` });
+
   expect((await page.request.get('/api/auth/session')).status()).toBe(401);
+  if (mode === 'register') {
+    expect(
+      (await page.request.post('/api/auth/login', { data: { username, password } })).status(),
+    ).toBe(401);
+  }
+  expect(browserRequests).not.toContainEqual(
+    expect.stringMatching(/\/api\/auth\/(login|register)/),
+  );
+  for (const url of [...browserRequests, page.url()]) {
+    expect(url.includes(username) || url.includes(password)).toBe(false);
+  }
+  expect(await observed.noise()).toEqual([]);
 }
+
+test('account-auth: Direct API form posts cannot create an account or session', async ({
+  page,
+  request,
+}) => {
+  const credentials = { username: `direct-form-${randomUUID()}`, password: 'fixture-password' };
+  const registration = await page.request.post('/api/auth/register', { form: credentials });
+  expect(registration.status()).toBe(415);
+  expect(await registration.json()).toEqual({ error: 'unsupported-media-type' });
+  expect(registration.headers()['set-cookie']).toBeUndefined();
+  expect((await page.request.get('/api/auth/session')).status()).toBe(401);
+
+  // JSON registration with the same username proves the form POST did not reserve it.
+  expect((await request.post('/api/auth/register', { data: credentials })).status()).toBe(201);
+  const login = await page.request.post('/api/auth/login', { form: credentials });
+  expect(login.status()).toBe(415);
+  expect(await login.json()).toEqual({ error: 'unsupported-media-type' });
+  expect(login.headers()['set-cookie']).toBeUndefined();
+  expect((await page.request.get('/api/auth/session')).status()).toBe(401);
+});
 
 test.describe('account-auth: Native without JavaScript', () => {
   test.use({ javaScriptEnabled: false });
   for (const mode of ['login', 'register'] as const) {
     for (const via of ['button', 'Enter'] as const) {
-      test(`${mode} ${via} keeps credentials out of URLs`, async ({ page }) => {
-        await submitNatively(page, mode, via);
+      test(`${mode} ${via} returns to a readable form without signing in`, async ({ page }) => {
+        await submitNatively(page, mode, via, `${mode}-${via.toLowerCase()}-no-js`);
       });
     }
   }
 });
 
 test('account-auth: Native login Enter with hydration scripts blocked', async ({ page }) => {
-  await page.route('**/*.js', (route) => route.abort());
-  await submitNatively(page, 'login', 'Enter');
+  let blockedScripts = 0;
+  // Withhold the script code without introducing unrelated network errors.
+  await page.route('**/_next/static/**/*.js', (route) => {
+    blockedScripts += 1;
+    return route.fulfill({ contentType: 'application/javascript', body: '' });
+  });
+  await submitNatively(page, 'login', 'Enter', 'login-blocked-scripts');
+  expect(blockedScripts).toBeGreaterThan(0);
 });
 
 // ES2022 lacks Promise.withResolvers; each gate is released by the scenario's finally.

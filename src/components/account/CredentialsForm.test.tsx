@@ -22,6 +22,7 @@ function setup(
   mode: 'login' | 'register',
   next: string | null = null,
   earlyInput?: { label: string; value: string },
+  nativeUnavailable = false,
 ) {
   const router = {
     push: vi.fn(),
@@ -37,7 +38,7 @@ function setup(
   const form = (
     <AppRouterContext value={router}>
       <SessionNavigationScope>
-        <CredentialsForm mode={mode} next={next} />
+        <CredentialsForm mode={mode} next={next} nativeUnavailable={nativeUnavailable} />
       </SessionNavigationScope>
     </AppRouterContext>
   );
@@ -81,11 +82,26 @@ describe.each(['login', 'register'] as const)('account-auth: %s', (mode) => {
     ['/\r/evil.example/x', '?next=%2F'],
     ['/\t\\evil.example/x', '?next=%2F'],
   ])('links to the other form without submitting when next is %j', (next, query) => {
+    const label = mode === 'login' ? '登录' : '注册';
     const { fetch, router } = setup(mode, next);
     const link = screen.getByRole('link', { name: otherLabel });
     expect(link.getAttribute('href')).toBe(`${otherPath}${query}`);
+    const form = screen.getByRole('form', { name: label });
+    expect(form.getAttribute('method')).toBe('post');
+    expect(form.getAttribute('action')).toBe(`/${mode}/native${query}`);
     expect(fetch).not.toHaveBeenCalled();
     expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it('lets the visitor retry on the same form after native submission', async () => {
+    const { fetch, button } = setup(mode, '/maps/abc', undefined, true);
+    expect(screen.getByRole('alert').textContent).toBe('页面尚未加载完成，请重试');
+    expect(button.disabled).toBe(false);
+    fetch.mockResolvedValueOnce(new Response(null, { status: 401 }));
+    submit();
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe('用户名或密码错误');
+    });
   });
 
   it.each([

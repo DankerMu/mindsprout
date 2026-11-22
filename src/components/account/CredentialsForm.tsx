@@ -16,19 +16,22 @@ const REQUEST_FAILED = '请求失败，请重试';
 export function CredentialsForm({
   mode,
   next,
+  nativeUnavailable,
 }: {
   mode: 'login' | 'register';
   next: string | null;
+  nativeUnavailable: boolean;
 }) {
   const router = useRouter();
   const { publicAuthMounted, resumeAuthenticatedNavigation } = useSessionNavigation();
   useEffect(publicAuthMounted, [publicAuthMounted]);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    nativeUnavailable ? '页面尚未加载完成，请重试' : null,
+  );
   const label = mode === 'login' ? '登录' : '注册';
   const otherPath = mode === 'login' ? '/register' : '/login';
-  const otherHref =
-    next === null ? otherPath : `${otherPath}?next=${encodeURIComponent(safeNextPath(next))}`;
+  const nextQuery = next === null ? '' : `?next=${encodeURIComponent(safeNextPath(next))}`;
 
   async function submit(credentials: FormData) {
     const username = credentials.get('username');
@@ -60,7 +63,7 @@ export function CredentialsForm({
       <form
         aria-label={label}
         method="post"
-        action={`/api/auth/${mode}`}
+        action={`/${mode}/native${nextQuery}`}
         onSubmit={(event) => {
           event.preventDefault();
           const credentials = new FormData(event.currentTarget);
@@ -87,7 +90,7 @@ export function CredentialsForm({
       </form>
       <p>
         {mode === 'login' ? '还没有账号？' : '已有账号？'}
-        <Link href={otherHref}>{mode === 'login' ? '注册' : '登录'}</Link>
+        <Link href={`${otherPath}${nextQuery}`}>{mode === 'login' ? '注册' : '登录'}</Link>
       </p>
     </main>
   );

@@ -487,6 +487,38 @@ describe('JSON media guard', () => {
   });
 });
 
+describe('native authentication fallback', () => {
+  it.each([
+    ['', 'native=unavailable'],
+    [
+      '&next=%2Fmaps%2Fabc%3Fview%3Dtree&next=%2Fadmin',
+      'next=%2Fmaps%2Fabc%3Fview%3Dtree&native=unavailable',
+    ],
+    ['&next=https%3A%2F%2Fevil.example%2Fx', 'next=%2F&native=unavailable'],
+    ['&next=%2F%0D%2Fevil.example', 'next=%2F&native=unavailable'],
+  ])(
+    'redirects locally for query %j without initializing account services',
+    async (query, expected) => {
+      vi.stubEnv('DATABASE_URL', undefined);
+      const { nativeAuthFallback } = await import('./account-services');
+      const input = new Request(
+        `https://mindsprout.example:8443/login/native?native=ignored&password=query-canary${query}`,
+        { method: 'POST', body: new URLSearchParams('username=body-user&password=body-only') },
+      );
+
+      const response = nativeAuthFallback(input, 'login');
+
+      expect(response.status).toBe(303);
+      expect(response.headers.get('location')).toBe(
+        `https://mindsprout.example:8443/login?${expected}`,
+      );
+      expect(response.headers.get('set-cookie')).toBeNull();
+      expect(input.bodyUsed).toBe(false);
+      expect(mocks.postgres).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe('request sign-out composition', () => {
   it.each([undefined, '', 'other=value', 'mindsprout_session=', 'MindSprout_session=wrong'])(
     'succeeds without database configuration for absent or empty token %j',
