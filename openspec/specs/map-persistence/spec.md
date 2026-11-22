@@ -8,7 +8,7 @@ Maps survive page reloads and browser restarts in the user's browser, saved auto
 
 ### Requirement: Autosave after every change
 
-After a stable map change, the application SHALL schedule a write 500 ms after the last such change; each subsequent change SHALL restart the timer. Ops inside an open undo group (for example a node being created and named) count from when the group closes: their result is written only once the group ends, and never if the group is cancelled. A pending save SHALL be flushed on `pagehide` as a best-effort attempt. A reload MAY lose all pending changes since the last successful save, including edits older than 500 ms during continuous editing; the debounce interval SHALL NOT be represented as an upper bound on pending-edit age (design D7).
+After a stable map change, the application SHALL schedule a write to the signed-in user's cloud map store 500 ms after the last such change; each subsequent change SHALL restart the timer. Ops inside an open undo group (for example a node being created and named) count from when the group closes: their result is written only once the group ends, and never if the group is cancelled. A pending save SHALL be flushed on `pagehide` as a best-effort attempt. The flush request SHALL be allowed to outlive the page whenever its body fits the browser's keep-alive limit; a larger body is sent as an ordinary request. A reload MAY lose all pending changes since the last successful save, including edits older than 500 ms during continuous editing; the debounce interval SHALL NOT be represented as an upper bound on pending-edit age (design D7 of `m1-canvas`).
 
 #### Scenario: Reload after edits
 
@@ -40,6 +40,11 @@ After a stable map change, the application SHALL schedule a write 500 ms after t
 - **WHEN** a node created with Tab is still being named and a save or a `pagehide` flush runs
 - **THEN** the written map does not contain the unnamed node, and every edit made before the Tab is in it
 
+#### Scenario: Flush outlives the page
+
+- **WHEN** a pending map whose serialised save body is at most 60,000 bytes is flushed on `pagehide`
+- **THEN** the save request is issued as a keep-alive request; a larger body is issued as an ordinary request
+
 ### Requirement: Saves stamp updatedAt
 
 Every save and every rename SHALL set `updatedAt` to the current time in the application layer before writing; the repository SHALL store the map as given and the reducer SHALL never touch `updatedAt`.
@@ -51,12 +56,12 @@ Every save and every rename SHALL set `updatedAt` to the current time in the app
 
 ### Requirement: Persisted shape is versioned
 
-Each stored map SHALL be wrapped as `{ schemaVersion, map }`; the current version is 1 and `map` is the client `MindMap` (no `ownerId`). A reader meeting a higher version SHALL refuse to load it with `UnsupportedSchemaVersionError` and the editor SHALL report the version instead of partially loading.
+Each stored map SHALL be held, and transferred between browser and server, as `{ schemaVersion, map }`. The current version is 1. `map` is the client `MindMap`, and its owner is a server-side attribute that never appears in `map`. A reader meeting a higher version SHALL refuse to load it with `UnsupportedSchemaVersionError`, and the editor SHALL report the version instead of partially loading.
 
 #### Scenario: Future version
 
-- **WHEN** a stored record has `schemaVersion: 2`
-- **THEN** the repository throws `UnsupportedSchemaVersionError`, opening that map shows "此导图由更新版本创建", and no data is modified
+- **WHEN** the store holds the requested map with `schemaVersion: 2`
+- **THEN** reading it throws `UnsupportedSchemaVersionError`, opening that map shows "此导图由更新版本创建", and no data is modified
 
 ### Requirement: Floating roots and node attributes round-trip
 
@@ -67,16 +72,35 @@ Positions of floating roots, collapsed flags, colors and notes SHALL be stored a
 - **WHEN** a floating root at (300, 200) with a collapsed child carrying a note is saved and the map is reopened
 - **THEN** the root is at (300, 200), the child is collapsed and its note text is identical
 
-### Requirement: Storage unavailable is visible
+### Requirement: Same-session persistence operations retain invocation order
 
-When browser storage cannot be opened, the app SHALL fall back to one in-memory repository shared by the library and the editor for the session, keep working, and show a persistent banner stating that changes are not being saved; a failed write SHALL show an error notice, never be swallowed.
+Within one browser document session, the HTTP map repository SHALL preserve mutation invocation order and SHALL NOT let a later read bypass an earlier pending mutation. An idle `put` SHALL invoke fetch synchronously. When an earlier operation is pending, later operations SHALL wait for it to settle; a rejected operation SHALL NOT prevent later queued operations from running. Every deferred operation SHALL retain its adapter's Session binding and follow account-auth "Deferred map operations remain bound to the invoking account"; queue release SHALL NOT bypass that account check. Cross-device editing remains last-write-wins, and unload delivery remains best-effort.
 
-#### Scenario: Private mode
+#### Scenario: An older save cannot overwrite a newer edit or rename
 
-- **WHEN** IndexedDB open fails
-- **THEN** the editor loads, the banner "未保存到浏览器" is visible, and edits still work for the session
+- **WHEN** an older PUT is held before its backing-store mutation, a newer PUT for the same map is invoked, and the older PUT is then released
+- **THEN** the newer PUT does not reach the backing store before the older operation settles, and a subsequent read returns the newer map
+
+#### Scenario: A delayed save cannot resurrect a deleted map
+
+- **WHEN** a PUT is held before its backing-store mutation, deletion of that map is invoked, and the PUT is then released
+- **THEN** deletion runs after the PUT and a subsequent read reports the map as absent
+
+#### Scenario: Navigation reads wait for a flushed mutation
+
+- **WHEN** a PUT is held before its backing-store mutation and a list or get is invoked through the same session repository
+- **THEN** the read waits for the PUT instead of returning stale pre-write state
+
+#### Scenario: A failed operation does not poison the session queue
+
+- **WHEN** a queued predecessor rejects and a later mutation is pending
+- **THEN** the later mutation still runs and retains the existing error taxonomy
+
+### Requirement: Save failures are visible
+
+A save that fails for any reason other than an ended session SHALL show the error notice "保存失败" and SHALL never be swallowed. Examples are a network failure, a server error or a refused payload. The edit SHALL stay in the editor and remain pending until the next edit or flush retries it. Network failures SHALL NOT switch the editor to a different store.
 
 #### Scenario: Write failure is visible
 
-- **WHEN** a `put` rejects (for example a quota error) after an edit
-- **THEN** the editor shows the notice "保存失败" and the edit remains in the editor
+- **WHEN** a save request fails (the network is down or the server answers 500) after an edit
+- **THEN** the editor shows the notice "保存失败", the edit remains in the editor, and the next edit after the network returns saves both changes

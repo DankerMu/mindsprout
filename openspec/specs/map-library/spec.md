@@ -17,12 +17,17 @@ The home page SHALL offer "新建导图"; creating SHALL call the domain factory
 
 ### Requirement: List maps
 
-The home page SHALL list every stored map with its title and last-updated time (`MapSummary { id, title, updatedAt }`), most recently updated first; an empty list SHALL show an empty-state message with the create action.
+The home page SHALL list every map of the signed-in user with its title and last-updated time (`MapSummary { id, title, updatedAt }`), most recently updated first. It SHALL never list another user's maps. An empty list SHALL show an empty-state message with the create action.
 
 #### Scenario: Ordering
 
 - **WHEN** maps A (updated 10:00) and B (updated 11:00) exist
 - **THEN** the list shows B before A
+
+#### Scenario: Only the user's own maps
+
+- **WHEN** `alice` has map A and `bob` has map B, and `alice` opens `/`
+- **THEN** the list shows A and not B
 
 ### Requirement: Open, rename, delete
 
@@ -61,32 +66,37 @@ Clicking a list entry SHALL open its editor; rename SHALL update the map title a
 
 ### Requirement: Unknown map id
 
-Opening `/maps/<id>` for an id not in storage SHALL show a not-found state with a link back to the library, not an error page.
+Opening `/maps/<id>` SHALL show a not-found state with a link back to the library, not an error page, both for an id that does not exist and for a map that belongs to another user. The two cases SHALL be indistinguishable.
 
 #### Scenario: Stale link
 
 - **WHEN** the user opens `/maps/does-not-exist`
 - **THEN** the page shows "找不到这张导图" and a link to `/`
 
+#### Scenario: Another user's map
+
+- **WHEN** `bob` opens the URL of `alice`'s map
+- **THEN** the page shows "找不到这张导图" and a link to `/`, and alice's map is unchanged
+
 ### Requirement: Unreadable map shows an error state
 
-Opening `/maps/<id>` for a stored map that cannot be read or rendered SHALL show an error state with a link back to the library. It SHALL never show the not-found state or a blank page, and SHALL modify nothing. A stored map whose embedded ID differs from the requested route ID SHALL be rejected before mounting an autosave-capable editor; rejection SHALL issue no put and SHALL preserve both the requested record and any peer record named by the embedded ID. Matching-ID maps SHALL retain normal editing and autosave behavior.
+Opening `/maps/<id>` SHALL show an error state with a link back to the library when the store returns a map that cannot be read or rendered. It SHALL never show the not-found state or a blank page, and SHALL modify nothing. A returned map whose embedded ID differs from the requested route ID SHALL be rejected before an autosave-capable editor mounts. The rejection SHALL issue no put and SHALL modify neither the requested map nor any map named by the embedded ID. Maps whose IDs match SHALL keep normal editing and autosave behaviour. These guards apply to every repository (decision 0016), even though the cloud store refuses to save such maps (cloud-map-storage "Saved maps are validated").
 
 #### Scenario: Corrupt record
 
-- **WHEN** the stored record for `/maps/<id>` holds a floating root without a position
+- **WHEN** the store returns, for `/maps/<id>`, a map holding a floating root without a position
 - **THEN** the page shows "无法打开这张导图" and a link to `/`, and not "找不到这张导图"
 
 #### Scenario: Mismatched stored map identity
 
-- **WHEN** a renderable v1 record under key A contains embedded map ID B, a distinct peer record exists under B, and the user opens `/maps/A`
-- **THEN** the page shows the existing error state and back link without mounting a ready editor, issuing put, repairing or deleting either record
-- **AND** raw records at A and B remain exactly unchanged after rejection and leaving the route
+- **WHEN** the store returns, for id A, a renderable map whose embedded ID is B, a distinct map B exists, and the user opens `/maps/A`
+- **THEN** the page shows the existing error state and back link without mounting a ready editor, issuing a put, repairing or deleting either map
+- **AND** the maps held for A and B are exactly unchanged after the rejection and after leaving the route
 
 #### Scenario: Matching identity preserves normal persistence
 
-- **WHEN** a record's embedded ID matches its requested route ID and the user edits a node title
-- **THEN** the editor opens normally and autosaves the intended change under that same ID, without changing a distinct peer record
+- **WHEN** a map's embedded ID matches its requested route ID and the user edits a node title
+- **THEN** the editor opens normally and autosaves the change under that same ID, without changing any other map
 
 ### Requirement: Matching-identity autosave verification readiness
 
@@ -98,28 +108,29 @@ The matching-identity autosave acceptance walk SHALL establish that the actual r
 - **THEN** it waits for the actual root node before the original text assertion and double-click interaction
 - **AND** the renamed text, debounced save payload, matching storage key and unchanged peer record are still verified without a skipped or weakened assertion
 
-### Requirement: Library works without storage
-
-When browser storage is unavailable the library SHALL show the same "未保存到浏览器" banner as the editor, list the maps created in this session from the shared in-memory repository, and 新建导图 SHALL still open a working editor; a full reload of such an editor URL SHALL show the not-found state together with the banner.
-
-#### Scenario: Create with storage blocked
-
-- **WHEN** IndexedDB is blocked and the user clicks 新建导图, adds a child, and navigates back to `/`
-- **THEN** the banner is visible on both pages, the list shows the new map, and reopening it from the list shows the child
-
-#### Scenario: Reload with storage blocked
-
-- **WHEN** IndexedDB is blocked and the user reloads `/maps/<id>` of a map created in this session
-- **THEN** the page shows "找不到这张导图" and the banner "未保存到浏览器"
-
 ### Requirement: Published canvas limitations
 
-The README SHALL disclose no AI, browser-only storage, 500 ms trailing-debounce autosave with possible loss of all pending changes since the last successful save on immediate reload, LR-only layout and no export under `## Known Limitations`. It SHALL explain that continuous editing restarts the timer, so pending edits can be older than 500 ms. The documentation gate SHALL require this section without a README allowlist or matching constraints exemption.
+The README SHALL disclose at least the following among the entries under `## Known Limitations`; other entries that are still true MAY remain:
+
+- no AI;
+- editing one map on two devices at once keeps the last save;
+- 500 ms trailing-debounce autosave, with possible loss of all pending changes since the last successful save on immediate reload. Continuous editing restarts the timer, so pending edits can be older than 500 ms;
+- LR-only layout;
+- no export;
+- no password change or self-service recovery: only the administrator can reset a password, and a forgotten administrator password cannot be recovered;
+- no sign-in throttling.
+
+The documentation gate SHALL require this section without a README allowlist or matching constraints exemption.
 
 #### Scenario: M1 documentation closure
 
 - **WHEN** the shipped canvas documentation is checked
-- **THEN** the README lists all five limitations, TECH section 7 describes the implemented module locations, and the documentation and guardrail checks pass without a README exemption
+- **THEN** TECH section 7 describes the implemented module locations, and the documentation and guardrail checks pass without a README exemption
+
+#### Scenario: M2 documentation closure
+
+- **WHEN** the shipped documentation is checked after this change
+- **THEN** the README lists all seven limitations and no longer claims browser-only storage, TECH section 7 describes the implemented module locations including the account context, and the documentation and guardrail checks pass without a README exemption
 
 #### Scenario: Missing limitations are rejected
 
