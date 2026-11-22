@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StoreApi } from 'zustand/vanilla';
 import type { EditorState } from '../../contexts/map/application/editor-store/editor-store';
@@ -21,15 +21,22 @@ afterEach(() => {
 const MAP = { ...mapOf(node('r', [node('a')], { text: '根节点B' })), title: '标题A' };
 
 describe('EditorView', () => {
-  it('shows the map title in the header, the ready marker and the canvas', () => {
+  it('shows the map title and return link in the ready header and renders the canvas', () => {
     render(
       <EditorSession map={MAP} repository={new RecordingRepository()}>
         <EditorView />
       </EditorSession>,
     );
 
-    expect(screen.getByTestId('editor-title').textContent).toBe('标题A');
-    expect(screen.getByTestId('map-editor-ready').contains(nodeWrapper('r'))).toBe(true);
+    const ready = screen.getByTestId('map-editor-ready');
+    const header = within(ready).getByRole('banner');
+    expect(within(header).getByRole('heading', { name: '标题A' }).textContent).toBe('标题A');
+    const back = within(header).getByRole('link', { name: '返回导图列表' });
+    expect(back.getAttribute('href')).toBe('/');
+    expect(back.tabIndex).toBe(0);
+    back.focus();
+    expect(document.activeElement).toBe(back);
+    expect(ready.contains(nodeWrapper('r'))).toBe(true);
     expect(nodeWrapper('r').textContent).toBe('根节点B');
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '撤销' }).disabled).toBe(true);
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '重做' }).disabled).toBe(true);
