@@ -60,6 +60,10 @@ The fingerprint includes entry types and does not read, stat, or traverse link t
 
 The collector alone owns SIGINT/SIGTERM in both default and profiled launches; [decision 0030](../../decisions/implemented/testing/0030-native-navigation-diagnostic-profiling.md) explains the Playwright exit-130 conflict requiring this correction. Browser close and browser-process close retain their respective 5000ms budgets, and owned server-group shutdown retains its total 10,000ms budget. A nonzero interrupt exit is not restoration proof: require the actual result/cleanup records, restored source/cache identity, and closed owned runtime.
 
+The first SIGINT/SIGTERM is retained even if it arrives after the functional assertions pass. The collector finishes cleanup before reporting failure and exiting nonzero; the interruption does not replace an earlier functional failure.
+
+To exercise the actual runner's late-interrupt and linked-cache regressions, use a disposable checkout without `.next` or `.next-profiles`, port 3000 free, installed Chromium, and a migrated scratch database. Run `NATIVE_HMR_RUNNER_OUTPUT="$PWD/.run/runner-regression" pnpm native:browser:regression` with a fresh output directory on the checkout's filesystem. Stop the scratch database after the run.
+
 First public map creation also retains bounded diagnostic evidence: RSC and script response/completion timestamps, response timing/status, in-memory data-delivery totals, and browser Performance metrics immediately before its readiness clock and after the outcome. Failure captures timestamp the DOM, screenshot, URL and loader independently. These observations add no HTTP requests, body dumps, warmup, retry or extended readiness deadline; they do not attribute an unexplained slow navigation to runner pressure.
 
 The initial root commit failure is labeled `public-map root document commit`; passive Document response/completion metadata is captured even before the RSC observation window, without extra requests or body reads, and all 5000ms deadlines and no-warmup/no-retry rules remain unchanged.
@@ -85,7 +89,9 @@ Profiling requires `.next-profiles` to be absent, including no existing file, di
 
 Private staging and generation destinations must remain directories with the collector's recorded filesystem identity; existing raw-move targets are conflicts, not overwrite permission. A detected conflict stops the raw move and produces fixed partial diagnostics. Safe staging conflicts prevent summary publication. Pending-output cleanup removes only a regular file matching the collector-created file's identity; unrelated replacements and unknown entries are preserved. These checks cover observed conflicts, not arbitrary filesystem replacement after the last check.
 
-Only a trace absent at its initial pre-start inspection permits launch without isolation. An observed pre-start isolation failure refuses the producer; a post-stop inspection or move failure publishes `trace-isolation-failed` partial evidence, retaining any valid projected spans without claiming successful raw archival.
+Trace collection checks `.next` and `.next/dev` without following links. A linked or non-directory cache component is `unsafe-file`: before startup it prevents producer launch; after shutdown it yields partial evidence without reading or moving the external trace. An absent pre-start trace needs no isolation. Other post-stop inspection or move failures report `trace-isolation-failed` and retain any valid projected spans without claiming successful raw archival.
+
+If `.next` becomes unsafe during a profiled run, cleanup preserves the cache backup instead of restoring through that path, and reports `cleanup-blocked`. Default cache handling is unchanged.
 
 ### Profile evidence and interpretation
 

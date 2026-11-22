@@ -36,6 +36,23 @@ function ownsDirectory(filename, expected) {
   }
 }
 
+function cacheDirectoryCode(filename) {
+  try {
+    const entry = fs.lstatSync(filename, { throwIfNoEntry: false });
+    return entry && !entry.isDirectory() ? 'unsafe-file' : null;
+  } catch {
+    return 'trace-isolation-failed';
+  }
+}
+
+export function sourceCacheParentCode(repo) {
+  return cacheDirectoryCode(path.join(repo, '.next'));
+}
+
+function sourceCacheCode(repo) {
+  return sourceCacheParentCode(repo) ?? cacheDirectoryCode(path.join(repo, '.next', 'dev'));
+}
+
 function absent(filename) {
   try {
     fs.lstatSync(filename);
@@ -180,6 +197,9 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
   }
   function prepare() {
     if (!enabled) return disabled();
+    // Refuse a linked parent before the runner backs up or copies its working cache.
+    const cacheCode = sourceCacheParentCode(repo);
+    if (cacheCode) return note(cacheCode);
     try {
       try {
         fs.lstatSync(directory);
@@ -207,6 +227,11 @@ export function createNativeProfile({ enabled, repo, output, identity = {} }) {
     return isolatePrestartTrace(generation);
   }
   function isolatePrestartTrace(generation) {
+    const cacheCode = sourceCacheCode(repo);
+    if (cacheCode) {
+      blockedTraces.add(generation);
+      return note(cacheCode);
+    }
     const trace = path.join(repo, '.next/dev/trace');
     let stat;
     try {
@@ -341,6 +366,8 @@ function collectCpuRole(state, destination, names, role) {
 }
 
 function collectTrace(state, destination, generation) {
+  const cacheCode = sourceCacheCode(state.repo);
+  if (cacheCode) return { ...state.note(cacheCode), coverage: 'observed-only' };
   const filename = path.join(state.repo, '.next/dev/trace');
   const raw = state.blockedTraces.has(generation)
     ? partial('stale-trace')

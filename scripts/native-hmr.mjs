@@ -603,6 +603,7 @@ function restoreOwnedFiles(errors) {
     }
     if (cacheOwned) {
       try {
+        profiling.assertCacheRestorable();
         if (cachePathExists(cache)) fs.renameSync(cache, file('cache-observed'));
         if (cachePathExists(file('cache-original'))) fs.renameSync(file('cache-original'), cache);
         cacheOwned = false;
@@ -687,17 +688,12 @@ async function run() {
     await cleanup();
     save('chunks.json', chunks);
     save('readiness.json', readies);
+    profiling.recordInterrupt(result, record);
     save('result.json', result);
     removeSignalHandlers();
     process.exitCode = result.status === 'passed' ? 0 : 1;
-    console.log(
-      JSON.stringify({
-        status: result.status,
-        failures: result.failures,
-        cleanup: result.cleanup,
-        out,
-      }),
-    );
+    const { status, failures, cleanup: cleanupResult } = result;
+    console.log(JSON.stringify({ status, failures, cleanup: cleanupResult, out }));
   }
 }
 run().catch((error) => {

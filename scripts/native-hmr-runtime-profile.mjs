@@ -1,8 +1,9 @@
+import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import { chromium } from '@playwright/test';
 import { deadline, processGroup, stopOwnedProcessGroup } from './native-hmr-support.mjs';
-import { createNativeProfile } from './native-hmr-profile-collection.mjs';
+import { createNativeProfile, sourceCacheParentCode } from './native-hmr-profile-collection.mjs';
 import { createBrowserProfiler } from './native-hmr-browser-profile.mjs';
 
 export function launchNativeBrowser() {
@@ -46,10 +47,7 @@ export function createRuntimeProfile(
 ) {
   const profilers = new Set();
   const clock = () => ({ epochMs: Date.now(), elapsedMs: performance.now() - started });
-  let profiles,
-    serverStart,
-    network,
-    interrupted = false;
+  let profiles, serverStart, network, interruption;
 
   function prepare(addon, result) {
     if (!enabled) return true;
@@ -157,15 +155,12 @@ export function createRuntimeProfile(
     }
   }
 
-  function interrupt() {
-    interrupted = true;
-    for (const profiler of profilers) profiler.interrupt();
-  }
-
   function registerSignals(reject) {
     const signal = (name) => {
-      interrupt();
-      reject(new Error(`Interrupted by ${name}`));
+      if (interruption) return;
+      interruption = new Error(`Interrupted by ${name}`);
+      for (const profiler of profilers) profiler.interrupt();
+      reject(interruption);
     };
     const sigterm = () => signal('SIGTERM');
     const sigint = () => signal('SIGINT');
@@ -177,13 +172,25 @@ export function createRuntimeProfile(
     };
   }
 
+  function assertCacheRestorable() {
+    assert(!enabled || !sourceCacheParentCode(repo), 'Profile cache parent is unsafe');
+  }
+
+  function recordInterrupt(result, record) {
+    if (!interruption) return;
+    if (result.status !== 'cleanup-blocked') result.status = 'failed';
+    const { message } = interruption;
+    if (!result.failures.includes(message)) result.failures.push(message);
+    record('interrupt', { message });
+  }
+
   async function finish(serverStopped) {
     if (!profiles) return;
     for (const profiler of profilers) {
       profiler.finalize();
       profiles.recordBrowserProblems(profiler.snapshot().codes);
     }
-    await profiles.finish({ interrupted, serverStopped });
+    await profiles.finish({ interrupted: Boolean(interruption), serverStopped });
   }
 
   return {
@@ -199,5 +206,7 @@ export function createRuntimeProfile(
     closeBrowser,
     registerSignals,
     finish,
+    assertCacheRestorable,
+    recordInterrupt,
   };
 }

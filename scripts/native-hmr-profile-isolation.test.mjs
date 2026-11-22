@@ -12,6 +12,67 @@ import {
   browserFixture,
 } from './native-hmr-profile-fixtures.mjs';
 
+for (const stage of ['pre-start', 'post-stop']) {
+  for (const linked of ['.next/dev', '.next']) {
+    test(`${stage} leaves the external trace untouched through a copied cache with a linked ${linked}`, async (t) => {
+      const { repo, output, value } = collector(t);
+      assert.equal(value.prepare().status, 'complete');
+      if (stage === 'post-stop') assert.equal(value.beginServer(generation()).status, 'complete');
+
+      const next = path.join(repo, '.next');
+      const cache = path.join(next, 'dev');
+      const backup = path.join(output, 'cache-original');
+      const external = path.join(repo, 'external');
+      const externalCache = linked === '.next' ? path.join(external, 'dev') : external;
+      fs.mkdirSync(externalCache, { recursive: true });
+      const sentinel = path.join(externalCache, 'trace');
+      fs.writeFileSync(sentinel, secret);
+      const original = fs.lstatSync(sentinel);
+      fs.mkdirSync(next);
+      if (linked === '.next/dev') fs.symlinkSync(external, cache);
+      else fs.mkdirSync(cache);
+      fs.renameSync(cache, backup);
+      fs.cpSync(backup, cache, { recursive: true, preserveTimestamps: true });
+      if (linked === '.next') {
+        fs.renameSync(next, path.join(repo, 'owned-next'));
+        fs.symlinkSync(external, next);
+      } else {
+        assert.equal(fs.readlinkSync(cache), external);
+      }
+
+      const filename = path.join(cache, 'trace');
+      const inspections = t.mock.method(fs, 'lstatSync');
+      const opens = t.mock.method(fs, 'openSync');
+      const moves = t.mock.method(fs, 'renameSync');
+      const result =
+        stage === 'pre-start'
+          ? value.beginServer(generation())
+          : (await value.collectServer(generation())).trace;
+      await value.finish();
+
+      assert.deepEqual(result, {
+        status: 'partial',
+        codes: ['unsafe-file'],
+        ...(stage === 'post-stop' ? { coverage: 'observed-only' } : {}),
+      });
+      for (const operation of [inspections, opens, moves])
+        assert.equal(
+          operation.mock.calls.some(({ arguments: [source] }) => source === filename),
+          false,
+        );
+      const summary = JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8'));
+      partial(summary, 'unsafe-file');
+      noSecrets(summary);
+      const remaining = fs.lstatSync(sentinel);
+      assert.equal(remaining.dev, original.dev);
+      assert.equal(remaining.ino, original.ino);
+      assert.equal(fs.readFileSync(sentinel, 'utf8'), secret);
+      assert.equal(fs.existsSync(path.join(output, 'profile-private/prestart-0.trace')), false);
+      assert.equal(fs.existsSync(path.join(output, 'profile-private/generation-0/trace')), false);
+    });
+  }
+}
+
 for (const failure of ['EACCES', 'EIO', 'postread-stat']) {
   test(`post-stop trace isolation ${failure} publishes partial safe evidence without changing its source`, async (t) => {
     const { repo, output, value } = collector(t);
