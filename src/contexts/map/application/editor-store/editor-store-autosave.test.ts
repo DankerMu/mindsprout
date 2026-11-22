@@ -208,12 +208,6 @@ describe('autosave writes only edits (spec "Opening a map is not an edit")', () 
 
   const nonEdits: [string, (state: EditorState) => void][] = [
     [
-      'setViewport',
-      (state) => {
-        state.setViewport({ x: 5, y: 6, zoom: 1.5 });
-      },
-    ],
-    [
       'select',
       (state) => {
         state.select('a');

@@ -14,12 +14,15 @@ import {
   viewportTransform,
 } from '../../../tests/support/canvas';
 import { mapOf, node } from '../../../tests/support/map-domain';
+import { RecordingRepository } from '../../../tests/support/map-repository-stub';
 import {
   DEFAULT_GAP,
   estimateNodeSize,
   layoutForest,
 } from '../../contexts/map/application/layout/layout-forest';
 import type { MindMap } from '../../contexts/map/domain/types';
+import { EditorSession } from '../editor/EditorSession';
+import { EditorView } from '../editor/EditorView';
 import { MindMapCanvas } from './MindMapCanvas';
 
 // Seam: MindMapCanvas through Testing Library in jsdom (design "Fixture — issue #15"). React Flow
@@ -32,6 +35,33 @@ const observers = installControllableResizeObservers();
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+function sizeCanvas(width: number, height: number): void {
+  // React Flow sizes the viewport from its zoom pane's offsetWidth/offsetHeight.
+  for (const [property, size] of [
+    ['offsetWidth', width],
+    ['offsetHeight', height],
+  ] as const) {
+    vi.spyOn(HTMLElement.prototype, property, 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.classList.contains('react-flow__renderer') ? size : 0;
+    });
+  }
+}
+
+function dragViewport(pane: Element, button: number, dx: number): void {
+  // jsdom rejects Vitest's proxied window as the MouseEvent's view; d3 needs it to follow the drag.
+  for (const [target, type, clientX] of [
+    [pane, 'mousedown', 10],
+    [window, 'mousemove', 10 + dx],
+    [window, 'mouseup', 10 + dx],
+  ] as const) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, button, clientX });
+    Object.defineProperty(event, 'view', { value: window });
+    fireEvent(target, event);
+  }
+}
 
 // r ─ a: a's column starts after r's width plus the gap.
 function rootWithChild(fields: Parameters<typeof node>[2] = {}): MindMap {
@@ -193,6 +223,57 @@ describe('MindMapCanvas measured nodes', () => {
 });
 
 describe('MindMapCanvas view', () => {
+  it('frames only the complete measurements of the current map opening', () => {
+    sizeCanvas(800, 600);
+    const view = render(<MindMapCanvas map={rootWithChild()} />);
+    const previous = canvasObserverOf(observers());
+    const oldRoot = mindNodeElement('r');
+    const oldChild = mindNodeElement('a');
+    const unframed = { x: 0, y: 0, zoom: 1 };
+    previous.fire([borderBoxEntry(oldRoot, 600, 32)]);
+    expect(viewportTransform()).toEqual(unframed);
+
+    // The new map reuses the root ID; neither a cached width nor a late old batch can fit it.
+    view.rerender(<MindMapCanvas map={{ ...mapOf(node('r')), id: 'replacement' }} />);
+    previous.deliver([borderBoxEntry(oldRoot, 900, 32), borderBoxEntry(oldChild, 100, 32)]);
+    expect(viewportTransform()).toEqual(unframed);
+
+    const current = observers().find((observer) => observer.observed.has(mindNodeElement('r')));
+    if (current === undefined) throw new Error('missing replacement node observer');
+    current.fire([borderBoxEntry(mindNodeElement('r'), 120, 40)]);
+    expect(viewportTransform()).toEqual({ x: 340, y: 280, zoom: 1 });
+
+    current.fire([borderBoxEntry(mindNodeElement('r'), 300, 40)]);
+    expect(viewportTransform()).toEqual({ x: 340, y: 280, zoom: 1 });
+  });
+
+  it.each([
+    { width: 120, pan: -440, x: 16 },
+    { width: 120, pan: -335, x: 5 },
+    { width: 900, pan: -440, x: -50 },
+  ])('reveals a $width px editing box from a $pan px pan at x=$x', ({ width, pan, x }) => {
+    sizeCanvas(800, 600);
+    const { container } = render(
+      <EditorSession map={mapOf(node('r'))} repository={new RecordingRepository()}>
+        <EditorView />
+      </EditorSession>,
+    );
+    const root = mindNodeElement('r');
+    canvasObserverOf(observers()).fire([borderBoxEntry(root, 120, 40)]);
+    vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, width, 40));
+    const region = screen.getByRole('region', { name: '思维导图画布' });
+    fireEvent.keyDown(region, { key: 'a', ctrlKey: true });
+    const pane = container.querySelector('.react-flow__pane');
+    if (pane === null) throw new Error('no pane');
+    dragViewport(pane, 1, pan);
+    expect(viewportTransform()).toEqual({ x: 340 + pan, y: 280, zoom: 1 });
+
+    fireEvent.keyDown(region, { key: 'F2' });
+    expect(screen.getByRole('textbox', { name: '节点标题' })).toBe(document.activeElement);
+    expect(viewportTransform()).toEqual({ x, y: 280, zoom: 1 });
+    expect(renderedPosition('r')).toEqual({ x: 0, y: 0 });
+  });
+
   it('clamps wheel zoom to 2 and 0.25', async () => {
     const { container } = render(<MindMapCanvas map={rootWithChild()} />);
     const pane = container.querySelector('.react-flow__pane');
@@ -226,13 +307,7 @@ describe('MindMapCanvas view', () => {
   });
 
   it('fits every tree, including a far floating subtree, inside an 800×600 canvas', () => {
-    // React Flow sizes the viewport from its zoom pane's offsetWidth/offsetHeight.
-    const paneSize = (pane: number) =>
-      function (this: HTMLElement) {
-        return this.classList.contains('react-flow__renderer') ? pane : 0;
-      };
-    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(paneSize(800));
-    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(paneSize(600));
+    sizeCanvas(800, 600);
     const primary = node('r', [node('a', [node('a1')]), node('b')]);
     const map = mapOf(
       primary,
@@ -281,24 +356,12 @@ describe('MindMapCanvas view', () => {
     const { container } = render(<MindMapCanvas map={rootWithChild()} />);
     const pane = container.querySelector('.react-flow__pane');
     if (pane === null) throw new Error('no pane');
-    // d3-zoom follows a drag through listeners on the event's view. jsdom's MouseEvent init
-    // rejects Vitest's proxied window as `view`, so the view is defined on each event.
-    const mouse = (target: Element | Window, type: string, button: number, clientX: number) => {
-      const event = new MouseEvent(type, { bubbles: true, cancelable: true, button, clientX });
-      Object.defineProperty(event, 'view', { value: window });
-      fireEvent(target, event);
-    };
-    const drag = (button: number) => {
-      mouse(pane, 'mousedown', button, 10);
-      mouse(window, 'mousemove', button, 110);
-      mouse(window, 'mouseup', button, 110);
-    };
     const start = viewportTransform();
 
-    drag(0);
+    dragViewport(pane, 0, 100);
     expect(viewportTransform()).toStrictEqual(start);
 
-    drag(1);
+    dragViewport(pane, 1, 100);
     expect(viewportTransform()).toStrictEqual({ ...start, x: start.x + 100 });
   });
 

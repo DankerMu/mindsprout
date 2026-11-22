@@ -39,7 +39,7 @@ export function InlineTitleInput({
   useLayoutEffect(() => {
     if (focused.current) return;
     // New React Flow nodes are hidden until measured; a hidden input cannot receive focus.
-    input.current?.focus();
+    input.current?.focus({ preventScroll: true });
     input.current?.select();
     focused.current = document.activeElement === input.current;
   }, [measured]);

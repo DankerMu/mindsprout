@@ -93,14 +93,13 @@ export function expectStep(
 
 // Every data field of the state (actions are functions and cannot be cloned).
 export function dataOf(state: EditorState) {
-  const { map, canUndo, canRedo, groupOpen, viewport, notice } = state;
+  const { map, canUndo, canRedo, groupOpen, notice } = state;
   const { selectedIds, primaryId, editing, menuTargetId } = state;
   return structuredClone({
     map,
     canUndo,
     canRedo,
     groupOpen,
-    viewport,
     notice,
     selectedIds,
     primaryId,

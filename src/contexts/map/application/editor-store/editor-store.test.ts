@@ -30,11 +30,9 @@ import type { TreeOp } from '../../domain/tree-op';
 import type { MindMap } from '../../domain/types';
 import {
   createEditorStore,
-  DEFAULT_VIEWPORT,
   EditorStoreError,
   type EditorState,
   type EditorStoreErrorCode,
-  type Viewport,
 } from './editor-store';
 
 // Design "Fixture — issue #12" and spec map-undo-history: the createEditorStore public API in the
@@ -53,23 +51,20 @@ const NAME_X: TreeOp = { op: 'update_node', id: 'x', text: '想法' };
 const EMPTY_SELECTION = { selectedIds: [], primaryId: null, editing: null, menuTargetId: null };
 
 describe('createEditorStore: initial state and load', () => {
-  it('starts without a map, without undo, at the default viewport and without a notice', () => {
+  it('starts without a map, without undo and without a notice', () => {
     const store = createEditorStore();
-    expect(DEFAULT_VIEWPORT).toStrictEqual({ x: 0, y: 0, zoom: 1 });
     expect(dataOf(store.getState())).toStrictEqual({
       map: null,
       canUndo: false,
       canRedo: false,
       groupOpen: false,
-      viewport: { x: 0, y: 0, zoom: 1 },
       notice: null,
       ...EMPTY_SELECTION,
     });
   });
 
-  it('load sets the map with an empty history, the default viewport and no notice', () => {
+  it('load sets the map with an empty history and no notice', () => {
     const store = createEditorStore();
-    store.getState().setViewport({ x: 5, y: 6, zoom: 2 });
     store.getState().showNotice('保存失败');
     const map = sampleMap();
     store.getState().load(map);
@@ -79,7 +74,6 @@ describe('createEditorStore: initial state and load', () => {
       canUndo: false,
       canRedo: false,
       groupOpen: false,
-      viewport: { x: 0, y: 0, zoom: 1 },
       notice: null,
       ...EMPTY_SELECTION,
     });
@@ -128,13 +122,11 @@ describe('createEditorStore: dispatch', () => {
 
   it('an ungrouped rejection reaches the caller as the TreeOpError and changes nothing', () => {
     const setup = intact();
-    setup.store.getState().setViewport({ x: 30, y: -40, zoom: 1.5 });
     setup.store.getState().showNotice('保存失败');
     const error = expectUnchanged(setup.store, (state) => {
       state.dispatch(DELETE_PRIMARY);
     });
     expectTreeOpError(error, 'primary-root-protected');
-    expect(setup.store.getState().viewport).toStrictEqual({ x: 30, y: -40, zoom: 1.5 });
     expect(setup.store.getState().notice).toBe('保存失败');
     expectHistoryIntact(setup);
   });
@@ -331,13 +323,9 @@ describe('createEditorStore: rename', () => {
   });
 });
 
-describe('createEditorStore: viewport and notice', () => {
-  it('setViewport stores the viewport as given and notices set and clear, all without a map', () => {
+describe('createEditorStore: notice', () => {
+  it('sets and clears notices without a map', () => {
     const store = createEditorStore();
-    const viewport: Viewport = { x: -120, y: 40, zoom: 3 };
-    store.getState().setViewport(viewport);
-    expect(store.getState().viewport).toBe(viewport);
-    expect(store.getState().viewport).toStrictEqual({ x: -120, y: 40, zoom: 3 });
     store.getState().showNotice('主根不能删除');
     expect(store.getState().notice).toBe('主根不能删除');
     store.getState().clearNotice();
@@ -389,9 +377,6 @@ describe('createEditorStore: state objects are replaced, never mutated', () => {
     const steps: ((state: EditorState) => void)[] = [
       (state) => {
         state.load(sampleMap());
-      },
-      (state) => {
-        state.setViewport({ x: 1, y: 2, zoom: 1 });
       },
       (state) => {
         state.showNotice('保存失败');
