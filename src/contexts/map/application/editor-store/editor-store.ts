@@ -29,14 +29,6 @@ export { AUTOSAVE_DELAY_MS } from './autosave';
 // the stable map (state.map observed while no group is open) after a change of identity, treats
 // load as a new baseline, and reports failures through the notice.
 
-export interface Viewport {
-  readonly x: number;
-  readonly y: number;
-  readonly zoom: number;
-}
-
-export const DEFAULT_VIEWPORT: Viewport = Object.freeze({ x: 0, y: 0, zoom: 1 });
-
 export type EditorStoreErrorCode =
   'no-map' | 'unknown-node' | 'hidden-node' | 'already-editing' | 'not-editing';
 
@@ -55,7 +47,6 @@ export interface EditorState extends SelectionSlice {
   readonly canUndo: boolean;
   readonly canRedo: boolean;
   readonly groupOpen: boolean;
-  readonly viewport: Viewport;
   readonly notice: string | null;
   load(map: MindMap): void;
   dispatch(op: TreeOp): void;
@@ -66,7 +57,6 @@ export interface EditorState extends SelectionSlice {
   cancelGroup(): void;
   runGrouped(label: string, fn: () => void): void;
   rename(title: string): void;
-  setViewport(viewport: Viewport): void;
   showNotice(message: string): void;
   clearNotice(): void;
   select(id: NodeId): void;
@@ -252,7 +242,6 @@ export function createEditorStore(
       canUndo: false,
       canRedo: false,
       groupOpen: false,
-      viewport: DEFAULT_VIEWPORT,
       notice: null,
       ...EMPTY_SLICE,
 
@@ -265,7 +254,6 @@ export function createEditorStore(
           canUndo: history.canUndo,
           canRedo: history.canRedo,
           groupOpen: history.groupOpen,
-          viewport: DEFAULT_VIEWPORT,
           notice: null,
           ...EMPTY_SLICE,
         });
@@ -327,11 +315,6 @@ export function createEditorStore(
       rename(title) {
         const map = requireMap('rename');
         set({ map: renameMetadata(map, title, now().toISOString()) });
-      },
-
-      // Stored as given; clamping zoom to 25–200% is the canvas's job.
-      setViewport(viewport) {
-        set({ viewport });
       },
 
       showNotice(message) {

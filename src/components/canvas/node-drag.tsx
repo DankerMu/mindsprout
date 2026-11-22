@@ -133,6 +133,7 @@ export function useNodeDrag(
   selection: CanvasSelection | undefined,
   controls: CanvasDrag | undefined,
   blocked: (target: EventTarget | null) => boolean,
+  onDragMove: () => void,
 ) {
   const { screenToFlowPosition } = useReactFlow();
   const gesture = useRef<Gesture | null>(null);
@@ -209,6 +210,7 @@ export function useNodeDrag(
         change.id === current.source.id &&
         change.position !== undefined
       ) {
+        if (change.dragging) onDragMove();
         setPreview({ ...current, position: change.position });
       }
     }

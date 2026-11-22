@@ -2,7 +2,12 @@ import { expect, type Locator, type Page } from '@playwright/test';
 import { test } from './support/session';
 import * as fs from 'node:fs';
 import { envelopeOf, readRecord, seedRecords, type RawRecord } from './support/seed';
-import { edgeGeometry, expectEdgesOnHandles, type Box } from './support/canvas-geometry';
+import {
+  edgeGeometry,
+  expectEdgesOnHandles,
+  panAcrossCanvas,
+  type Box,
+} from './support/canvas-geometry';
 import { collectExpectedResponses } from './support/expected-responses';
 
 // The /maps/[id] editor route against `pnpm dev` (design "Fixture — issue #16"). Maps are seeded
@@ -218,7 +223,13 @@ test.describe('map editor route /maps/[id]', () => {
     await expectEditorReady(page, '远方');
     for (const id of ['root', 'c1', 'far', 'fc']) await expect(nodeAt(page, id)).toBeVisible();
     const frame = await canvasFrame(page);
-    expect((await boxesOf(page)).some((box) => !inside(box, frame))).toBe(true);
+    await expect
+      .poll(async () => (await boxesOf(page)).every((box) => inside(box, frame)))
+      .toBe(true);
+    await panAcrossCanvas(page, 'left');
+    await expect
+      .poll(async () => (await boxesOf(page)).some((box) => !inside(box, frame)))
+      .toBe(true);
 
     await page.getByRole('button', { name: '适应画布' }).click();
 

@@ -2,22 +2,26 @@
 
 import '@xyflow/react/dist/style.css';
 import {
+  getViewportForBounds,
   Panel,
   ReactFlow,
   ReactFlowProvider,
   useKeyPress,
   useReactFlow,
+  useStore,
   type NodeTypes,
+  type ReactFlowInstance,
 } from '@xyflow/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   contentBounds,
   layoutForest,
   type ContentBounds,
+  type ForestLayout,
   type NodeSize,
 } from '../../contexts/map/application/layout/layout-forest';
-import type { MindMap, NodeId } from '../../contexts/map/domain/types';
-import { toFlowElements } from './flow-elements';
+import type { MindMap, NodeId, Position } from '../../contexts/map/domain/types';
+import { toFlowElements, type MindFlowNode } from './flow-elements';
 import { MindNodeView, NodeMeasurerContext, type NodeMeasurer } from './MindNodeView';
 import { mergeNodeSizes, type NodeMeasurement } from './node-sizes';
 import {
@@ -46,6 +50,7 @@ const PAN_BUTTONS = [1];
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2;
 const FIT_PADDING = 0.1;
+const EDIT_PADDING = 16;
 
 type NodeSizes = ReadonlyMap<NodeId, NodeSize>;
 
@@ -68,6 +73,7 @@ function measurementOf(id: NodeId, entry: ObservedBox, element: HTMLElement): No
 class SharedNodeObserver implements NodeMeasurer {
   private observer: ResizeObserver | undefined;
   private readonly registered = new Map<Element, { id: NodeId; element: HTMLElement }>();
+  private readonly elements = new Map<NodeId, HTMLElement>();
 
   constructor(private readonly onBatch: (batch: NodeMeasurement[]) => void) {}
 
@@ -86,12 +92,19 @@ class SharedNodeObserver implements NodeMeasurer {
 
   observe(id: NodeId, element: HTMLElement): void {
     this.registered.set(element, { id, element });
+    this.elements.set(id, element);
     this.instance().observe(element);
   }
 
   unobserve(element: HTMLElement): void {
+    const node = this.registered.get(element);
+    if (node !== undefined) this.elements.delete(node.id);
     this.registered.delete(element);
     this.instance().unobserve(element);
+  }
+
+  elementOf(id: NodeId): HTMLElement | undefined {
+    return this.elements.get(id);
   }
 
   disconnect(): void {
@@ -99,7 +112,7 @@ class SharedNodeObserver implements NodeMeasurer {
   }
 }
 
-function useNodeSizes(): [NodeSizes, NodeMeasurer] {
+function useNodeSizes(): [NodeSizes, SharedNodeObserver] {
   const [sizes, setSizes] = useState<NodeSizes>(() => new Map());
   const [measurer] = useState(
     () =>
@@ -120,17 +133,83 @@ function rectOf({ minX, minY, maxX, maxY }: ContentBounds) {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
-// Frames every laid-out box, floating subtrees included; disabled when nothing is laid out.
-function FitButton({ bounds }: { bounds: ContentBounds | undefined }) {
-  const { fitBounds } = useReactFlow();
-  const fit =
-    bounds === undefined
-      ? undefined
-      : () => {
-          void fitBounds(rectOf(bounds), { padding: FIT_PADDING });
-        };
+function revealOffset(start: number, size: number, span: number): number {
+  const min = EDIT_PADDING - start;
+  const max = span - EDIT_PADDING - start - size;
+  // If the box cannot fit at this zoom, center it without changing zoom.
+  return min > max ? (min + max) / 2 : Math.min(Math.max(0, min), max);
+}
+
+function revealNode(
+  flow: ReactFlowInstance,
+  canvas: NodeSize,
+  position: Position,
+  box: NodeSize,
+): void {
+  const viewport = flow.getViewport();
+  const left = position.x * viewport.zoom + viewport.x;
+  const top = position.y * viewport.zoom + viewport.y;
+  if (Math.min(left, top, canvas.width - left - box.width, canvas.height - top - box.height) >= 0)
+    return;
+
+  const dx = revealOffset(left, box.width, canvas.width);
+  const dy = revealOffset(top, box.height, canvas.height);
+  if (dx || dy) void flow.setViewport({ ...viewport, x: viewport.x + dx, y: viewport.y + dy });
+}
+
+function ViewportControls({
+  nodes,
+  layout,
+  editId,
+  measurer,
+  initialFitPendingRef,
+}: {
+  nodes: readonly MindFlowNode[];
+  layout: ForestLayout;
+  editId: NodeId | undefined;
+  measurer: SharedNodeObserver;
+  initialFitPendingRef: RefObject<boolean>;
+}) {
+  const bounds = useMemo(() => contentBounds(layout), [layout]);
+  const flow = useReactFlow();
+  const width = useStore((state) => state.width);
+  const height = useStore((state) => state.height);
+  const fit = useCallback(
+    (maxZoom: number, minZoom = MIN_ZOOM) => {
+      if (bounds === undefined || !flow.viewportInitialized || !width || !height) return false;
+      void flow.setViewport(
+        getViewportForBounds(rectOf(bounds), width, height, minZoom, maxZoom, FIT_PADDING),
+      );
+      return true;
+    },
+    [bounds, flow, width, height],
+  );
+  useEffect(() => {
+    if (editId !== undefined) initialFitPendingRef.current = false;
+    if (
+      initialFitPendingRef.current &&
+      nodes.every((node) => node.measured !== undefined) &&
+      fit(1, nodes.length === 1 ? 1 : MIN_ZOOM)
+    )
+      initialFitPendingRef.current = false;
+  }, [editId, fit, initialFitPendingRef, nodes]);
+  useEffect(() => {
+    if (editId === undefined || !flow.viewportInitialized || !width || !height) return;
+    const position = layout.positions.get(editId);
+    // Editing can resize the box before the observer publishes the next layout.
+    const box = measurer.elementOf(editId)?.getBoundingClientRect();
+    if (position !== undefined && box?.width && box.height)
+      revealNode(flow, { width, height }, position, box);
+  }, [editId, flow, width, height, layout, measurer]);
+
   return (
-    <button type="button" disabled={fit === undefined} onClick={fit}>
+    <button
+      type="button"
+      disabled={bounds === undefined}
+      onClick={() => {
+        if (fit(MAX_ZOOM)) initialFitPendingRef.current = false;
+      }}
+    >
       适应画布
     </button>
   );
@@ -148,6 +227,16 @@ interface CanvasProps {
 
 function CanvasView({ map, selection, titleEditing, history, deletion, drag, menu }: CanvasProps) {
   const composing = useRef(false);
+  const initialFitPendingRef = useRef(true);
+  const supersedeInitialFit = useCallback(() => {
+    initialFitPendingRef.current = false;
+  }, []);
+  const onMoveStart = useCallback(
+    (event: MouseEvent | TouchEvent | null) => {
+      if (event instanceof Event) supersedeInitialFit();
+    },
+    [supersedeInitialFit],
+  );
   const space = useKeyPress('Space', {
     target: typeof window === 'undefined' ? null : window,
   });
@@ -162,7 +251,6 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag, men
     for (const node of elements.nodes) node.selected = selected.has(node.id);
     return elements;
   }, [map, layout, sizes, selection?.selectedIds]);
-  const bounds = useMemo(() => contentBounds(layout), [layout]);
   const contextMenu = useContextMenu(map, layout.positions, menu);
   const blocked = (target: EventTarget | null) =>
     selection === undefined || space || selectionBlocked(selection, target, composing.current);
@@ -173,6 +261,7 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag, men
     selection,
     drag,
     blocked,
+    supersedeInitialFit,
   );
   const { rectangle, ...rubberBand } = useRubberBand(layout, blocked, (ids) =>
     selection?.setSelection(ids),
@@ -209,6 +298,7 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag, men
         >
           <ReactFlow
             {...dragView}
+            onMoveStart={onMoveStart}
             edges={edges}
             nodeTypes={NODE_TYPES}
             nodesDraggable={dragView.nodesDraggable && !space}
@@ -246,7 +336,13 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag, men
           >
             <Panel position="top-right">
               {history !== undefined && <HistoryToolbar controls={history} />}
-              <FitButton bounds={bounds} />
+              <ViewportControls
+                nodes={nodes}
+                layout={layout}
+                editId={titleEditing?.editing?.id}
+                measurer={measurer}
+                initialFitPendingRef={initialFitPendingRef}
+              />
             </Panel>
           </ReactFlow>
           {contextMenu.menu}
@@ -278,7 +374,7 @@ export function MindMapCanvas({
   menu,
 }: CanvasProps) {
   return (
-    <ReactFlowProvider>
+    <ReactFlowProvider key={map.id}>
       <CanvasView
         map={map}
         selection={selection}
