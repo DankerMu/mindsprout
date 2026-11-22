@@ -6,6 +6,6 @@
 
 ## 2. Verification and delivery
 
-- [ ] 2.1 运行 `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check` 和 strict OpenSpec；将修改场景与证据写入 PR，观察完整 E2E/CI，不能把单次通过称为 CI 间歇性根因的确定修复。
+- [x] 2.1 运行 `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check` 和 strict OpenSpec；将修改场景与证据写入 PR，观察完整 E2E/CI，不能把单次通过称为 CI 间歇性根因的确定修复。
 
 Risk-pack mapping: concurrency/shared state/ordering → 1.1 的非变更截图选项与 hydration 边界；legacy compatibility → 保留原表单切换、凭据和噪音契约。未选 auth/permissions（不改会话/API）、file IO（固定既有截图路径）、config、schema、release 或产品 UI，因为无相应变化。
