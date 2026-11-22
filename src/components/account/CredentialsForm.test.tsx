@@ -56,6 +56,27 @@ function submit(username = 'alice', password = 'pw') {
 }
 
 describe.each(['login', 'register'] as const)('account-auth: %s', (mode) => {
+  const [otherPath, otherLabel] = mode === 'login' ? ['/register', '注册'] : ['/login', '登录'];
+
+  it.each([
+    [null, ''],
+    ['/maps/abc', '?next=%2Fmaps%2Fabc'],
+    ['/maps/abc?label=a%20b&view=tree', '?next=%2Fmaps%2Fabc%3Flabel%3Da%2520b%26view%3Dtree'],
+    ['', '?next=%2F'],
+    ['//evil.example', '?next=%2F'],
+    ['https://evil.example', '?next=%2F'],
+    ['/\\evil', '?next=%2F'],
+    ['/\n/evil.example/x', '?next=%2F'],
+    ['/\r/evil.example/x', '?next=%2F'],
+    ['/\t\\evil.example/x', '?next=%2F'],
+  ])('links to the other form without submitting when next is %j', (next, query) => {
+    const { fetch, router } = setup(mode, next);
+    const link = screen.getByRole('link', { name: otherLabel });
+    expect(link.getAttribute('href')).toBe(`${otherPath}${query}`);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['用户名', ' Alice ', '密码', ' pw '],
     ['密码', ' pw ', '用户名', ' Alice '],

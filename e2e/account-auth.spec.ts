@@ -18,6 +18,69 @@ test('account-auth: Register and land signed in', async ({ page }) => {
   expect(await session.json()).toMatchObject({ username });
 });
 
+test('account-auth: Switching public forms does not submit credentials or create a session', async ({
+  page,
+}) => {
+  const observed = collectExpectedResponses(page, []);
+  const credentialRequests: string[] = [];
+  page.on('request', (request) => {
+    const { pathname } = new URL(request.url());
+    if (pathname === '/api/auth/login' || pathname === '/api/auth/register') {
+      credentialRequests.push(`${request.method()} ${pathname}`);
+    }
+  });
+
+  const loginUrl = '/login?next=%2Fmaps%2Fabc';
+  const registerUrl = '/register?next=%2Fmaps%2Fabc';
+  const username = `switch-${randomUUID()}`;
+
+  await page.goto(loginUrl);
+  const register = page.getByRole('link', { name: '注册', exact: true });
+  await expect(register).toHaveAttribute('href', registerUrl);
+  await page.screenshot({ path: '.run/ui-evidence/account-auth-login-link.png' });
+  await page.getByLabel('用户名').fill(username);
+  await page.getByLabel('密码').fill('pw');
+  await register.click();
+  await expect(page).toHaveURL(registerUrl);
+  expect((await page.request.get('/api/auth/session')).status()).toBe(401);
+  expect(credentialRequests).toEqual([]);
+
+  const login = page.getByRole('link', { name: '登录', exact: true });
+  await expect(login).toHaveAttribute('href', loginUrl);
+  await page.screenshot({ path: '.run/ui-evidence/account-auth-register-link.png' });
+  await page.getByLabel('用户名').fill(username);
+  await page.getByLabel('密码').fill('pw');
+  await login.click();
+  await expect(page).toHaveURL(loginUrl);
+  await expect(register).toBeVisible();
+  expect((await page.request.get('/api/auth/session')).status()).toBe(401);
+  expect(credentialRequests).toEqual([]);
+  expect(await observed.noise()).toEqual([]);
+});
+
+test('account-auth: Signed-out visit returns after registration from sign-in', async ({ page }) => {
+  const observed = collectExpectedResponses(page, []);
+  const next = '/?from=first-visit&view=library';
+  const username = `return-${randomUUID()}`;
+
+  await page.goto(next);
+  await expect(page).toHaveURL('/login?next=%2F%3Ffrom%3Dfirst-visit%26view%3Dlibrary');
+  await page.getByRole('link', { name: '注册', exact: true }).click();
+  await expect(page).toHaveURL('/register?next=%2F%3Ffrom%3Dfirst-visit%26view%3Dlibrary');
+  await page.getByLabel('用户名').fill(username);
+  await page.getByLabel('密码').fill('pw');
+  await page.getByRole('button', { name: '注册', exact: true }).click();
+
+  await expect(page).toHaveURL(next);
+  await expect(page.getByTestId('app-ready')).toBeVisible();
+  await expect(page.getByTestId('session-username')).toHaveText(username);
+  const session = await page.request.get('/api/auth/session');
+  expect(session.status()).toBe(200);
+  expect(await session.json()).toMatchObject({ username });
+  await page.screenshot({ path: '.run/ui-evidence/account-register-return.png' });
+  expect(await observed.noise()).toEqual([]);
+});
+
 test('account-auth: Sign out', async ({ page, playwright }) => {
   const noise: string[] = [];
   page.on('console', (message) => {
