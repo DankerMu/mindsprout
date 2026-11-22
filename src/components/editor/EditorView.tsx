@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { SESSION_EXPIRED } from '../../contexts/map/application/editor-store/editor-store';
 import { findNode, visibleIds } from '../../contexts/map/application/editor-store/selection';
@@ -66,6 +67,7 @@ export function EditorView({ header }: { header?: ReactNode }) {
   return (
     <div data-testid="map-editor-ready" className={styles.editor}>
       <header className={styles.header}>
+        <Link href="/">返回导图列表</Link>
         <h1 data-testid="editor-title" className={styles.title}>
           {map.title}
         </h1>

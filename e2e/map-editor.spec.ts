@@ -159,6 +159,13 @@ async function expectEditorReady(page: Page, title: string): Promise<void> {
   await expect(page.getByTestId('editor-title')).toHaveText(title);
 }
 
+function returnToLibrary(page: Page): Locator {
+  return page
+    .getByTestId('map-editor-ready')
+    .getByRole('banner')
+    .getByRole('link', { name: BACK, exact: true });
+}
+
 // Wheels over the pane until the scale stops changing; returns the final scale.
 async function wheelUntilStable(page: Page, deltaY: number): Promise<number> {
   let previous = (await viewport(page)).zoom;
@@ -186,6 +193,82 @@ test.describe('map editor route /maps/[id]', () => {
     await expect(page).toHaveURL('/');
     await expect(page.getByTestId('app-ready')).toBeVisible();
     expect(await expected.noise()).toStrictEqual([]);
+  });
+
+  test('direct editor link returns to the library by keyboard', async ({ page }) => {
+    const log = watchConsole(page);
+    await openSeeded(page, [envelopeOf(SEEDED)], SEEDED.id);
+    await expectEditorReady(page, '标题A');
+    const back = returnToLibrary(page);
+    await expect(back).toBeVisible();
+    await expect(back).toHaveAttribute('href', '/');
+
+    await expect(back).toHaveJSProperty('tabIndex', 0);
+    await back.focus();
+    await expect(back).toBeFocused();
+    await capture(page, 'map-editor-return-keyboard-focus');
+    await page.keyboard.press('Enter');
+
+    await expect(page).toHaveURL('/');
+    await expect(page.getByTestId('app-ready')).toBeVisible();
+    const mapLink = page.getByRole('link', { name: '标题A', exact: true });
+    await expect(mapLink).toBeVisible();
+    await expect(mapLink).toHaveAttribute('href', '/maps/seeded');
+    await capture(page, 'map-editor-return-keyboard-library');
+    expect(log.noise).toStrictEqual([]);
+  });
+
+  test('immediate return after a node edit lists and reopens the latest saved map', async ({
+    page,
+  }) => {
+    const log = watchConsole(page);
+    const peer = { ...FAR, updatedAt: '2026-11-05T11:00:00.000Z' };
+    const savedAt = '2026-11-06T12:34:56.789Z';
+    const rootText = '刚保存的根节点';
+    await page.clock.install({ time: UPDATED_AT });
+    await seedRecords(page, [envelopeOf(SEEDED), envelopeOf(peer)]);
+    await page.goto('/');
+    const rows = page.getByRole('region', { name: '导图列表' }).getByRole('listitem');
+    await expect(rows.getByRole('link')).toHaveText(['远方', '标题A']);
+    await rows.getByRole('link', { name: '标题A', exact: true }).click();
+    await expectEditorReady(page, '标题A');
+
+    const documents: string[] = [];
+    page.on('request', (request) => {
+      if (request.resourceType() === 'document') documents.push(request.url());
+    });
+    await nodeAt(page, 'root').dblclick();
+    const input = page.getByRole('textbox', { name: '节点标题' });
+    await input.fill(rootText);
+    // Keep the debounce from saving first, even if client navigation takes longer than 500 ms.
+    await page.clock.pauseAt(savedAt);
+    await input.press('Enter');
+    await returnToLibrary(page).click();
+
+    await expect(page).toHaveURL('/');
+    await expect(rows.getByRole('link')).toHaveText(['标题A', '远方']);
+    await expect(rows.locator('time')).toHaveText([savedAt, peer.updatedAt]);
+    await expect(rows.first().locator('time')).toHaveAttribute('datetime', savedAt);
+    expect(documents).toStrictEqual([]);
+    const savedMap = {
+      ...SEEDED,
+      updatedAt: savedAt,
+      roots: [
+        { id: 'root', text: rootText, children: [leaf('c1', '子节点一'), leaf('c2', '子节点二')] },
+        ...SEEDED.roots.slice(1),
+      ],
+    };
+    expect(await readRecord(page, SEEDED.id)).toStrictEqual(envelopeOf(savedMap).value);
+    await page.clock.resume();
+    await capture(page, 'map-editor-return-updated-library');
+
+    await rows.getByRole('link', { name: '标题A', exact: true }).click();
+    await expectEditorReady(page, '标题A');
+    await expect(nodeAt(page, 'root')).toHaveText(rootText);
+    await expect(nodeAt(page, 'c1')).toHaveText('子节点一');
+    await expect(nodeAt(page, 'c2')).toHaveText('子节点二');
+    await capture(page, 'map-editor-return-reopened');
+    expect(log.noise).toStrictEqual([]);
   });
 
   test('seeded render shows the map as stored, measured and unmodified', async ({ page }) => {
