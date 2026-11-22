@@ -12,7 +12,7 @@ fs.mkdirSync(EVIDENCE, { recursive: true });
 
 const TARGET = {
   id: 'A',
-  title: 'A',
+  title: '新导图',
   createdAt: EARLY,
   updatedAt: EARLY,
   roots: [
@@ -35,7 +35,6 @@ const TARGET = {
 const PEER = {
   ...TARGET,
   id: 'B',
-  title: 'B',
   updatedAt: LATE,
   roots: [{ id: 'b-root', text: '另一张导图的根', children: [] }],
 };
@@ -59,6 +58,18 @@ function watchDocuments(page: Page): string[] {
     if (request.resourceType() === 'document') documents.push(request.url());
   });
   return documents;
+}
+
+async function openSameTitleRows(page: Page) {
+  await seedRecords(page, [envelopeOf(TARGET), envelopeOf(PEER)]);
+  await page.goto('/');
+  const rows = page.getByRole('listitem');
+  const peer = rows.nth(0);
+  const target = rows.nth(1);
+  await expect(rows.getByRole('link')).toHaveText(['新导图', '新导图']);
+  await expect(peer.getByRole('link')).toHaveAttribute('href', '/maps/B');
+  await expect(target.getByRole('link')).toHaveAttribute('href', '/maps/A');
+  return { rows, target };
 }
 
 test.describe('map-library', () => {
@@ -137,19 +148,25 @@ test.describe('map-library', () => {
     expect(noise).toEqual([]);
   });
 
-  test('Rename from the list', async ({ page }) => {
+  test('Rename the second of two same-title maps', async ({ page }) => {
     const noise = watchConsole(page);
     await page.clock.setFixedTime(new Date(NOW));
-    await seedRecords(page, [envelopeOf(TARGET), envelopeOf(PEER)]);
-    await page.goto('/');
-    await expect(page.getByRole('listitem').getByRole('link')).toHaveText(['B', 'A']);
-    await page.getByRole('button', { name: '重命名 A', exact: true }).click();
-    const title = page.getByRole('textbox', { name: '标题', exact: true });
+    const { rows, target } = await openSameTitleRows(page);
+    const trigger = target.getByRole('button', { name: '重命名 新导图', exact: true });
+    const form = target.getByRole('form', { name: '重命名 新导图', exact: true });
+    await trigger.click();
+    await expect(form).toBeVisible();
+    await expect(page.getByRole('form')).toHaveCount(1);
+    const title = form.getByRole('textbox', { name: '标题', exact: true });
     await expect(title).toBeFocused();
+    await page.screenshot({
+      path: `${EVIDENCE}/map-library-same-title-rename.png`,
+      fullPage: true,
+    });
     await title.fill('取消的标题草稿');
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('form', { name: '重命名 A', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: '重命名 A', exact: true })).toBeFocused();
+    await expect(page.getByRole('form')).toHaveCount(0);
+    await expect(trigger).toBeFocused();
     await expect(page).toHaveURL('/');
     expect(await readRecord(page, 'A')).toStrictEqual(envelopeOf(TARGET).value);
     expect(await readRecord(page, 'B')).toStrictEqual(envelopeOf(PEER).value);
@@ -157,12 +174,12 @@ test.describe('map-library', () => {
       path: `${EVIDENCE}/map-library-rename-escape-cancelled.png`,
       fullPage: true,
     });
-    await page.getByRole('button', { name: '重命名 A', exact: true }).click();
+    await trigger.click();
     await expect(title).toBeFocused();
     await title.fill('读书笔记');
-    await page.getByRole('button', { name: '保存', exact: true }).click();
-    await expect(page.getByRole('listitem').getByRole('link')).toHaveText(['读书笔记', 'B']);
-    await expect(page.getByRole('listitem').locator('time')).toHaveText([NOW, LATE]);
+    await form.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(rows.getByRole('link')).toHaveText(['读书笔记', '新导图']);
+    await expect(rows.locator('time')).toHaveText([NOW, LATE]);
     await expect(page.getByRole('button', { name: '重命名 读书笔记' })).toBeFocused();
     const renamedMap = { ...TARGET, title: '读书笔记', updatedAt: NOW };
     const expected = envelopeOf(renamedMap).value;
@@ -186,14 +203,15 @@ test.describe('map-library', () => {
     expect(noise).toEqual([]);
   });
 
-  test('Delete with confirmation', async ({ page }) => {
-    const expected = collectExpectedResponses(page, [{ url: '/api/maps/A', status: 404 }]);
-    await seedRecords(page, [envelopeOf(TARGET), envelopeOf(PEER)]);
-    await page.goto('/');
-    const trigger = page.getByRole('button', { name: '删除 A', exact: true });
+  test('Delete the second of two same-title maps', async ({ page }) => {
+    const noise = watchConsole(page);
+    const { rows, target } = await openSameTitleRows(page);
+    const trigger = target.getByRole('button', { name: '删除 新导图', exact: true });
+    const dialog = target.getByRole('dialog', { name: '删除 新导图', exact: true });
     await trigger.click();
-    const dialog = page.getByRole('dialog', { name: '删除 A', exact: true });
-    await expect(dialog).toContainText('确定永久删除“A”吗？');
+    await expect(dialog).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+    await expect(dialog.getByText('确定永久删除“新导图”吗？', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: '取消', exact: true })).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
@@ -212,7 +230,7 @@ test.describe('map-library', () => {
     await expect(page).toHaveURL('/');
     expect(await readRecord(page, 'A')).toStrictEqual(envelopeOf(TARGET).value);
     expect(await readRecord(page, 'B')).toStrictEqual(envelopeOf(PEER).value);
-    await expect(page.getByRole('listitem').getByRole('link')).toHaveText(['B', 'A']);
+    await expect(rows.getByRole('link')).toHaveText(['新导图', '新导图']);
 
     await trigger.click();
     await page.screenshot({
@@ -220,13 +238,16 @@ test.describe('map-library', () => {
       fullPage: true,
     });
     await dialog.getByRole('button', { name: '确认删除', exact: true }).click();
-    await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole('listitem').getByRole('link')).toHaveText(['B']);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(rows.getByRole('link')).toHaveText(['新导图']);
+    await expect(rows.getByRole('link')).toHaveAttribute('href', '/maps/B');
     await expect(page.getByRole('button', { name: '新建导图' })).toBeFocused();
     expect(await readRecord(page, 'A')).toBeUndefined();
     expect(await readRecord(page, 'B')).toStrictEqual(envelopeOf(PEER).value);
     await page.screenshot({ path: `${EVIDENCE}/map-library-deleted.png`, fullPage: true });
+    expect(noise).toEqual([]);
 
+    const expected = collectExpectedResponses(page, [{ url: '/api/maps/A', status: 404 }]);
     await page.goto('/maps/A');
     await expect(page.getByText('找不到这张导图', { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: '返回导图列表' })).toHaveAttribute('href', '/');

@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { test } from './support/session';
 import { collectExpectedResponses } from './support/expected-responses';
@@ -7,11 +7,7 @@ import { collectExpectedResponses } from './support/expected-responses';
 test.use({ trace: 'off', screenshot: 'off' });
 
 test('account-admin: Admin sees all accounts', async ({ adminPage, playwright, baseURL }) => {
-  const noise: string[] = [];
-  adminPage.on('console', (message) => {
-    if (message.type() === 'error') noise.push(message.text());
-  });
-  adminPage.on('pageerror', (error) => noise.push(String(error)));
+  const expected = collectExpectedResponses(adminPage, []);
   const first = `first-${randomUUID()}`;
   const second = `second-${randomUUID()}`;
   if (baseURL === undefined) throw new Error('Missing Playwright baseURL');
@@ -51,12 +47,15 @@ test('account-admin: Admin sees all accounts', async ({ adminPage, playwright, b
   expect(names.indexOf('e2e-admin')).toBeLessThan(names.indexOf(first));
   expect(names.indexOf(first)).toBeLessThan(names.indexOf(second));
   await expect(adminPage.getByText('管理员', { exact: true })).toHaveCount(1);
-  await expect(adminPage.getByRole('button', { name: '重置密码' })).toHaveCount(await rows.count());
-  await expect(
-    rows.filter({ hasNot: adminPage.getByRole('button', { name: '重置密码' }) }),
-  ).toHaveCount(0);
+  await expect(adminPage.getByRole('button', { name: /^重置密码 / })).toHaveCount(names.length);
+  for (const username of names) {
+    const row = rows.filter({ has: adminPage.getByText(username, { exact: true }) });
+    await expect(
+      row.getByRole('button', { name: `重置密码 ${username}`, exact: true }),
+    ).toHaveCount(1);
+  }
   await adminPage.screenshot({ path: '.run/ui-evidence/account-admin.png', fullPage: true });
-  expect(noise).toEqual([]);
+  expect(await expected.noise()).toEqual([]);
 });
 
 function expected401(page: Page, path: string, method: string) {
@@ -76,6 +75,24 @@ function expected401(page: Page, path: string, method: string) {
         new URL(message.location().url).pathname === path &&
         message.text().includes('status of 401'),
     ),
+  ]);
+}
+
+async function respondToResetConfirmation(
+  page: Page,
+  button: Locator,
+  username: string,
+  response: 'accept' | 'dismiss',
+) {
+  await Promise.all([
+    page.waitForEvent('dialog').then(async (dialog) => {
+      const type = dialog.type();
+      const message = dialog.message();
+      await dialog[response]();
+      expect(type).toBe('confirm');
+      expect(message).toBe(`确定重置 ${username} 的密码吗？重置后该用户的所有登录将失效`);
+    }),
+    button.click(),
   ]);
 }
 
@@ -164,17 +181,28 @@ test.describe('account-admin: one-time reset credential', () => {
         const row = adminPage.getByRole('listitem').filter({
           has: adminPage.getByText(username, { exact: true }),
         });
-        adminPage.once('dialog', async (dialog) => {
-          expect(dialog.type()).toBe('confirm');
-          expect(dialog.message()).toBe('重置后该用户的所有登录将失效');
-          await dialog.accept();
+        const resetButton = row.getByRole('button', { name: `重置密码 ${username}`, exact: true });
+        const resetPath = `/api/admin/users/${target.id}/password-reset`;
+        const resetRequests: string[] = [];
+        adminPage.on('request', (request) => {
+          const { pathname } = new URL(request.url());
+          if (pathname.endsWith('/password-reset')) resetRequests.push(pathname);
         });
+        await respondToResetConfirmation(adminPage, resetButton, username, 'dismiss');
+        await expect(resetButton).toBeEnabled();
+        await expect(adminPage.getByRole('dialog')).toHaveCount(0);
+        for (const page of [oldPasswordPage, otherPage]) {
+          expect((await page.request.get('/api/auth/session')).status()).toBe(200);
+        }
+        expect(resetRequests).toEqual([]);
+        await row.screenshot({ path: '.run/ui-evidence/account-admin-reset-target.png' });
+
         const resetResponse = adminPage.waitForResponse(
-          (response) =>
-            new URL(response.url()).pathname === `/api/admin/users/${target.id}/password-reset`,
+          (response) => new URL(response.url()).pathname === resetPath,
         );
-        await row.getByRole('button', { name: '重置密码' }).click();
+        await respondToResetConfirmation(adminPage, resetButton, username, 'accept');
         const response = await resetResponse;
+        expect(resetRequests).toEqual([resetPath]);
         expect(response.request().method()).toBe('POST');
         expect(response.status()).toBe(200);
         const { temporaryPassword } = (await response.json()) as { temporaryPassword: string };
@@ -206,6 +234,7 @@ test.describe('account-admin: one-time reset credential', () => {
         });
         await dialog.getByRole('button', { name: '关闭' }).click();
         await expect(dialog).toHaveCount(0);
+        await expect(resetButton).toBeFocused();
         expect((await adminPage.content()).includes(temporaryPassword)).toBe(false);
         await adminPage.reload();
         await expect(adminPage.getByRole('list', { name: '用户列表' })).toBeVisible();

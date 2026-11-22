@@ -59,8 +59,8 @@ it('loads only on the client and preserves exact API order, usernames, times and
   ]);
   expect(within(bob).queryByText('管理员')).toBeNull();
   expect(within(owner).getByText('管理员')).toBeTruthy();
-  expect(within(bob).getByRole('button', { name: '重置密码' })).toBeTruthy();
-  expect(within(owner).getByRole('button', { name: '重置密码' })).toBeTruthy();
+  expect(within(bob).getByRole('button', { name: '重置密码 Bob' })).toBeTruthy();
+  expect(within(owner).getByRole('button', { name: '重置密码 owner' })).toBeTruthy();
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(screen.queryByRole('status')).toBeNull();
   expect(assign).not.toHaveBeenCalled();
@@ -187,22 +187,30 @@ async function setupReset() {
   vi.stubGlobal('confirm', confirm);
   mocks.fetch.mockResolvedValueOnce(Response.json(accounts));
   const view = render(<AdminUserList />);
-  await screen.findByText('owner');
-  const buttons = screen.getAllByRole<HTMLButtonElement>('button', { name: '重置密码' });
-  const [bob, owner] = buttons;
-  if (!bob || !owner) throw new Error('Missing reset actions');
-  return { ...mocks, ...view, confirm, buttons, bob, owner };
+  const owner = await screen.findByRole<HTMLButtonElement>('button', { name: '重置密码 owner' });
+  const bob = screen.getByRole<HTMLButtonElement>('button', { name: '重置密码 Bob' });
+  return { ...mocks, ...view, confirm, buttons: [bob, owner], bob, owner };
 }
 
-it('Cancel the reset asks the exact confirmation and sends no reset request', async () => {
-  const { fetch, confirm, bob } = await setupReset();
-  confirm.mockReturnValue(false);
-  fireEvent.click(bob);
-  expect(confirm).toHaveBeenCalledExactlyOnceWith('重置后该用户的所有登录将失效');
-  expect(fetch).toHaveBeenCalledExactlyOnceWith('/api/admin/users');
-  expect(screen.getAllByRole('listitem')).toHaveLength(2);
-  expect(screen.queryByRole('dialog')).toBeNull();
-});
+it.each([
+  ['重置密码 Bob', '确定重置  Bob  的密码吗？重置后该用户的所有登录将失效'],
+  ['重置密码 owner', '确定重置 owner 的密码吗？重置后该用户的所有登录将失效'],
+])(
+  'cancels %s after naming the selected account without sending a reset request',
+  async (name, message) => {
+    const { fetch } = setup();
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirm);
+    fetch.mockResolvedValueOnce(Response.json(accounts));
+    render(<AdminUserList />);
+
+    fireEvent.click(await screen.findByRole('button', { name }));
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(message);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('/api/admin/users');
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  },
+);
 
 it('Temporary password is shown once; pending and open dialogs block every row', async () => {
   const { fetch, confirm, bob, owner, buttons, unmount } = await setupReset();
@@ -213,7 +221,9 @@ it('Temporary password is shown once; pending and open dialogs block every row',
     bob.click();
     owner.click();
   });
-  expect(confirm).toHaveBeenCalledExactlyOnceWith('重置后该用户的所有登录将失效');
+  expect(confirm).toHaveBeenCalledExactlyOnceWith(
+    '确定重置  Bob  的密码吗？重置后该用户的所有登录将失效',
+  );
   expect(fetch).toHaveBeenNthCalledWith(2, '/api/admin/users/b/password-reset', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
