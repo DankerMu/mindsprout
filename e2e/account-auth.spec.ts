@@ -44,7 +44,10 @@ test('account-auth: Switching public forms does not submit credentials or create
   await page.goto(loginUrl);
   const register = page.getByRole('link', { name: '注册', exact: true });
   await expect(register).toHaveAttribute('href', registerUrl);
-  await page.screenshot({ path: '.run/ui-evidence/account-auth-login-link.png' });
+  await page.screenshot({
+    path: '.run/ui-evidence/account-auth-login-link.png',
+    caret: 'initial',
+  });
   await page.getByLabel('用户名').fill(username);
   await page.getByLabel('密码').fill('pw');
   await register.click();
@@ -54,7 +57,10 @@ test('account-auth: Switching public forms does not submit credentials or create
 
   const login = page.getByRole('link', { name: '登录', exact: true });
   await expect(login).toHaveAttribute('href', loginUrl);
-  await page.screenshot({ path: '.run/ui-evidence/account-auth-register-link.png' });
+  await page.screenshot({
+    path: '.run/ui-evidence/account-auth-register-link.png',
+    caret: 'initial',
+  });
   await page.getByLabel('用户名').fill(username);
   await page.getByLabel('密码').fill('pw');
   await login.click();
