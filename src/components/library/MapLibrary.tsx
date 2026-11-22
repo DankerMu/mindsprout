@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { deleteMap } from '../../contexts/map/application/delete-map';
 import { renameMap } from '../../contexts/map/application/rename-map';
 import {
@@ -141,10 +141,12 @@ function LibraryRows({
   maps,
   pending,
   onAction,
+  renderAction,
 }: {
   maps: MapSummary[];
   pending: boolean;
   onAction: StartMutation;
+  renderAction: (id: string) => ReactNode;
 }) {
   return (
     <ul>
@@ -175,6 +177,7 @@ function LibraryRows({
             >
               删除
             </button>
+            {renderAction(id)}
           </li>
         );
       })}
@@ -353,31 +356,40 @@ export function MapLibrary({
       </button>
       {creationStatus === 'failed' && <p role="alert">保存失败，请重试</p>}
       {loaded.maps.length === 0 && <p>还没有导图</p>}
-      {renameSession !== null && (
-        <RenameForm
-          key={renameSession.id}
-          session={renameSession}
-          onCancel={() => {
-            if (!renameSession.lifetime.pending) closeRename(renameSession);
-          }}
-          onSave={(title) => {
-            void saveRename(title);
-          }}
-        />
-      )}
-      {deleteSession !== null && (
-        <DeleteConfirmation
-          key={deleteSession.id}
-          session={deleteSession}
-          onCancel={() => {
-            if (!deleteSession.lifetime.pending) closeDelete(deleteSession);
-          }}
-          onConfirm={() => {
-            void confirmDelete();
-          }}
-        />
-      )}
-      <LibraryRows maps={loaded.maps} pending={pending} onAction={openAction} />
+      <LibraryRows
+        maps={loaded.maps}
+        pending={pending}
+        onAction={openAction}
+        renderAction={(id) => {
+          if (renameSession?.id === id) {
+            return (
+              <RenameForm
+                session={renameSession}
+                onCancel={() => {
+                  if (!renameSession.lifetime.pending) closeRename(renameSession);
+                }}
+                onSave={(title) => {
+                  void saveRename(title);
+                }}
+              />
+            );
+          }
+          if (deleteSession?.id === id) {
+            return (
+              <DeleteConfirmation
+                session={deleteSession}
+                onCancel={() => {
+                  if (!deleteSession.lifetime.pending) closeDelete(deleteSession);
+                }}
+                onConfirm={() => {
+                  void confirmDelete();
+                }}
+              />
+            );
+          }
+          return null;
+        }}
+      />
     </section>
   );
 }

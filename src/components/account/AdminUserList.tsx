@@ -104,8 +104,12 @@ export function AdminUserList() {
     };
   }, []);
 
-  async function resetPassword(id: string, button: HTMLButtonElement) {
-    if (locked.current || !window.confirm('重置后该用户的所有登录将失效')) return;
+  async function resetPassword(id: string, username: string, button: HTMLButtonElement) {
+    if (
+      locked.current ||
+      !window.confirm(`确定重置 ${username} 的密码吗？重置后该用户的所有登录将失效`)
+    )
+      return;
     locked.current = true;
     trigger.current = button;
     setReset({ status: 'pending' });
@@ -159,9 +163,10 @@ export function AdminUserList() {
             {isAdmin && <span>管理员</span>}
             <button
               type="button"
+              aria-label={`重置密码 ${username}`}
               disabled={reset.status === 'pending' || reset.status === 'secret'}
               onClick={(event) => {
-                void resetPassword(id, event.currentTarget);
+                void resetPassword(id, username, event.currentTarget);
               }}
             >
               重置密码

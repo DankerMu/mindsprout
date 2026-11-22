@@ -11,6 +11,8 @@ import { MapLibrary } from './MapLibrary';
 const NOW = '2026-11-07T12:34:56.789Z';
 const TARGET = { ...sampleMap(), id: 'a', title: 'A' };
 const PEER = { ...sampleMap(), id: 'b', title: 'B' };
+const SAME_TITLE_TARGET = { ...TARGET, title: '新导图' };
+const SAME_TITLE_PEER = { ...PEER, title: '新导图' };
 type Mutation = 'rename' | 'delete';
 type Phase = 'get' | 'put' | 'delete';
 
@@ -23,16 +25,15 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function setup(repository = new ControlledLibrary()) {
-  await repository.storage.put(TARGET);
-  await repository.storage.put(PEER);
+async function setup(repository = new ControlledLibrary(), maps = [TARGET, PEER]) {
+  for (const map of maps) await repository.storage.put(map);
   const navigate = vi.fn();
   const view = render(
     <StrictMode>
       <MapLibrary repository={repository} navigate={navigate} />
     </StrictMode>,
   );
-  await screen.findByRole('link', { name: 'A' });
+  await screen.findAllByRole('listitem');
   return { repository, navigate, view };
 }
 
@@ -48,9 +49,10 @@ function openMutation(kind: Mutation) {
   return screen.getByRole('form', { name: '重命名 A' });
 }
 
-async function submitMutation(kind: Mutation) {
+async function submitMutation(kind: Mutation, container?: HTMLElement) {
+  const queries = container ? within(container) : screen;
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: kind === 'rename' ? '保存' : '确认删除' }));
+    fireEvent.click(queries.getByRole('button', { name: kind === 'rename' ? '保存' : '确认删除' }));
     await Promise.resolve();
   });
 }
@@ -74,6 +76,50 @@ async function settle(pending: Held, outcome: 'resolve' | 'reject') {
     await Promise.resolve();
   });
 }
+
+it('renames only the second same-title map from a form in its row', async () => {
+  const { repository } = await setup(new ControlledLibrary(), [SAME_TITLE_TARGET, SAME_TITLE_PEER]);
+  const [first, second] = screen.getAllByRole('listitem');
+  if (!first || !second) throw new Error('Missing same-title rows');
+  expect(within(first).getByRole('link', { name: '新导图' }).getAttribute('href')).toBe('/maps/a');
+  expect(within(second).getByRole('link', { name: '新导图' }).getAttribute('href')).toBe('/maps/b');
+
+  fireEvent.click(within(second).getByRole('button', { name: '重命名 新导图' }));
+  const form = within(second).getByRole('form', { name: '重命名 新导图' });
+  expect(screen.getAllByRole('form')).toEqual([form]);
+  const input = within(form).getByRole('textbox', { name: '标题' });
+  expect(document.activeElement).toBe(input);
+  fireEvent.change(input, { target: { value: '第二张导图' } });
+  await submitMutation('rename', form);
+
+  expect(repository.gets).toEqual(['b']);
+  expect(repository.puts).toEqual([{ ...SAME_TITLE_PEER, title: '第二张导图', updatedAt: NOW }]);
+  expect(await repository.storage.get('a')).toStrictEqual(SAME_TITLE_TARGET);
+  expect(await repository.storage.get('b')).toStrictEqual({
+    ...SAME_TITLE_PEER,
+    title: '第二张导图',
+    updatedAt: NOW,
+  });
+});
+
+it('deletes only the second same-title map from a confirmation in its row', async () => {
+  const { repository } = await setup(new ControlledLibrary(), [SAME_TITLE_TARGET, SAME_TITLE_PEER]);
+  const second = screen.getAllByRole('listitem')[1];
+  if (!second) throw new Error('Missing second same-title row');
+  expect(within(second).getByRole('link', { name: '新导图' }).getAttribute('href')).toBe('/maps/b');
+
+  fireEvent.click(within(second).getByRole('button', { name: '删除 新导图' }));
+  const dialog = within(second).getByRole('dialog', { name: '删除 新导图' });
+  expect(screen.getAllByRole('dialog')).toEqual([dialog]);
+  expect(within(dialog).getByText('确定永久删除“新导图”吗？', { exact: true })).toBeTruthy();
+  expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: '取消' }));
+  await submitMutation('delete', dialog);
+
+  expect(repository.deletes).toEqual(['b']);
+  expect(await repository.storage.get('a')).toStrictEqual(SAME_TITLE_TARGET);
+  expect(await repository.storage.get('b')).toBeUndefined();
+  expect(screen.getByRole('link', { name: '新导图' }).getAttribute('href')).toBe('/maps/a');
+});
 
 describe.each(['rename', 'delete'] as const)('%s cancellation and serialization', (kind) => {
   it.each(['button', 'Escape'] as const)(
