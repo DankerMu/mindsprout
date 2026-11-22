@@ -35,3 +35,7 @@ export function useSessionNavigation() {
 export function resumeFromPublicAuth() {
   if (phase === 'public-auth') sessionNavigation.resumeAuthenticatedNavigation();
 }
+
+export function isSignOutPending(): boolean {
+  return phase === 'signing-out';
+}

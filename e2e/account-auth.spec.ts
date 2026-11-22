@@ -161,6 +161,92 @@ test('account-auth: Sign out wins over a delayed library 401', async ({ page, pl
   }
 });
 
+test('account-auth: Sign out survives a protected link interrupting login', async ({ page }) => {
+  const observed = collectExpectedResponses(page, [
+    { url: '/api/maps', status: 401 },
+    { url: '/api/auth/session', status: 401 },
+  ]);
+  const account = await page.request.post('/api/auth/register', {
+    data: { username: `signout-interrupt-${randomUUID()}`, password: 'pw' },
+  });
+  expect(account.status()).toBe(201);
+  const session = (await page.context().cookies()).find(
+    ({ name }) => name === 'mindsprout_session',
+  );
+  if (!session) throw new Error('Registration did not issue a session cookie');
+  const map = createMindMap({ id: 'interrupt', rootId: 'r', title: 'Interrupt', rootText: 'Root' });
+  await seedRecords(page, [envelopeOf(map)]);
+  await page.goto('/maps/interrupt');
+  const returnLink = page.getByRole('link', { name: '返回导图列表' });
+  await expect(returnLink).toBeVisible();
+
+  // Supply only the protected route shell that a signed-in prefetch could have cached.
+  // Development disables prefetch; all browser cookies and subsequent API calls stay signed out.
+  await page.route(
+    (url) => url.pathname === '/',
+    async (route) => {
+      const headers = route.request().headers();
+      expect(headers.rsc).toBe('1');
+      const library = await route.fetch({
+        headers: { ...headers, cookie: `${session.name}=${session.value}` },
+        maxRedirects: 0,
+      });
+      expect(library.status()).toBe(200);
+      await route.fulfill({ response: library });
+    },
+  );
+
+  const loginArrived = gate();
+  const heldLogin = gate();
+  const heldDocument = gate();
+  const expiryNavigations: string[] = [];
+  const rootCommit = page.waitForURL('/', { timeout: 5_000 });
+  await page.route(
+    (url) => url.pathname === '/login',
+    async (route) => {
+      const request = route.request();
+      const { search } = new URL(request.url());
+      if (new URLSearchParams(search).has('next')) expiryNavigations.push(search);
+      if (request.isNavigationRequest()) await heldDocument.promise;
+      else {
+        loginArrived.release();
+        await heldLogin.promise;
+      }
+      await route.continue();
+    },
+  );
+  try {
+    const logout = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/auth/logout',
+    );
+    await page.getByRole('button', { name: '退出登录' }).click();
+    expect((await logout).status()).toBe(204);
+    await loginArrived.promise;
+    const denied = ['/api/maps', '/api/auth/session'].map((path) =>
+      page.waitForResponse(
+        (response) => new URL(response.url()).pathname === path && response.status() === 401,
+        { timeout: 5_000 },
+      ),
+    );
+    await returnLink.click();
+    await rootCommit;
+    await Promise.all(denied);
+    heldDocument.release();
+    await expect(page).toHaveURL('/login');
+    await expect(page.getByTestId('login-ready')).toBeVisible();
+    expect(expiryNavigations).toEqual([]);
+    await page.screenshot({
+      path: '.run/ui-evidence/account-signout-interrupted.png',
+      caret: 'initial',
+    });
+    expect(await observed.noise()).toEqual([]);
+  } finally {
+    heldLogin.release();
+    heldDocument.release();
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  }
+});
+
 for (const surface of ['library', 'admin list', 'admin reset'] as const) {
   test(`account-auth: Genuine ${surface} expiry opens a fresh login document`, async ({ page }) => {
     const path = surface === 'library' ? '/' : '/admin';

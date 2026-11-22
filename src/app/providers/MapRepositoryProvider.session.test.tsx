@@ -219,16 +219,24 @@ function navigationHarness() {
     bfcacheId: 'session-navigation',
   };
   const assign = vi.fn();
-  vi.stubGlobal('location', { pathname: '/', assign });
+  const replace = vi.fn();
+  vi.stubGlobal('location', { pathname: '/', assign, replace });
   vi.stubGlobal('fetch', fetch);
   vi.stubGlobal('confirm', () => true);
   document.cookie = `mindsprout_session_binding=${binding}; Path=/`;
-  function tree(path: string, { admin = false, retainAdmin = false } = {}) {
+  function tree(
+    path: string,
+    {
+      admin = false,
+      retainAdmin = false,
+      providerKey,
+    }: { admin?: boolean; retainAdmin?: boolean; providerKey?: string } = {},
+  ) {
     return (
       <StrictMode>
         <AppRouterContext value={router}>
           <PathnameContext value={path}>
-            <MapRepositoryProvider>
+            <MapRepositoryProvider key={providerKey}>
               {retainAdmin && <AdminUserList />}
               {path === '/login' || path === '/register' ? (
                 <CredentialsForm mode={path === '/login' ? 'login' : 'register'} next="/" />
@@ -252,7 +260,7 @@ function navigationHarness() {
     });
     expect(router.push).toHaveBeenCalledExactlyOnceWith('/login');
   }
-  return { list, afterRemount, logout, denied, fetch, router, assign, tree, signOut };
+  return { list, afterRemount, logout, denied, fetch, router, assign, replace, tree, signOut };
 }
 
 it.each(['library list', 'remounted library list', 'admin list', 'admin reset'])(
@@ -304,6 +312,38 @@ it.each(['library list', 'remounted library list', 'admin list', 'admin reset'])
     await act(() => openSessionRepository());
   },
 );
+
+it.each([
+  ['/maps/seed', '/'],
+  ['/', '/admin'],
+  ['/admin', '/'],
+])('reissues exact sign-out when %s commits %s, not on same-path remount', async (from, to) => {
+  const t = navigationHarness();
+  const view = render(t.tree(from));
+  await t.signOut();
+
+  document.cookie = 'mindsprout_session_binding=; Path=/; Max-Age=0';
+  const providerKey = 'remounted';
+  view.rerender(t.tree(from, { providerKey }));
+  await act(() => openSessionRepository());
+  expect(t.replace).not.toHaveBeenCalled();
+  expect(t.router.push).toHaveBeenCalledExactlyOnceWith('/login');
+
+  view.rerender(t.tree(to, { admin: to === '/admin', providerKey }));
+  expect(t.replace).toHaveBeenCalledExactlyOnceWith('/login');
+  view.rerender(t.tree(to, { admin: to === '/admin', providerKey }));
+  expect(t.replace).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    const pending = to === '/admin' ? t.list : t.afterRemount;
+    pending.resolve(t.denied());
+    await pending.promise;
+  });
+  expect(t.assign).not.toHaveBeenCalled();
+  view.rerender(t.tree('/login', { providerKey }));
+  view.rerender(t.tree('/', { providerKey }));
+  await act(() => openSessionRepository());
+  expect(t.replace).toHaveBeenCalledTimes(1);
+});
 
 it.each(['/login', '/register', 'route boundary'])(
   'retires pre-sign-out loads and restores later genuine expiry through %s',

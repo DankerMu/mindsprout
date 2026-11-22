@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { usePathname } from 'next/navigation';
 import {
+  isSignOutPending,
   resumeFromPublicAuth,
   SessionNavigationScope,
 } from '../../components/account/session-navigation';
@@ -58,16 +59,26 @@ interface ProviderProps {
   open?: () => Promise<MapRepository>;
 }
 
+function isPublicAuthPath(pathname: string): boolean {
+  return pathname === '/login' || pathname === '/register';
+}
+
 export function MapRepositoryProvider(props: ProviderProps) {
   // Shared layouts do not rerender for changed route children; subscribe to navigation.
   const pathname = usePathname();
-  const isPublicAuth = pathname === '/login' || pathname === '/register';
-  const wasPublicAuth = useRef(false);
+  const previousPathname = useRef(pathname);
   // Commit the route boundary before protected request effects capture their epoch.
   useLayoutEffect(() => {
-    if (wasPublicAuth.current && !isPublicAuth) resumeFromPublicAuth();
-    wasPublicAuth.current = isPublicAuth;
-  }, [pathname, isPublicAuth]);
+    const from = previousPathname.current;
+    previousPathname.current = pathname;
+    if (!from || !pathname || from === pathname || isPublicAuthPath(pathname)) return;
+    if (isPublicAuthPath(from)) {
+      resumeFromPublicAuth();
+    } else if (isSignOutPending()) {
+      // A document replacement cannot be discarded by another App Router transition.
+      window.location.replace('/login');
+    }
+  }, [pathname]);
   const binding = props.open === undefined ? documentBinding() : undefined;
   // Reset before child effects can use another account's ready repository (decision 0028).
   return (

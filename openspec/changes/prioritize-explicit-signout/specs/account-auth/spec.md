@@ -37,3 +37,8 @@ An asynchronous expiry response SHALL navigate only when its captured navigation
 
 - **WHEN** sign-out succeeds, `/login` navigation is held, the cleared account binding remounts the outgoing protected provider, and a newly started list or reset answers 401
 - **THEN** the lifecycle remains inactive, that response cannot redirect to a next URL, and releasing navigation still reaches exactly `/login`
+
+#### Scenario: A competing protected route interrupts sign-out navigation
+
+- **WHEN** sign-out succeeds and a different protected pathname commits before `/login` is reached
+- **THEN** the lifecycle remains inactive and navigation is reissued to exactly `/login`, without `next`
