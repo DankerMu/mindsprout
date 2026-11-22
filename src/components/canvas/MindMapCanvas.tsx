@@ -12,7 +12,7 @@ import {
   type NodeTypes,
   type ReactFlowInstance,
 } from '@xyflow/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   contentBounds,
   layoutForest,
@@ -162,17 +162,18 @@ function ViewportControls({
   layout,
   editId,
   measurer,
+  initialFitPendingRef,
 }: {
   nodes: readonly MindFlowNode[];
   layout: ForestLayout;
   editId: NodeId | undefined;
   measurer: SharedNodeObserver;
+  initialFitPendingRef: RefObject<boolean>;
 }) {
   const bounds = useMemo(() => contentBounds(layout), [layout]);
   const flow = useReactFlow();
   const width = useStore((state) => state.width);
   const height = useStore((state) => state.height);
-  const framed = useRef(false);
   const fit = useCallback(
     (maxZoom: number, minZoom = MIN_ZOOM) => {
       if (bounds === undefined || !flow.viewportInitialized || !width || !height) return false;
@@ -184,12 +185,16 @@ function ViewportControls({
     [bounds, flow, width, height],
   );
   useEffect(() => {
-    if (!framed.current && nodes.every((node) => node.measured !== undefined)) {
-      framed.current = fit(1, nodes.length === 1 ? 1 : MIN_ZOOM);
-    }
-  }, [fit, nodes]);
+    if (editId !== undefined) initialFitPendingRef.current = false;
+    if (
+      initialFitPendingRef.current &&
+      nodes.every((node) => node.measured !== undefined) &&
+      fit(1, nodes.length === 1 ? 1 : MIN_ZOOM)
+    )
+      initialFitPendingRef.current = false;
+  }, [editId, fit, initialFitPendingRef, nodes]);
   useEffect(() => {
-    if (!framed.current || editId === undefined) return;
+    if (editId === undefined || !flow.viewportInitialized || !width || !height) return;
     const position = layout.positions.get(editId);
     // Editing can resize the box before the observer publishes the next layout.
     const box = measurer.elementOf(editId)?.getBoundingClientRect();
@@ -202,7 +207,7 @@ function ViewportControls({
       type="button"
       disabled={bounds === undefined}
       onClick={() => {
-        fit(MAX_ZOOM);
+        if (fit(MAX_ZOOM)) initialFitPendingRef.current = false;
       }}
     >
       适应画布
@@ -222,6 +227,16 @@ interface CanvasProps {
 
 function CanvasView({ map, selection, titleEditing, history, deletion, drag, menu }: CanvasProps) {
   const composing = useRef(false);
+  const initialFitPendingRef = useRef(true);
+  const supersedeInitialFit = useCallback(() => {
+    initialFitPendingRef.current = false;
+  }, []);
+  const onMoveStart = useCallback(
+    (event: MouseEvent | TouchEvent | null) => {
+      if (event instanceof Event) supersedeInitialFit();
+    },
+    [supersedeInitialFit],
+  );
   const space = useKeyPress('Space', {
     target: typeof window === 'undefined' ? null : window,
   });
@@ -246,6 +261,7 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag, men
     selection,
     drag,
     blocked,
+    supersedeInitialFit,
   );
   const { rectangle, ...rubberBand } = useRubberBand(layout, blocked, (ids) =>
     selection?.setSelection(ids),
@@ -282,6 +298,7 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag, men
         >
           <ReactFlow
             {...dragView}
+            onMoveStart={onMoveStart}
             edges={edges}
             nodeTypes={NODE_TYPES}
             nodesDraggable={dragView.nodesDraggable && !space}
@@ -324,6 +341,7 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag, men
                 layout={layout}
                 editId={titleEditing?.editing?.id}
                 measurer={measurer}
+                initialFitPendingRef={initialFitPendingRef}
               />
             </Panel>
           </ReactFlow>

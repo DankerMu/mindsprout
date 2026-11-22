@@ -3,6 +3,7 @@ import { test } from './support/session';
 import * as fs from 'node:fs';
 import type { MindMap, MindNode, Position } from '../src/contexts/map/domain/types';
 import { envelopeOf, readRecord, seedRecords } from './support/seed';
+import { beginNativeMouseDrag, nativeCanvasPointer, translated } from './support/canvas-geometry';
 
 const EVIDENCE = '.run/ui-evidence';
 fs.mkdirSync(EVIDENCE, { recursive: true });
@@ -18,8 +19,7 @@ const F: MindNode = {
   children: [{ id: 'fc', text: 'Floating child', children: [] }],
 };
 const G: MindNode = { id: 'g', text: 'Other floating', position: { x: 700, y: 400 }, children: [] };
-// Empty text gives a font-independent 24px root width for exact (400,300) mouse input;
-// the fractional floating root separately proves that drag positions are not rounded.
+// Empty text gives a font-independent 24px root width.
 const ROOT: MindNode = { id: 'r', text: '', children: [S, C, P] };
 const MAP: MindMap = {
   id: 'single-node-drag',
@@ -28,6 +28,7 @@ const MAP: MindMap = {
   updatedAt: '2026-11-05T10:00:00.000Z',
   roots: [ROOT, F, G],
 };
+const PREVIEW_POINTER = { x: 420, y: 310 };
 const nodeAt = (page: Page, id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
 const undo = (page: Page) => page.getByRole('button', { name: '撤销', exact: true });
 
@@ -37,31 +38,10 @@ async function position(page: Page, id: string): Promise<Position> {
     return { x: matrix.e, y: matrix.f };
   });
 }
-async function screenPoint(page: Page, point: Position): Promise<Position> {
-  return page.locator('.react-flow__viewport').evaluate((element, flow) => {
-    const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
-    const canvas = element.closest('.react-flow');
-    if (canvas === null) throw new Error('missing canvas');
-    const box = canvas.getBoundingClientRect();
-    return { x: box.x + matrix.e + flow.x * matrix.a, y: box.y + matrix.f + flow.y * matrix.d };
-  }, point);
-}
-async function begin(page: Page, id: string) {
-  const origin = await position(page, id);
-  const grab = await screenPoint(page, { x: origin.x + 20, y: origin.y + 10 });
-  // Native mouse coordinates are integral; preserve the actual, not nominal, grab offset.
-  await page.mouse.move(Math.trunc(grab.x), Math.trunc(grab.y));
-  await page.mouse.down();
-  return origin;
-}
-async function movePointer(page: Page, point: Position) {
-  const screen = await screenPoint(page, point);
-  await page.mouse.move(Math.trunc(screen.x), Math.trunc(screen.y), { steps: 12 });
-}
 async function dropOn(page: Page, id: string, target: string) {
   const destination = await position(page, target);
-  await begin(page, id);
-  await movePointer(page, { x: destination.x + 20, y: destination.y + 10 });
+  const move = await beginNativeMouseDrag(page, await position(page, id));
+  await move({ x: destination.x + 20, y: destination.y + 10 });
   await page.mouse.up();
 }
 async function storedRoots(page: Page) {
@@ -74,11 +54,6 @@ async function assertUndo(page: Page, roots: MindNode[]) {
   await undo(page).click();
   await expect(undo(page)).toBeDisabled();
   await expect.poll(() => storedRoots(page)).toEqual(MAP.roots);
-}
-
-async function nativeTouchPoint(page: Page, id: number, point: Position) {
-  const screen = await screenPoint(page, point);
-  return { id, x: Math.trunc(screen.x), y: Math.trunc(screen.y) };
 }
 
 async function expectCancelledDrop(page: Page, id: string, origin: Position) {
@@ -128,28 +103,14 @@ test.describe('single-node drag', () => {
   });
 
   test('Detach to canvas', async ({ page }) => {
-    const origin = await position(page, 'c');
-    const grab = await screenPoint(page, { x: origin.x + 20, y: origin.y + 10 });
-    expect(
-      Number.isInteger(grab.x),
-      'detach grab x must be representable in native mouse input',
-    ).toBe(true);
-    expect(
-      Number.isInteger(grab.y),
-      'detach grab y must be representable in native mouse input',
-    ).toBe(true);
-    const before = await begin(page, 'c');
-    await movePointer(page, { x: 420, y: 310 });
-    await expect.poll(() => position(page, 'c')).toEqual({ x: 400, y: 300 });
+    const before = await position(page, 'c');
+    const move = await beginNativeMouseDrag(page, before);
+    const detached = translated(before, await move(PREVIEW_POINTER));
+    await expect.poll(() => position(page, 'c')).toEqual(detached);
     expect(await readRecord(page, MAP.id)).toEqual(envelopeOf(MAP).value);
     await page.mouse.up();
-    await expect.poll(() => position(page, 'c')).toEqual({ x: 400, y: 300 });
-    await assertUndo(page, [
-      { ...ROOT, children: [S, P] },
-      F,
-      G,
-      { ...C, position: { x: 400, y: 300 } },
-    ]);
+    await expect.poll(() => position(page, 'c')).toEqual(detached);
+    await assertUndo(page, [{ ...ROOT, children: [S, P] }, F, G, { ...C, position: detached }]);
     await expect.poll(() => position(page, 'c')).toEqual(before);
   });
 
@@ -162,11 +123,12 @@ test.describe('single-node drag', () => {
       await nodeAt(page, id).click();
       await expect(page.locator('.react-flow__node.selected')).toHaveCount(1);
       const destination = await position(page, target);
-      const before = await begin(page, id);
-      await movePointer(page, { x: 420, y: 310 });
-      await expect.poll(() => position(page, id)).not.toEqual(before);
+      const before = await position(page, id);
+      const move = await beginNativeMouseDrag(page, before);
+      const preview = translated(before, await move(PREVIEW_POINTER));
+      await expect.poll(() => position(page, id)).toEqual(preview);
       await page.screenshot({ path: `${EVIDENCE}/drag-${id}-${target}-preview.png` });
-      await movePointer(page, { x: destination.x + 20, y: destination.y + 10 });
+      await move({ x: destination.x + 20, y: destination.y + 10 });
       await page.mouse.up();
       await expect.poll(() => position(page, id)).toEqual(before);
       await expect(undo(page)).toBeDisabled();
@@ -181,12 +143,16 @@ test.describe('single-node drag', () => {
   }
 
   test('Floating root reposition', async ({ page }) => {
-    await begin(page, 'f');
-    await movePointer(page, { x: 420, y: 310 });
+    const before = { x: 700.25, y: 200.75 };
+    await expect.poll(() => position(page, 'f')).toEqual(before);
+    const move = await beginNativeMouseDrag(page, before);
+    const dropped = translated(before, await move(PREVIEW_POINTER));
+    await expect.poll(() => position(page, 'f')).toEqual(dropped);
+    expect(await readRecord(page, MAP.id)).toEqual(envelopeOf(MAP).value);
     await page.mouse.up();
-    await expect.poll(() => position(page, 'f')).toEqual({ x: 400.25, y: 300.75 });
-    await assertUndo(page, [ROOT, { ...F, position: { x: 400.25, y: 300.75 } }, G]);
-    await expect.poll(() => position(page, 'f')).toEqual({ x: 700.25, y: 200.75 });
+    await expect.poll(() => position(page, 'f')).toEqual(dropped);
+    await assertUndo(page, [ROOT, { ...F, position: dropped }, G]);
+    await expect.poll(() => position(page, 'f')).toEqual(before);
   });
 
   test('Floating root attachment', async ({ page }) => {
@@ -204,11 +170,13 @@ test.describe('single-node drag', () => {
     }) => {
       const client = await page.context().newCDPSession(page);
       const origin = await position(page, 'c');
-      const initial = await nativeTouchPoint(page, 1, { x: origin.x + 20, y: origin.y + 10 });
-      const moved = await nativeTouchPoint(page, 1, { x: 420, y: 310 });
+      const pointer = await nativeCanvasPointer(page);
+      const initial = { id: 1, ...pointer.at({ x: origin.x + 20, y: origin.y + 10 }) };
+      const moved = { id: 1, ...pointer.at(PREVIEW_POINTER) };
       await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [initial] });
       await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [moved] });
-      await expect.poll(() => position(page, 'c')).toEqual({ x: 400, y: 300 });
+      const preview = translated(origin, pointer.displacement(initial, moved));
+      await expect.poll(() => position(page, 'c')).toEqual(preview);
       const canvas = await page.locator('.react-flow').boundingBox();
       if (canvas === null) throw new Error('missing canvas');
       const viewport = () =>
@@ -223,7 +191,8 @@ test.describe('single-node drag', () => {
       };
       await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [edge] });
       await expect.poll(viewport).toBeLessThan(beforePan);
-      const second = await nativeTouchPoint(page, 2, { x: 800, y: 500 });
+      const pannedPointer = await nativeCanvasPointer(page);
+      const second = { id: 2, ...pannedPointer.at({ x: 800, y: 500 }) };
       await client.send('Input.dispatchTouchEvent', {
         type: 'touchStart',
         touchPoints: [edge, second],
@@ -237,18 +206,20 @@ test.describe('single-node drag', () => {
       const releasedViewport = await viewport();
       await expectCancelledDrop(page, 'c', origin);
       expect(await viewport()).toBe(releasedViewport);
-      const freshStart = await nativeTouchPoint(page, 7, { x: origin.x + 20, y: origin.y + 10 });
+      const freshPointer = await nativeCanvasPointer(page);
+      const freshStart = { id: 7, ...freshPointer.at({ x: origin.x + 20, y: origin.y + 10 }) };
       const parentPosition = await position(page, 'p');
-      const freshEnd = await nativeTouchPoint(page, 7, {
-        x: parentPosition.x + 20,
-        y: parentPosition.y + 10,
-      });
+      const freshEnd = {
+        id: 7,
+        ...freshPointer.at({ x: parentPosition.x + 20, y: parentPosition.y + 10 }),
+      };
       await client.send('Input.dispatchTouchEvent', {
         type: 'touchStart',
         touchPoints: [freshStart],
       });
       await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [freshEnd] });
-      await expect.poll(() => position(page, 'c')).not.toEqual(origin);
+      const attachedPreview = translated(origin, freshPointer.displacement(freshStart, freshEnd));
+      await expect.poll(() => position(page, 'c')).toEqual(attachedPreview);
       await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       await assertUndo(page, [{ ...ROOT, children: [S, { ...P, children: [Q, C] }] }, F, G]);
       await client.detach();
@@ -259,31 +230,28 @@ test.describe('single-node drag', () => {
         page,
       }) => {
         const client = await page.context().newCDPSession(page);
-        const origin = await begin(page, 'c');
+        const origin = await position(page, 'c');
+        const move = await beginNativeMouseDrag(page, origin);
         const otherOrigin = await position(page, 'p');
-        await movePointer(page, { x: 420, y: 310 });
-        await expect.poll(() => position(page, 'c')).toEqual({ x: 400, y: 300 });
+        const preview = translated(origin, await move(PREVIEW_POINTER));
+        await expect.poll(() => position(page, 'c')).toEqual(preview);
         const touched = await position(page, touchedId);
-        const initial = await nativeTouchPoint(page, 3, { x: touched.x + 20, y: touched.y + 10 });
+        const pointer = await nativeCanvasPointer(page);
+        const initial = { id: 3, ...pointer.at({ x: touched.x + 20, y: touched.y + 10 }) };
         await client.send('Input.dispatchTouchEvent', {
           type: 'touchStart',
           touchPoints: [initial],
         });
-        const moved = await nativeTouchPoint(page, 3, { x: 620, y: 410 });
+        const moved = { id: 3, ...pointer.at({ x: 620, y: 410 }) };
         await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [moved] });
         await page.mouse.up();
         await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
         await expectCancelledDrop(page, 'c', origin);
         await expect.poll(() => position(page, 'p')).toEqual(otherOrigin);
-        await begin(page, 'c');
-        await movePointer(page, { x: 420, y: 310 });
+        const moveFresh = await beginNativeMouseDrag(page, origin);
+        const detached = translated(origin, await moveFresh(PREVIEW_POINTER));
         await page.mouse.up();
-        await assertUndo(page, [
-          { ...ROOT, children: [S, P] },
-          F,
-          G,
-          { ...C, position: { x: 400, y: 300 } },
-        ]);
+        await assertUndo(page, [{ ...ROOT, children: [S, P] }, F, G, { ...C, position: detached }]);
         await client.detach();
       });
     }

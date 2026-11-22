@@ -14,7 +14,7 @@ A layout anchored at the primary root can extend above or beyond the default vie
 
 ## Decision
 
-React Flow owns the transient viewport for each mounted map identity. Opening and manual fit use the same bounds from the layout projection. Opening waits for the current map's complete rendered measurements and fits once at 25–100%, with a single node at 100%. If content cannot fit at 25%, the zoom floor takes precedence and the bounds stay centered.
+React Flow owns the transient viewport for each mounted map identity. Opening and manual fit use the same bounds from the layout projection. Opening waits for the current map's complete rendered measurements and fits once at 25–100%, with a single node at 100%. If content cannot fit at 25%, the zoom floor takes precedence and the bounds stay centered. Native navigation, a moving node drag, manual fit, or an edit target supersedes any pending opening fit.
 
 Starting or continuing inline creation or title editing may pan a clipped target using its rendered size and layout position, but cannot change zoom or write to the map. A fully visible target leaves the viewport unchanged. The editor store owns selection and the edit target, not viewport coordinates.
 

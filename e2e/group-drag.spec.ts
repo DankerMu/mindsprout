@@ -3,6 +3,7 @@ import { test } from './support/session';
 import * as fs from 'node:fs';
 import type { MindMap, MindNode, Position } from '../src/contexts/map/domain/types';
 import { envelopeOf, readRecord, seedRecords } from './support/seed';
+import { beginNativeMouseDrag, nativeCanvasPointer, translated } from './support/canvas-geometry';
 
 const EVIDENCE = '.run/ui-evidence';
 fs.mkdirSync(EVIDENCE, { recursive: true });
@@ -30,6 +31,11 @@ const MAP: MindMap = {
   roots: [R, U, P, F],
 };
 const IDS = ['r', 'a', 'd', 'u', 'b', 'e', 'p', 'q', 'f', 'fc'];
+const A_START = { x: 56, y: 0 };
+const B_START = { x: 56, y: 80 };
+const D_START = { x: 112, y: 0 };
+const PREVIEW_POINTER = { x: 420, y: 310 };
+const PARENT_POINTER = { x: 620, y: 10 };
 const nodeAt = (page: Page, id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
 const undo = (page: Page) => page.getByRole('button', { name: '撤销', exact: true });
 
@@ -39,15 +45,6 @@ async function position(page: Page, id: string): Promise<Position> {
     return { x: matrix.e, y: matrix.f };
   });
 }
-async function screenPoint(page: Page, point: Position): Promise<Position> {
-  return page.locator('.react-flow__viewport').evaluate((element, flow) => {
-    const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
-    const canvas = element.closest('.react-flow');
-    if (canvas === null) throw new Error('missing canvas');
-    const box = canvas.getBoundingClientRect();
-    return { x: box.x + matrix.e + flow.x * matrix.a, y: box.y + matrix.f + flow.y * matrix.d };
-  }, point);
-}
 async function select(page: Page, ids: string[]) {
   for (const [index, id] of ids.entries()) {
     await nodeAt(page, id).click({ modifiers: index === 0 ? [] : ['Shift'] });
@@ -55,19 +52,7 @@ async function select(page: Page, ids: string[]) {
   await expect(page.locator('.react-flow__node.selected')).toHaveCount(ids.length);
 }
 async function begin(page: Page, id: string) {
-  const origin = await position(page, id);
-  const grab = await screenPoint(page, { x: origin.x + 20, y: origin.y + 10 });
-  expect(Number.isInteger(grab.x), 'exact native grab x').toBe(true);
-  expect(Number.isInteger(grab.y), 'exact native grab y').toBe(true);
-  await page.mouse.move(grab.x, grab.y);
-  await page.mouse.down();
-  return origin;
-}
-async function move(page: Page, point: Position) {
-  const screen = await screenPoint(page, point);
-  expect(Number.isInteger(screen.x), 'exact native pointer x').toBe(true);
-  expect(Number.isInteger(screen.y), 'exact native pointer y').toBe(true);
-  await page.mouse.move(screen.x, screen.y, { steps: 12 });
+  return beginNativeMouseDrag(page, await position(page, id));
 }
 async function storedRoots(page: Page) {
   const record = (await readRecord(page, MAP.id)) as { map: MindMap };
@@ -118,8 +103,8 @@ test.describe('group drag', () => {
           .evaluate((element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).a),
       )
       .toBe(0.5);
-    await expect.poll(() => position(page, 'a')).toEqual({ x: 56, y: 0 });
-    await expect.poll(() => position(page, 'b')).toEqual({ x: 56, y: 80 });
+    await expect.poll(() => position(page, 'a')).toEqual(A_START);
+    await expect.poll(() => position(page, 'b')).toEqual(B_START);
     expect((await position(page, 'b')).y - (await position(page, 'a')).y).toBe(80);
     await expect(undo(page)).toBeDisabled();
   });
@@ -132,16 +117,16 @@ test.describe('group drag', () => {
 
   test('Group drag', async ({ page }) => {
     await select(page, ['b', 'a']);
-    await begin(page, 'a');
-    await move(page, { x: 420, y: 310 });
-    await expect.poll(() => position(page, 'a')).toEqual({ x: 400, y: 300 });
-    await expect.poll(() => position(page, 'b')).toEqual({ x: 400, y: 380 });
-    await expect.poll(() => position(page, 'd')).toEqual({ x: 456, y: 300 });
-    await expect.poll(() => position(page, 'e')).toEqual({ x: 456, y: 380 });
+    const move = await begin(page, 'a');
+    const delta = await move(PREVIEW_POINTER);
+    await expect.poll(() => position(page, 'a')).toEqual(translated(A_START, delta));
+    await expect.poll(() => position(page, 'b')).toEqual(translated(B_START, delta));
+    await expect.poll(() => position(page, 'd')).toEqual(translated(D_START, delta));
+    await expect.poll(() => position(page, 'e')).toEqual(translated({ x: 112, y: 80 }, delta));
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(2);
     expect(await readRecord(page, MAP.id)).toEqual(envelopeOf(MAP).value);
     await page.screenshot({ path: `${EVIDENCE}/group-drag-preview.png` });
-    await move(page, { x: 620, y: 10 });
+    await move(PARENT_POINTER);
     await page.mouse.up();
     await assertUndo(page, ATTACHED);
   });
@@ -149,17 +134,13 @@ test.describe('group drag', () => {
   test('Nested selection moves once', async ({ page }) => {
     for (const grabbed of ['a', 'd']) {
       await select(page, ['a', 'd']);
-      await begin(page, grabbed);
-      await move(page, { x: 420, y: 310 });
-      await expect
-        .poll(() => position(page, 'a'))
-        .toEqual(grabbed === 'a' ? { x: 400, y: 300 } : { x: 344, y: 300 });
-      await expect
-        .poll(() => position(page, 'd'))
-        .toEqual(grabbed === 'a' ? { x: 456, y: 300 } : { x: 400, y: 300 });
-      await expect.poll(() => position(page, 'b')).toEqual({ x: 56, y: 80 });
+      const move = await begin(page, grabbed);
+      const delta = await move(PREVIEW_POINTER);
+      await expect.poll(() => position(page, 'a')).toEqual(translated(A_START, delta));
+      await expect.poll(() => position(page, 'd')).toEqual(translated(D_START, delta));
+      await expect.poll(() => position(page, 'b')).toEqual(B_START);
       await page.screenshot({ path: `${EVIDENCE}/group-nested-${grabbed}-preview.png` });
-      await move(page, { x: 620, y: 10 });
+      await move(PARENT_POINTER);
       await page.mouse.up();
       await assertUndo(page, [{ ...R, children: [] }, U, { ...P, children: [Q, A] }, F]);
     }
@@ -168,22 +149,24 @@ test.describe('group drag', () => {
   test('Drop on a selected node is refused', async ({ page }) => {
     const origins = await Promise.all(IDS.map((id) => position(page, id)));
     await select(page, ['b', 'a']);
-    await begin(page, 'a');
-    await move(page, { x: 420, y: 310 });
-    await expect.poll(() => position(page, 'a')).toEqual({ x: 400, y: 300 });
-    await expect.poll(() => position(page, 'b')).toEqual({ x: 400, y: 380 });
+    const move = await begin(page, 'a');
+    const delta = await move(PREVIEW_POINTER);
+    await expect.poll(() => position(page, 'a')).toEqual(translated(A_START, delta));
+    await expect.poll(() => position(page, 'b')).toEqual(translated(B_START, delta));
     await page.screenshot({ path: `${EVIDENCE}/group-refused-preview.png` });
-    await move(page, { x: 76, y: 90 });
+    await move({ x: 76, y: 90 });
     await page.mouse.up();
     await expectRefused(page, origins);
   });
 
   test('Group detach to canvas', async ({ page }) => {
     await select(page, ['b', 'a']);
-    await begin(page, 'a');
-    await move(page, { x: 420, y: 310 });
-    await expect.poll(() => position(page, 'a')).toEqual({ x: 400, y: 300 });
-    await expect.poll(() => position(page, 'b')).toEqual({ x: 400, y: 380 });
+    const move = await begin(page, 'a');
+    const delta = await move(PREVIEW_POINTER);
+    const a = translated(A_START, delta);
+    const b = translated(B_START, delta);
+    await expect.poll(() => position(page, 'a')).toEqual(a);
+    await expect.poll(() => position(page, 'b')).toEqual(b);
     expect(await readRecord(page, MAP.id)).toEqual(envelopeOf(MAP).value);
     await page.mouse.up();
     await assertUndo(page, [
@@ -191,22 +174,22 @@ test.describe('group drag', () => {
       { ...U, children: [] },
       P,
       F,
-      { ...A, position: { x: 400, y: 300 } },
-      { ...B, position: { x: 400, y: 380 } },
+      { ...A, position: a },
+      { ...B, position: b },
     ]);
-    await expect.poll(() => position(page, 'a')).toEqual({ x: 56, y: 0 });
-    await expect.poll(() => position(page, 'b')).toEqual({ x: 56, y: 80 });
+    await expect.poll(() => position(page, 'a')).toEqual(A_START);
+    await expect.poll(() => position(page, 'b')).toEqual(B_START);
   });
 
   test('Primary root refuses the whole selected group', async ({ page }) => {
     const origins = await Promise.all(IDS.map((id) => position(page, id)));
     await select(page, ['r', 'b']);
-    await begin(page, 'r');
-    await move(page, { x: 420, y: 310 });
-    await expect.poll(() => position(page, 'r')).toEqual({ x: 400, y: 300 });
-    await expect.poll(() => position(page, 'b')).toEqual({ x: 456, y: 380 });
+    const move = await begin(page, 'r');
+    const delta = await move(PREVIEW_POINTER);
+    await expect.poll(() => position(page, 'r')).toEqual(delta);
+    await expect.poll(() => position(page, 'b')).toEqual(translated(B_START, delta));
     await page.screenshot({ path: `${EVIDENCE}/group-primary-preview.png` });
-    await move(page, { x: 620, y: 10 });
+    await move(PARENT_POINTER);
     await page.mouse.up();
     await expectRefused(page, origins);
   });
@@ -214,18 +197,22 @@ test.describe('group drag', () => {
   test('Mixed tree and floating group preserves exact fractional offsets', async ({ page }) => {
     await expect.poll(() => position(page, 'f')).toEqual({ x: 700.25, y: 200.75 });
     await select(page, ['f', 'a']);
-    await begin(page, 'a');
-    await move(page, { x: 420, y: 310 });
-    await expect.poll(() => position(page, 'a')).toEqual({ x: 400, y: 300 });
-    await expect.poll(() => position(page, 'f')).toEqual({ x: 1044.25, y: 500.75 });
-    await expect.poll(() => position(page, 'fc')).toEqual({ x: 1100.25, y: 500.75 });
+    const move = await begin(page, 'a');
+    const delta = await move(PREVIEW_POINTER);
+    const a = translated(A_START, delta);
+    const f = translated({ x: 700.25, y: 200.75 }, delta);
+    await expect.poll(() => position(page, 'a')).toEqual(a);
+    await expect.poll(() => position(page, 'f')).toEqual(f);
+    await expect
+      .poll(() => position(page, 'fc'))
+      .toEqual(translated({ x: 756.25, y: 200.75 }, delta));
     await page.mouse.up();
     await assertUndo(page, [
       { ...R, children: [] },
       U,
       P,
-      { ...F, position: { x: 1044.25, y: 500.75 } },
-      { ...A, position: { x: 400, y: 300 } },
+      { ...F, position: f },
+      { ...A, position: a },
     ]);
     await expect.poll(() => position(page, 'f')).toEqual({ x: 700.25, y: 200.75 });
   });
@@ -236,8 +223,9 @@ test.describe('group drag', () => {
       await select(page, ['b', 'a']);
       const origins = await Promise.all(IDS.map((id) => position(page, id)));
       const client = await page.context().newCDPSession(page);
-      const initial = await screenPoint(page, { x: 76, y: 10 });
-      const moved = await screenPoint(page, { x: 420, y: 310 });
+      const pointer = await nativeCanvasPointer(page);
+      const initial = pointer.at({ x: 76, y: 10 });
+      const moved = pointer.at(PREVIEW_POINTER);
       await client.send('Input.dispatchTouchEvent', {
         type: 'touchStart',
         touchPoints: [{ id: 1, ...initial }],
@@ -246,8 +234,9 @@ test.describe('group drag', () => {
         type: 'touchMove',
         touchPoints: [{ id: 1, ...moved }],
       });
-      await expect.poll(() => position(page, 'a')).toEqual({ x: 400, y: 300 });
-      await expect.poll(() => position(page, 'b')).toEqual({ x: 400, y: 380 });
+      const delta = pointer.displacement(initial, moved);
+      await expect.poll(() => position(page, 'a')).toEqual(translated(A_START, delta));
+      await expect.poll(() => position(page, 'b')).toEqual(translated(B_START, delta));
       const canvas = await page.locator('.react-flow').boundingBox();
       if (canvas === null) throw new Error('missing canvas');
       const viewport = () =>
@@ -283,10 +272,8 @@ test.describe('group drag', () => {
       await expect
         .poll(async () => {
           const current = await viewport();
-          const points = await Promise.all([
-            screenPoint(page, { x: 76, y: 10 }),
-            screenPoint(page, { x: 620, y: 10 }),
-          ]);
+          const pointer = await nativeCanvasPointer(page);
+          const points = [pointer.at({ x: 76, y: 10 }), pointer.at(PARENT_POINTER)];
           const settled = current !== released && current === previousViewport;
           previousViewport = current;
           return (
@@ -308,8 +295,9 @@ test.describe('group drag', () => {
       ).toEqual(['a', 'b']);
       await expect(undo(page)).toBeDisabled();
       expect(await readRecord(page, MAP.id)).toEqual(envelopeOf(MAP).value);
-      const fresh = await screenPoint(page, { x: 76, y: 10 });
-      const destination = await screenPoint(page, { x: 620, y: 10 });
+      const freshPointer = await nativeCanvasPointer(page);
+      const fresh = freshPointer.at({ x: 76, y: 10 });
+      const destination = freshPointer.at(PARENT_POINTER);
       await client.send('Input.dispatchTouchEvent', {
         type: 'touchStart',
         touchPoints: [{ id: 7, ...fresh }],

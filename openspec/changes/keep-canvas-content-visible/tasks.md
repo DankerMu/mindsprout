@@ -17,14 +17,14 @@
 ## 1. Measured initial framing
 
 - [x] 1.1 Add one focused failing browser scenario for single-node and measured multi-node opening, demonstrate it red against the pre-change canvas, then implement once-per-map measured framing and verify it green with the same scenario.
-- [x] 1.2 Connect or remove editor viewport state according to `design.md`, add focused coverage for the chosen ownership and stale map/measurement ordering, and record the non-trivial decision using the decision-record lifecycle with `pnpm decisions:check`.
+- [ ] 1.2 Connect or remove editor viewport state according to `design.md`, add focused coverage for the chosen ownership and stale map/measurement ordering, and record the non-trivial decision using the decision-record lifecycle with `pnpm decisions:check`.
 
 ## 2. Creation and editing visibility
 
 - [x] 2.1 Add a failing browser scenario for two keyboard-created siblings and reopening without manual fit, then implement the required visibility behavior and verify both children are visible and clickable.
-- [x] 2.2 Add failing coverage for an off-screen creation/editing target, unchanged zoom, minimum necessary pan, and no movement for an already visible target; implement and verify each behavior red-to-green through the canvas interface.
+- [ ] 2.2 Add failing coverage for an off-screen creation/editing target, unchanged zoom, minimum necessary pan, and no movement for an already visible target; implement and verify each behavior red-to-green through the canvas interface.
 
 ## 3. Compatibility and integration evidence
 
-- [x] 3.1 Update canvas-editing browser setup so initial visibility is tested rather than bypassed, retain explicit coverage of the fit control itself, and verify existing selection, pan/zoom, and unchanged-persistence assertions pass.
-- [x] 3.2 Extend the deterministic 500-node browser input with explicit expected output: zoom is exactly 25%, the measured content bounds are centered, the primary root is visible, all 500 nodes remain rendered, and no zoom below the floor occurs; then verify selected risk packs and the full changed surface with `pnpm test:unit`, `pnpm e2e e2e/canvas-editing.spec.ts`, `pnpm e2e e2e/large-map.spec.ts`, `pnpm dead-code`, `pnpm typecheck`, `pnpm lint`, `pnpm boundaries`, `pnpm build`, and `openspec validate keep-canvas-content-visible --strict --no-interactive`; capture UI screenshots and require zero console warnings/errors.
+- [ ] 3.1 Update canvas-editing browser setup so initial visibility is tested rather than bypassed, retain explicit coverage of the fit control itself, and verify existing selection, pan/zoom, and unchanged-persistence assertions pass.
+- [ ] 3.2 Extend the deterministic 500-node browser input with explicit expected output: zoom is exactly 25%, the measured content bounds are centered, the primary root is visible, all 500 nodes remain rendered, and no zoom below the floor occurs; then verify selected risk packs and the full changed surface with `pnpm test:unit`, `pnpm e2e e2e/canvas-editing.spec.ts`, `pnpm e2e e2e/large-map.spec.ts`, `pnpm dead-code`, `pnpm typecheck`, `pnpm lint`, `pnpm boundaries`, `pnpm build`, and `openspec validate keep-canvas-content-visible --strict --no-interactive`; capture UI screenshots and require zero console warnings/errors.

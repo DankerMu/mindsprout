@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Activity, Profiler, StrictMode, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   borderBoxEntry,
   canvasObserverOf,
@@ -248,6 +249,76 @@ describe('MindMapCanvas view', () => {
   });
 
   it.each([
+    {
+      gesture: 'middle-button pan',
+      navigate: (pane: Element) => {
+        dragViewport(pane, 1, 100);
+      },
+      moved: { x: 100, y: 0, zoom: 1 },
+    },
+    {
+      gesture: 'wheel zoom',
+      navigate: (pane: Element) =>
+        fireEvent.wheel(pane, { deltaY: 500, clientX: 100, clientY: 80 }),
+      moved: { x: 50, y: 40, zoom: 0.5 },
+    },
+  ])(
+    'keeps a $gesture made before all nodes are measured',
+    async ({ gesture, navigate, moved }) => {
+      sizeCanvas(800, 600);
+      const { container } = render(<MindMapCanvas map={rootWithChild()} />);
+      const pane = container.querySelector('.react-flow__pane');
+      if (pane === null) throw new Error('no pane');
+      const observer = canvasObserverOf(observers());
+      observer.fire([borderBoxEntry(mindNodeElement('r'), 120, 32)]);
+      expect(viewportTransform()).toEqual({ x: 0, y: 0, zoom: 1 });
+
+      navigate(pane);
+      expect(viewportTransform()).toEqual(moved);
+      observer.fire([borderBoxEntry(mindNodeElement('a'), 120, 32)]);
+      expect(viewportTransform()).toEqual(moved);
+      observer.fire([borderBoxEntry(mindNodeElement('r'), 300, 32)]);
+      expect(viewportTransform()).toEqual(moved);
+
+      if (gesture === 'wheel zoom') await act(() => delay(200));
+    },
+  );
+
+  it.each([
+    { key: 'F2', selected: 'f', x: -236, y: 0 },
+    { key: 'Tab', selected: 'r', x: -268, y: 16 },
+    { key: 'double-click', selected: 'f', x: -236, y: 0 },
+  ])('reveals the pre-fit $key target without changing zoom', ({ key, selected, x, y }) => {
+    sizeCanvas(800, 600);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.classList.contains('mind-node') ? new DOMRect(0, 0, 120, 32) : new DOMRect();
+    });
+    const map = mapOf(node('r'), node('f', [], { position: { x: 900, y: 100 } }));
+    render(
+      <EditorSession map={map} repository={new RecordingRepository()}>
+        <EditorView />
+      </EditorSession>,
+    );
+    const observer = canvasObserverOf(observers());
+    observer.fire([borderBoxEntry(mindNodeElement('r'), 900, 32)]);
+    expect(viewportTransform()).toEqual({ x: 0, y: 0, zoom: 1 });
+
+    fireEvent.click(nodeWrapper(selected));
+    if (key === 'double-click') fireEvent.doubleClick(nodeWrapper(selected));
+    else fireEvent.keyDown(screen.getByRole('region', { name: '思维导图画布' }), { key });
+    const editedBox = screen.getByLabelText('节点标题').closest('.mind-node');
+    if (editedBox === null) throw new Error('no editing box');
+    if (key === 'Tab') observer.fire([borderBoxEntry(editedBox, 120, 32)]);
+    // A 120px box starting at x=900 (F2/double-click) or x=932 (Tab) ends 16px from x=800.
+    expect(viewportTransform()).toEqual({ x, y, zoom: 1 });
+
+    observer.fire([borderBoxEntry(mindNodeElement('f'), 120, 32)]);
+    expect(viewportTransform()).toEqual({ x, y, zoom: 1 });
+  });
+
+  it.each([
     { width: 120, pan: -440, x: 16 },
     { width: 120, pan: -335, x: 5 },
     { width: 900, pan: -440, x: -50 },
@@ -332,6 +403,11 @@ describe('MindMapCanvas view', () => {
       expect(left + size.width * zoom, `${id} right`).toBeLessThanOrEqual(800);
       expect(top + size.height * zoom, `${id} bottom`).toBeLessThanOrEqual(600);
     }
+
+    canvasObserverOf(observers()).fire(
+      [...sizes.keys()].map((id) => borderBoxEntry(mindNodeElement(id), 300, 32)),
+    );
+    expect(viewportTransform()).toEqual({ x: tx, y: ty, zoom });
   });
 
   it('keeps static map nodes neither draggable nor natively selectable', () => {

@@ -3,6 +3,7 @@ import { test } from './support/session';
 import * as fs from 'node:fs';
 import { envelopeOf, readRecord, seedRecords } from './support/seed';
 import type { MindMap } from '../src/contexts/map/domain/types';
+import { panAcrossCanvas } from './support/canvas-geometry';
 
 const EVIDENCE = '.run/ui-evidence';
 fs.mkdirSync(EVIDENCE, { recursive: true });
@@ -112,19 +113,6 @@ async function openBlankMap(page: Page) {
   await expect(page.getByTestId('map-editor-ready')).toBeVisible();
 }
 
-async function panAcross(page: Page, direction: 'left' | 'right') {
-  const canvas = await canvasAt(page).boundingBox();
-  if (canvas === null) throw new Error('missing canvas');
-  const left = canvas.x + 20;
-  const right = canvas.x + canvas.width - 20;
-  const y = canvas.y + canvas.height - 60;
-  await page.mouse.move(direction === 'left' ? right : left, y);
-  await page.mouse.down({ button: 'middle' });
-  await page.mouse.move(direction === 'left' ? left : right, y, { steps: 10 });
-  await page.mouse.up({ button: 'middle' });
-  return canvas;
-}
-
 test('opens a new root and a measured forest inside the canvas without manual fit', async ({
   page,
 }) => {
@@ -200,7 +188,7 @@ for (const [key, direction, title] of [
     await page.mouse.move(600, 350);
     await page.mouse.wheel(0, 150);
     await expect.poll(async () => (await viewportOf(page)).zoom).toBeLessThan(1);
-    const canvas = await panAcross(page, direction);
+    const canvas = await panAcrossCanvas(page, direction);
     const clipped = await boxOf(page, 'r');
     if (direction === 'left') expect(clipped.x + clipped.width).toBeLessThan(canvas.x);
     else expect(clipped.x).toBeGreaterThan(canvas.x + canvas.width);
@@ -270,7 +258,7 @@ test.describe('canvas-editing selection', () => {
 
   test('manual fit reframes every root after panning away', async ({ page }) => {
     await nodeAt(page, 'r').click();
-    await panAcross(page, 'left');
+    await panAcrossCanvas(page, 'left');
     const before = await viewportOf(page);
     await page.getByRole('button', { name: '适应画布' }).click();
     await expectInsideCanvas(page.locator('.react-flow__node'), 6);
