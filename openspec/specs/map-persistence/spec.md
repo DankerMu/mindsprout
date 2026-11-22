@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Maps survive page reloads and browser restarts in the user's browser, saved automatically and read back exactly, with a versioned envelope that a later cloud sync can consume.
+Maps persist across page reloads and browser restarts in the signed-in user's cloud account, are saved automatically and read back exactly, and use a versioned envelope shared between browser and server.
 
 ## Requirements
 
