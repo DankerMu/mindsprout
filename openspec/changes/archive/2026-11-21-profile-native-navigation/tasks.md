@@ -10,7 +10,7 @@
 
 - [x] 2.1 Run `pnpm native:browser:test`; on Node 22.23.4 with an owned scratch database, run both native modes with trailing `--profile` and one unprofiled control. Inspect safe artifact names, complete-or-explicit-partial status, original functional exits, multi-generation suspension gaps, interrupted teardown, no secret sentinels, and restored source/cache/profile-directory state.
 - [x] 2.2 Record the collection/interpretation contract in the native guide and its decision record; run scoped lint/format, docs/decision checks, guardrails, and strict fixture validation.
-- [ ] 2.3 Complete full gate-integrity/privacy cross-review and one attributable CI diagnostic capture with distinct workflow/checkout/head/run/attempt identity, original failed result/artifacts retained, safe-only diagnostic files, and the required job still red regardless of diagnostic outcome; analyze without asserting an unproven repair.
+- [x] 2.3 Complete full gate-integrity/privacy cross-review and one attributable CI diagnostic capture with distinct workflow/checkout/head/run/attempt identity, original failed result/artifacts retained, safe-only diagnostic files, and the required job still red regardless of diagnostic outcome; analyze without asserting an unproven repair.
 
 ## Risk packs
 
