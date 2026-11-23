@@ -8,7 +8,7 @@
 ## 2. Qualification evidence
 
 - [x] 2.1 运行 `pnpm verify-ui "route /"`（四条 smoke 路由）和 `pnpm verify-ui "M2 authentication waits for hydration after load"`，检查 login.png、确认无 console/hydration error、无其他路由截图选项扩散。
-- [ ] 2.2 运行 `pnpm test:unit`、fmt/lint/typecheck/boundaries、strict OpenSpec/docs/decisions 与 required CI；test-only 不添加 changeset 或 production decision，archive 前最终 head required checks 全绿。
+- [x] 2.2 运行 `pnpm test:unit`、fmt/lint/typecheck/boundaries、strict OpenSpec/docs/decisions 与 required CI；test-only 不添加 changeset 或 production decision，archive 前最终 head required checks 全绿。
 
 ## Risk packs
 
