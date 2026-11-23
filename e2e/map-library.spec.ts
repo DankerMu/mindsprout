@@ -6,8 +6,8 @@ import { collectExpectedResponses } from './support/expected-responses';
 
 const EVIDENCE = '.run/ui-evidence';
 const NOW = '2026-11-06T12:34:56.789Z';
-const EARLY = '2026-11-05T10:00:00.000Z';
-const LATE = '2026-11-05T11:00:00.000Z';
+const EARLY = '2026-11-05T00:30:00.000Z';
+const LATE = '2026-11-05T01:30:00.000Z';
 fs.mkdirSync(EVIDENCE, { recursive: true });
 
 const TARGET = {
@@ -73,6 +73,8 @@ async function openSameTitleRows(page: Page) {
 }
 
 test.describe('map-library', () => {
+  test.use({ timezoneId: 'America/Los_Angeles' });
+
   test('Create from the empty state', async ({ page }) => {
     const noise = watchConsole(page);
     await page.clock.setFixedTime(new Date(NOW));
@@ -130,7 +132,7 @@ test.describe('map-library', () => {
     await expect(page.getByTestId('app-ready')).toBeVisible();
     const rows = page.getByRole('listitem');
     await expect(rows.getByRole('link')).toHaveText(['B', 'A']);
-    await expect(rows.locator('time')).toHaveText([LATE, EARLY]);
+    await expect(rows.locator('time')).toHaveText(['2026年11月4日 17:30', '2026年11月4日 16:30']);
     await expect(rows.nth(0).locator('time')).toHaveAttribute('datetime', LATE);
     await expect(rows.nth(1).locator('time')).toHaveAttribute('datetime', EARLY);
     await expect(rows.nth(0).locator('time')).toBeVisible();
@@ -179,7 +181,9 @@ test.describe('map-library', () => {
     await title.fill('读书笔记');
     await form.getByRole('button', { name: '保存', exact: true }).click();
     await expect(rows.getByRole('link')).toHaveText(['读书笔记', '新导图']);
-    await expect(rows.locator('time')).toHaveText([NOW, LATE]);
+    await expect(rows.locator('time')).toHaveText(['2026年11月6日 04:34', '2026年11月4日 17:30']);
+    await expect(rows.nth(0).locator('time')).toHaveAttribute('datetime', NOW);
+    await expect(rows.nth(1).locator('time')).toHaveAttribute('datetime', LATE);
     await expect(page.getByRole('button', { name: '重命名 读书笔记' })).toBeFocused();
     const renamedMap = { ...TARGET, title: '读书笔记', updatedAt: NOW };
     const expected = envelopeOf(renamedMap).value;

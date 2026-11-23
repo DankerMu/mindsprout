@@ -6,7 +6,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 import type { MapSummary } from '../../contexts/map/domain/map-repository';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
@@ -16,6 +16,9 @@ import type { MindMap } from '../../contexts/map/domain/types';
 import { heldResult, memoryLibrary } from '../../../tests/support/map-library';
 import { SessionNavigationScope } from '../account/session-navigation';
 import { MapLibrary } from './MapLibrary';
+
+vi.hoisted(() => vi.stubEnv('TZ', 'UTC'));
+afterAll(() => vi.unstubAllEnvs());
 
 failOnConsoleNoise();
 afterEach(() => {
@@ -60,11 +63,60 @@ describe('MapLibrary', () => {
       'A',
     ]);
     expect(rows.map((row) => row.querySelector('time')?.dateTime)).toEqual([LATE, LATE, EARLY]);
-    expect(rows.map((row) => row.querySelector('time')?.textContent)).toEqual([LATE, LATE, EARLY]);
+    expect(rows.map((row) => row.querySelector('time')?.textContent)).toEqual([
+      '2026年11月5日 11:00',
+      '2026年11月5日 11:00',
+      '2026年11月5日 10:00',
+    ]);
     expect(screen.getByRole('link', { name: 'A' }).getAttribute('href')).toBe(
       '/maps/A%20%2F%3F%23',
     );
     expect(screen.queryByText('还没有导图')).toBeNull();
+  });
+
+  it('preserves raw timestamp order and row actions alongside an unparseable timestamp', async () => {
+    const repository = memoryLibrary();
+    const unparseable = '2026-not-a-timestamp';
+    await repository.put(stored('valid', 'Valid map', LATE));
+    await repository.put(stored('invalid', 'Imported map', unparseable));
+    await act(async () => {
+      render(<MapLibrary repository={repository} navigate={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const rows = screen.getAllByRole('listitem');
+    expect(rows.map((row) => within(row).getByRole('link').textContent)).toEqual([
+      'Imported map',
+      'Valid map',
+    ]);
+    expect(rows.map((row) => row.querySelector('time')?.dateTime)).toEqual([unparseable, LATE]);
+    expect(rows.map((row) => row.querySelector('time')?.textContent)).toEqual([
+      unparseable,
+      '2026年11月5日 11:00',
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: '重命名 Valid map' }));
+    const form = within(screen.getByRole('form', { name: '重命名 Valid map' }));
+    fireEvent.change(form.getByRole('textbox', { name: '标题' }), {
+      target: { value: 'Renamed map' },
+    });
+    await act(async () => {
+      fireEvent.click(form.getByRole('button', { name: '保存' }));
+      await Promise.resolve();
+    });
+    expect((await repository.get('valid'))?.title).toBe('Renamed map');
+
+    fireEvent.click(screen.getByRole('button', { name: '删除 Imported map' }));
+    const dialog = within(screen.getByRole('dialog', { name: '删除 Imported map' }));
+    await act(async () => {
+      fireEvent.click(dialog.getByRole('button', { name: '确认删除' }));
+      await Promise.resolve();
+    });
+    expect(await repository.get('invalid')).toBeUndefined();
+    expect(screen.queryByRole('link', { name: 'Imported map' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Renamed map' }).getAttribute('href')).toBe(
+      '/maps/valid',
+    );
   });
 
   it('renames a stored map without changing its tree and moves it before its unchanged peer', async () => {

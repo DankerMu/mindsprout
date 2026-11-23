@@ -10,6 +10,7 @@ import {
 import { createMindMap } from '../../contexts/map/domain/create-mind-map';
 import type { MapRepository, MapSummary } from '../../contexts/map/domain/map-repository';
 import { byRecency } from '../../contexts/map/domain/summary-order';
+import { formatTimestamp } from '../../shared/format-timestamp';
 import { useSessionNavigation } from '../account/session-navigation';
 
 interface LibraryLifetime {
@@ -157,7 +158,7 @@ function LibraryRows({
           <li key={id}>
             <Link href={`/maps/${encodeURIComponent(id)}`}>{title}</Link>
             {' — '}
-            <time dateTime={updatedAt}>{updatedAt}</time>
+            <time dateTime={updatedAt}>{formatTimestamp(updatedAt)}</time>
             <button
               type="button"
               aria-label={`重命名 ${title}`}
