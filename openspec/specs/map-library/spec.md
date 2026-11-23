@@ -17,7 +17,7 @@ The home page SHALL offer "新建导图"; creating SHALL call the domain factory
 
 ### Requirement: List maps
 
-The home page SHALL list every map of the signed-in user with its title and last-updated time (`MapSummary { id, title, updatedAt }`), most recently updated first. It SHALL never list another user's maps. An empty list SHALL show an empty-state message with the create action.
+The home page SHALL list every map of the signed-in user with its title and last-updated time (`MapSummary { id, title, updatedAt }`), most recently updated first. It SHALL never list another user's maps. An empty list SHALL show an empty-state message with the create action. The visible last-updated time SHALL use the shared Chinese `Intl.DateTimeFormat` with `dateStyle: 'medium'` and `timeStyle: 'short'` in the browser's local timezone, and SHALL NOT display the raw ISO string. The `<time dateTime>` attribute SHALL preserve the complete original `updatedAt` ISO value, and ordering SHALL continue to use the raw value rather than display text.
 
 #### Scenario: Ordering
 
@@ -28,6 +28,18 @@ The home page SHALL list every map of the signed-in user with its title and last
 
 - **WHEN** `alice` has map A and `bob` has map B, and `alice` opens `/`
 - **THEN** the list shows A and not B
+
+#### Scenario: Localized display preserves the machine timestamp
+
+- **WHEN** a map's original `updatedAt` is an ISO instant that falls on different dates in UTC and the browser's local timezone
+- **THEN** the visible time is the correct localized Chinese date and hour/minute without a raw `T…Z` string
+- **AND** the same element's `dateTime` remains the original ISO instant and raw-value ordering is unchanged
+
+#### Scenario: Unparseable timestamps preserve existing rendering
+
+- **WHEN** an accepted map record has an unparseable arbitrary string as `updatedAt`
+- **THEN** the library continues to render that original string as both visible text and `dateTime` without throwing
+- **AND** valid sibling rows, raw-value ordering and all row actions remain available
 
 ### Requirement: Open, rename, delete
 
@@ -179,3 +191,17 @@ The library SHALL present a rename form or delete confirmation within the map ro
 
 - **WHEN** a user cancels an inline rename or delete confirmation or presses Escape before confirmation
 - **THEN** no map write or delete occurs, the form or confirmation closes, and the existing trigger-focus behavior is preserved
+
+### Requirement: Readable list presentation
+
+The signed-in home page SHALL present maps without browser-default bullet markers, with consistent row spacing and wrapping, visually distinct timestamps and clearly styled action controls. Hiding markers SHALL NOT remove list semantics for assistive technology. Existing inline rename forms and delete confirmations SHALL remain visibly associated with the row that initiated them.
+
+#### Scenario: Map rows and controls are visually structured
+
+- **WHEN** a signed-in user's library contains maps
+- **THEN** the list has no bullet markers, retains explicit list semantics for assistive technology, has rows with consistent spacing and wrapping, and visually distinguishable timestamps and action controls
+
+#### Scenario: Inline mutations retain their visual target
+
+- **WHEN** a user opens rename or delete confirmation from a map row, including one of two same-title rows
+- **THEN** the form or confirmation remains within that initiating row and its controls remain visible and usable without changing the captured map target

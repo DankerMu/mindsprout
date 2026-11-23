@@ -8,7 +8,7 @@ The single administrator can see who has an account and reset a user's forgotten
 
 ### Requirement: Admin user list
 
-The admin page `/admin` SHALL list every account with its username, creation time and whether it is the administrator, oldest first. It SHALL be reachable from a `管理后台` link in the header that only the administrator sees. A signed-in user who is not the administrator SHALL see "无权访问" on `/admin`, and the admin API SHALL refuse them with 403.
+The admin page `/admin` SHALL list every account with its username, creation time and whether it is the administrator, oldest first. It SHALL be reachable from a `管理后台` link in the header that only the administrator sees. A signed-in user who is not the administrator SHALL see "无权访问" on `/admin`, and the admin API SHALL refuse them with 403. The visible creation time SHALL use the same shared Chinese `Intl.DateTimeFormat` as the map library with `dateStyle: 'medium'` and `timeStyle: 'short'` in the browser's local timezone, and SHALL NOT display the raw ISO string. The `<time dateTime>` attribute SHALL preserve the complete original `createdAt` ISO value, and oldest-first ordering SHALL remain based on the API's raw account order.
 
 #### Scenario: Admin sees all accounts
 
@@ -24,6 +24,12 @@ The admin page `/admin` SHALL list every account with its username, creation tim
 
 - **WHEN** the administrator and a regular user each view `/`
 - **THEN** only the administrator's header shows 管理后台
+
+#### Scenario: Localized account creation time preserves the machine value
+
+- **WHEN** an account's original `createdAt` is an ISO instant that crosses a date boundary in the browser's local timezone
+- **THEN** the visible time is the correct localized Chinese date and hour/minute without a raw `T…Z` string
+- **AND** the same element's `dateTime` remains the original ISO instant and account order is unchanged
 
 ### Requirement: Admin password reset
 
@@ -86,3 +92,13 @@ Every password-reset control in the administrator user list SHALL have an access
 
 - **WHEN** the administrator cancels the confirmation naming alice
 - **THEN** no reset request is sent and alice's password and sessions remain unchanged
+
+### Requirement: Readable list presentation
+
+The admin page SHALL present accounts without browser-default bullet markers, with consistent row spacing and wrapping, visually distinct creation times and clearly styled reset controls. Hiding markers SHALL NOT remove list semantics for assistive technology. Every reset control SHALL retain its existing account-specific accessible name and confirmation behavior.
+
+#### Scenario: Account rows and reset controls are visually structured
+
+- **WHEN** the administrator opens `/admin` and accounts exist
+- **THEN** the list has no bullet markers, retains explicit list semantics for assistive technology, has rows with consistent spacing and wrapping, and visually distinguishable creation times and reset controls
+- **AND** each reset control still identifies its account and preserves the existing confirmation and cancellation behavior
