@@ -21,6 +21,7 @@ import {
   temporary,
 } from './native-hmr-profile-fixtures.mjs';
 import { createRuntimeProfile } from './native-hmr-runtime-profile.mjs';
+import './native-hmr-signal-identity-cases.mjs';
 
 for (const mode of ['default', 'profile']) {
   for (const signal of ['SIGINT', 'SIGTERM']) {

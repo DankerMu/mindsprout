@@ -27,6 +27,7 @@ export {
   generationFiles,
   generation,
   deferred,
+  browserIdentity,
   browserFixture,
   startSignalChild,
   startStalledSignalChild,
@@ -242,7 +243,11 @@ function sameBrowserIdentity(expected, current) {
   );
 }
 
-function startSignalChild(mode, directory, { nodeArgs = [], executable = process.execPath } = {}) {
+function startSignalChild(
+  mode,
+  directory,
+  { nodeArgs = [], executable = process.execPath, readBrowserIdentity = browserIdentity } = {},
+) {
   const started = performance.now();
   const ready = deferred();
   const exited = deferred();
@@ -304,14 +309,14 @@ function startSignalChild(mode, directory, { nodeArgs = [], executable = process
 
   function verifyLaunch(browserPid) {
     observed.browserPid = Number.isSafeInteger(browserPid) && browserPid > 0 ? browserPid : null;
-    observed.browserIdentity = browserIdentity(observed.browserPid);
+    observed.browserIdentity = readBrowserIdentity(observed.browserPid);
     if (observed.browserIdentity === null) fail('Signal child reported an unverified browser');
   }
 
   function acceptReady(browserPid) {
     if (
       browserPid !== observed.browserPid ||
-      !sameBrowserIdentity(observed.browserIdentity, browserIdentity(browserPid))
+      !sameBrowserIdentity(observed.browserIdentity, readBrowserIdentity(browserPid))
     ) {
       fail('Signal child ready without verified browser identity');
       return;
@@ -360,7 +365,7 @@ function startSignalChild(mode, directory, { nodeArgs = [], executable = process
     signal(signal) {
       return (
         state === 'ready' &&
-        sameBrowserIdentity(observed.browserIdentity, browserIdentity(observed.browserPid)) &&
+        sameBrowserIdentity(observed.browserIdentity, readBrowserIdentity(observed.browserPid)) &&
         child.kill(signal)
       );
     },
