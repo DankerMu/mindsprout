@@ -8,7 +8,7 @@
 ## 2. Browser and qualification evidence
 
 - [x] 2.1 更新现有 map-library/map-editor/account-admin e2e：显式 Playwright timezone，断言本地化可见值与原始 ISO `dateTime`，重新保存列表、编辑器返回列表和管理页截图且零意外 console/page error。分别运行 `pnpm verify-ui "map-library"`、`pnpm verify-ui "map-editor"` 与 `pnpm verify-ui "account-admin"`。
-- [ ] 2.2 添加 patch changeset，运行 `pnpm test:unit`、fmt/lint/typecheck/boundaries、strict OpenSpec/docs/decisions 与 required CI；确认没有第二份 formatter 或 hydration warning，archive 前最终 head 全绿。
+- [x] 2.2 添加 patch changeset，运行 `pnpm test:unit`、fmt/lint/typecheck/boundaries、strict OpenSpec/docs/decisions 与 required CI；确认没有第二份 formatter 或 hydration warning，archive 前最终 head 全绿。
 
 ## Risk packs
 
