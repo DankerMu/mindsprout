@@ -1,10 +1,13 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import postgres from 'postgres';
+import { assertDevelopmentDatabaseSetup } from '../scripts/db-setup.mjs';
+import { deriveTestDatabaseTarget } from '../scripts/test-database.mjs';
 import { test } from './support/session';
 import { collectExpectedResponses } from './support/expected-responses';
 
 // Automatic traces/screenshots could persist the temporary password on failure.
-test.use({ trace: 'off', screenshot: 'off' });
+test.use({ trace: 'off', screenshot: 'off', timezoneId: 'America/Los_Angeles' });
 
 test('account-admin: Admin sees all accounts', async ({ adminPage, playwright, baseURL }) => {
   const expected = collectExpectedResponses(adminPage, []);
@@ -22,6 +25,23 @@ test('account-admin: Admin sees all accounts', async ({ adminPage, playwright, b
   } finally {
     await registration.dispose();
   }
+
+  const timestamps = [
+    ['e2e-admin', '2024-01-01T00:30:00.000Z', '2023年12月31日 16:30'],
+    [first, '2024-01-01T01:30:00.000Z', '2023年12月31日 17:30'],
+    [second, '2024-01-01T02:30:00.000Z', '2023年12月31日 18:30'],
+  ] as const;
+  assertDevelopmentDatabaseSetup();
+  const { migrationDatabaseUrl } = deriveTestDatabaseTarget('app_e2e', process.env);
+  const sql = postgres(migrationDatabaseUrl, { max: 1 });
+  try {
+    for (const [username, createdAt] of timestamps) {
+      await sql`update users set created_at = ${createdAt} where username = ${username}`;
+    }
+  } finally {
+    await sql.end();
+  }
+
   const response = await adminPage.request.get('/api/admin/users');
   expect(response.status()).toBe(200);
   const accounts = (await response.json()) as {
@@ -31,14 +51,13 @@ test('account-admin: Admin sees all accounts', async ({ adminPage, playwright, b
   }[];
   await adminPage.goto('/admin');
   const rows = adminPage.getByRole('listitem');
-  for (const username of ['e2e-admin', first, second]) {
-    const account = accounts.find((item) => item.username === username);
-    expect(account).toBeDefined();
-    if (!account) throw new Error(`Missing account: ${username}`);
+  for (const [username, createdAt, display] of timestamps) {
+    expect(accounts.find((item) => item.username === username)?.createdAt).toBe(createdAt);
     const row = rows.filter({ has: adminPage.getByText(username, { exact: true }) });
     await expect(row).toBeVisible();
-    await expect(row.locator('time')).toHaveText(account.createdAt);
-    await expect(row.locator('time')).toHaveAttribute('datetime', account.createdAt);
+    await expect(row.locator('time')).toHaveText(display);
+    await expect(row.locator('time')).toHaveAttribute('datetime', createdAt);
+    await expect(row.locator('time')).toBeVisible();
     await expect(row.getByText('管理员', { exact: true })).toHaveCount(
       username === 'e2e-admin' ? 1 : 0,
     );

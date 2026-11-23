@@ -36,9 +36,9 @@ export const test = base.extend<{ session: Session; adminPage: Page }>({
     },
     { auto: true },
   ],
-  adminPage: async ({ browser, baseURL }, provide) => {
+  adminPage: async ({ browser, baseURL, timezoneId }, provide) => {
     if (baseURL === undefined) throw new Error('Missing Playwright baseURL');
-    const context = await browser.newContext({ baseURL });
+    const context = await browser.newContext({ baseURL, ...(timezoneId && { timezoneId }) });
     try {
       await post(
         context,

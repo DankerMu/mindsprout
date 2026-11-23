@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
+import { formatTimestamp } from '../../shared/format-timestamp';
 import { useSessionNavigation } from './session-navigation';
 
 interface AccountInfo {
@@ -163,7 +164,7 @@ export function AdminUserList() {
       <ul aria-label="用户列表">
         {state.accounts.map(({ id, username, createdAt, isAdmin }) => (
           <li key={id}>
-            <span>{username}</span> <time dateTime={createdAt}>{createdAt}</time>{' '}
+            <span>{username}</span> <time dateTime={createdAt}>{formatTimestamp(createdAt)}</time>{' '}
             {isAdmin && <span>管理员</span>}
             <button
               type="button"

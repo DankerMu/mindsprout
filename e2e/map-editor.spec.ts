@@ -180,6 +180,8 @@ async function wheelUntilStable(page: Page, deltaY: number): Promise<number> {
 }
 
 test.describe('map editor route /maps/[id]', () => {
+  test.use({ timezoneId: 'Asia/Shanghai' });
+
   test('stale link shows not-found with a link back to the library', async ({ page }) => {
     const expected = collectExpectedResponses(page, [
       { url: '/api/maps/does-not-exist', status: 404 },
@@ -214,6 +216,10 @@ test.describe('map editor route /maps/[id]', () => {
     const mapLink = page.getByRole('link', { name: '标题A', exact: true });
     await expect(mapLink).toBeVisible();
     await expect(mapLink).toHaveAttribute('href', '/maps/seeded');
+    const time = page.getByRole('listitem').filter({ has: mapLink }).locator('time');
+    await expect(time).toHaveText('2026年11月5日 18:00');
+    await expect(time).toHaveAttribute('datetime', UPDATED_AT);
+    await expect(time).toBeVisible();
     await capture(page, 'map-editor-return-keyboard-library');
     expect(log.noise).toStrictEqual([]);
   });
@@ -247,8 +253,9 @@ test.describe('map editor route /maps/[id]', () => {
 
     await expect(page).toHaveURL('/');
     await expect(rows.getByRole('link')).toHaveText(['标题A', '远方']);
-    await expect(rows.locator('time')).toHaveText([savedAt, peer.updatedAt]);
+    await expect(rows.locator('time')).toHaveText(['2026年11月6日 20:34', '2026年11月5日 19:00']);
     await expect(rows.first().locator('time')).toHaveAttribute('datetime', savedAt);
+    await expect(rows.nth(1).locator('time')).toHaveAttribute('datetime', peer.updatedAt);
     expect(documents).toStrictEqual([]);
     const savedMap = {
       ...SEEDED,

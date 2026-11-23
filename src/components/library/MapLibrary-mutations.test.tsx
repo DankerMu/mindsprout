@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { sampleMap, UPDATED_AT } from '../../../tests/support/map-domain';
 import { ControlledLibrary, heldResult } from '../../../tests/support/map-library';
@@ -15,6 +15,9 @@ const SAME_TITLE_TARGET = { ...TARGET, title: '新导图' };
 const SAME_TITLE_PEER = { ...PEER, title: '新导图' };
 type Mutation = 'rename' | 'delete';
 type Phase = 'get' | 'put' | 'delete';
+
+vi.hoisted(() => vi.stubEnv('TZ', 'UTC'));
+afterAll(() => vi.unstubAllEnvs());
 
 failOnConsoleNoise();
 beforeEach(() => {
@@ -204,9 +207,13 @@ describe('mutation failures', () => {
       expect(screen.getByRole('link', { name: 'A' })).toBeTruthy();
       const rows = screen.getAllByRole('listitem');
       expect(rows.map((row) => within(row).getByRole('link').textContent)).toEqual(['A', 'B']);
+      expect(rows.map((row) => row.querySelector('time')?.dateTime)).toEqual([
+        UPDATED_AT,
+        UPDATED_AT,
+      ]);
       expect(rows.map((row) => row.querySelector('time')?.textContent)).toEqual([
-        UPDATED_AT,
-        UPDATED_AT,
+        '2026年11月5日 10:00',
+        '2026年11月5日 10:00',
       ]);
       expect(await repository.storage.get('a')).toStrictEqual(TARGET);
       expect(await repository.storage.get('b')).toStrictEqual(PEER);
