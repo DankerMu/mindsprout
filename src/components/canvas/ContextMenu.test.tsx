@@ -76,6 +76,31 @@ describe('context menu through the editor', () => {
   });
 });
 
+it('names each color in Chinese and keeps its swatch decorative', () => {
+  setup();
+  open('a');
+  fireEvent.click(item('设置颜色'));
+  const colors = within(screen.getByRole('menu', { name: '设置颜色' }));
+  expect(colors.getAllByRole('menuitem')).toHaveLength(7);
+  for (const [label, token] of [
+    ['红', 'red'],
+    ['橙', 'orange'],
+    ['黄', 'yellow'],
+    ['绿', 'green'],
+    ['蓝', 'blue'],
+    ['紫', 'purple'],
+  ] as const) {
+    const choice = colors.getByRole('menuitem', { name: label });
+    const swatch = choice.querySelector<HTMLElement>('[aria-hidden="true"]');
+    expect(swatch?.classList.contains(`mind-node--color-${token}`)).toBe(true);
+    expect(swatch?.textContent).toBe('');
+    expect(swatch?.tabIndex).toBe(-1);
+    expect(swatch?.hasAttribute('tabindex')).toBe(false);
+  }
+  const clear = colors.getByRole('menuitem', { name: '无颜色' });
+  expect(clear.childElementCount).toBe(0);
+});
+
 it('applies blue to the complete nested selection in one undoable history group', () => {
   const initial = mapOf(
     node('r', [
@@ -94,7 +119,7 @@ it('applies blue to the complete nested selection in one undoable history group'
   fireEvent.click(item('设置颜色'));
   expect(state().map).toStrictEqual(before);
   expect(state().canUndo).toBe(false);
-  fireEvent.click(item('blue'));
+  fireEvent.click(item('蓝'));
 
   expect(state().map).toStrictEqual(
     mapOf(
@@ -128,8 +153,8 @@ it('owns submenu keyboard focus without dispatching or adding history', () => {
   for (const back of ['ArrowLeft', 'Escape']) {
     fireEvent.keyDown(trigger, { key: 'ArrowRight' });
     const child = screen.getByRole('menu', { name: '设置颜色' });
-    const red = within(child).getByRole('menuitem', { name: 'red' });
-    const orange = within(child).getByRole('menuitem', { name: 'orange' });
+    const red = within(child).getByRole('menuitem', { name: '红' });
+    const orange = within(child).getByRole('menuitem', { name: '橙' });
     const clear = within(child).getByRole('menuitem', { name: '无颜色' });
     expect(document.activeElement).toBe(red);
     fireEvent.keyDown(red, { key: 'ArrowDown' });
@@ -206,7 +231,7 @@ it('colors unselected primary and floating roots without replacing the selection
   ] as const) {
     open(id);
     fireEvent.click(item('设置颜色'));
-    fireEvent.click(item('purple'));
+    fireEvent.click(item('紫'));
     expect(state().map).toStrictEqual(expected);
     expect(state().selectedIds).toEqual(['a', 'b']);
     fireEvent.click(screen.getByRole('button', { name: '撤销' }));
@@ -223,7 +248,7 @@ it('uses the selection at child activation rather than submenu opening', () => {
   });
   open('a');
   fireEvent.click(item('设置颜色'));
-  const blue = item('blue');
+  const blue = item('蓝');
   act(() => {
     state().setSelection(['a', 'aa', 'c']);
     fireEvent.click(blue);
@@ -249,7 +274,7 @@ it.each(['map replacement', 'editing', 'new target'])(
     const { state } = setup();
     open('a');
     fireEvent.click(item('设置颜色'));
-    const stale = item('blue');
+    const stale = item('蓝');
     act(() => {
       if (reason === 'map replacement') state().load({ ...MAP, id: 'replacement' });
       if (reason === 'editing') state().startEdit('b');
@@ -270,7 +295,7 @@ it('isolates child input gates, activates Space once and dismisses both levels o
   open('a');
   item('设置颜色').focus();
   fireEvent.keyDown(item('设置颜色'), { key: 'Enter' });
-  const red = item('red');
+  const red = item('红');
   for (const modifiers of [
     { ctrlKey: true },
     { metaKey: true },
@@ -299,12 +324,12 @@ it('isolates child input gates, activates Space once and dismisses both levels o
   open('a');
   item('设置颜色').focus();
   fireEvent.keyDown(item('设置颜色'), { key: ' ' });
-  fireEvent.keyDown(item('red'), { key: 'Tab' });
+  fireEvent.keyDown(item('红'), { key: 'Tab' });
   expect(screen.queryByRole('menu')).toBeNull();
   expect(document.activeElement).toBe(screen.getByRole('region'));
   open('a');
   fireEvent.click(item('设置颜色'));
-  const stale = item('blue');
+  const stale = item('蓝');
   fireEvent.pointerDown(screen.getByRole('button', { name: '外部' }));
   fireEvent.click(stale);
   expect(screen.queryByRole('menu')).toBeNull();

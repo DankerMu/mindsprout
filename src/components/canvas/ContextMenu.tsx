@@ -6,6 +6,7 @@ import type { EditorState } from '../../contexts/map/application/editor-store/ed
 import { visibleIds } from '../../contexts/map/application/editor-store/selection';
 import { nodeMenu, type MenuContext } from '../../contexts/map/application/menu/menu';
 import type { MindMap, NodeId, Position } from '../../contexts/map/domain/types';
+import styles from './MindNodeView.module.css';
 import { isCompositionKey } from './selection-input';
 
 export interface CanvasMenu {
@@ -287,6 +288,16 @@ function ContextMenu({
                   }}
                   style={{ textAlign: 'left', padding: '6px 12px' }}
                 >
+                  {child.colorToken !== undefined && (
+                    <span
+                      aria-hidden="true"
+                      className={[
+                        styles.node,
+                        styles.swatch,
+                        `mind-node--color-${child.colorToken}`,
+                      ].join(' ')}
+                    />
+                  )}
                   {child.label}
                 </button>
               ))}

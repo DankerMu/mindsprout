@@ -1,7 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 import { test } from './support/session';
 import * as fs from 'node:fs';
-import type { MindMap } from '../src/contexts/map/domain/types';
+import type { ColorToken, MindMap } from '../src/contexts/map/domain/types';
 import {
   A,
   AA,
@@ -25,6 +25,15 @@ import {
 import { envelopeOf, readRecord } from './support/seed';
 
 const EVIDENCE = '.run/ui-evidence';
+const COLOR_LABELS: Record<ColorToken | 'clear', string> = {
+  red: '红',
+  orange: '橙',
+  yellow: '黄',
+  green: '绿',
+  blue: '蓝',
+  purple: '紫',
+  clear: '无颜色',
+};
 fs.mkdirSync(EVIDENCE, { recursive: true });
 const noteAt = (page: Page) => page.getByRole('textbox', { name: '节点备注' });
 async function nodeStyle(page: Page, id: string) {
@@ -47,10 +56,10 @@ async function selectThree(page: Page) {
   await nodeAt(page, 'c').click({ modifiers: ['Shift'] });
   await expect(page.locator('.react-flow__node.selected')).toHaveCount(3);
 }
-async function chooseColor(page: Page, id: string, color: string) {
+async function chooseColor(page: Page, id: string, color: ColorToken | 'clear') {
   await open(page, id);
   await item(page, '设置颜色').click();
-  await item(page, color).click();
+  await item(page, COLOR_LABELS[color]).click();
   await expect(page.getByRole('menu')).toHaveCount(0);
 }
 
@@ -411,7 +420,7 @@ test.describe('node context menu', () => {
     };
     await loadMap(page, initial);
     await nodeAt(page, 'a').click();
-    await chooseColor(page, 'a', '无颜色');
+    await chooseColor(page, 'a', 'clear');
     await expect(nodeAt(page, 'a').locator('.mind-node')).not.toHaveClass(/mind-node--color-/);
     await expect.poll(() => roots(page)).toEqual(MAP.roots);
     await restore(page, initial.roots);
@@ -473,11 +482,11 @@ test.describe('node context menu', () => {
     const trigger = item(page, '设置颜色');
     await trigger.focus();
     await page.keyboard.press('ArrowRight');
-    await expect(item(page, 'red')).toBeFocused();
+    await expect(item(page, '红')).toBeFocused();
     await page.keyboard.press('ArrowUp');
     await expect(item(page, '无颜色')).toBeFocused();
     await page.keyboard.press('Home');
-    await expect(item(page, 'red')).toBeFocused();
+    await expect(item(page, '红')).toBeFocused();
     for (const name of ['节点菜单', '设置颜色']) {
       const box = await page.getByRole('menu', { name, exact: true }).boundingBox();
       if (box === null) throw new Error(`missing menu geometry for ${name}`);
@@ -490,21 +499,21 @@ test.describe('node context menu', () => {
     await page.keyboard.press('End');
     await expect(item(page, '无颜色')).toBeFocused();
     await page.keyboard.press('ArrowDown');
-    await expect(item(page, 'red')).toBeFocused();
+    await expect(item(page, '红')).toBeFocused();
     await page.keyboard.press('ArrowLeft');
     await expect(trigger).toBeFocused();
     await expect(page.getByRole('menu', { name: '设置颜色', exact: true })).toHaveCount(0);
     await page.keyboard.press('Enter');
-    await expect(item(page, 'red')).toBeFocused();
+    await expect(item(page, '红')).toBeFocused();
     for (const key of ['ControlOrMeta+Enter', 'ControlOrMeta+z', 'Delete', 'Backspace']) {
       await page.keyboard.press(key);
-      await expect(item(page, 'red')).toBeFocused();
+      await expect(item(page, '红')).toBeFocused();
     }
     await expect(undo(page)).toBeDisabled();
     await page.keyboard.press('Escape');
     await expect(trigger).toBeFocused();
     await page.keyboard.press('Space');
-    await expect(item(page, 'red')).toBeFocused();
+    await expect(item(page, '红')).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(page.getByRole('menu')).toHaveCount(0);
     await expect(page.getByRole('region')).toBeFocused();
@@ -514,7 +523,7 @@ test.describe('node context menu', () => {
     await trigger.focus();
     await page.keyboard.press('ArrowRight');
     for (let step = 0; step < 4; step++) await page.keyboard.press('ArrowDown');
-    await expect(item(page, 'blue')).toBeFocused();
+    await expect(item(page, '蓝')).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('menu')).toHaveCount(0);
     await expect(page.getByRole('region')).toBeFocused();
@@ -523,7 +532,7 @@ test.describe('node context menu', () => {
     await restore(page);
   });
 
-  test('Six color tokens retain their selected backgrounds in light and dark themes', async ({
+  test('Six color tokens match their menu swatches and retain their selected backgrounds', async ({
     page,
   }, info) => {
     const palette = [
@@ -533,7 +542,7 @@ test.describe('node context menu', () => {
       { id: 'b', token: 'green' },
       { id: 'c', token: 'blue' },
       { id: 'f', token: 'purple' },
-    ];
+    ] as const;
     for (const { id, token } of palette) await chooseColor(page, id, token);
     const observations = [];
     const plainObservations = [];
@@ -575,6 +584,17 @@ test.describe('node context menu', () => {
         ).size,
       ).toBe(palette.length);
       await page.screenshot({ path: `${EVIDENCE}/color-theme-${scheme}.png` });
+
+      await open(page, 'r');
+      await item(page, '设置颜色').click();
+      for (const { id, token } of palette) {
+        const swatch = item(page, COLOR_LABELS[token]).locator('[aria-hidden="true"]');
+        await expect(swatch).toBeVisible();
+        await expect(swatch).toHaveCSS('background-color', (await nodeStyle(page, id)).background);
+      }
+      await page.screenshot({ path: `${EVIDENCE}/color-menu-swatches-${scheme}.png` });
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('menu')).toHaveCount(0);
     }
     for (const { token } of palette) {
       const light = observations.find((entry) => entry.scheme === 'light' && entry.token === token);
