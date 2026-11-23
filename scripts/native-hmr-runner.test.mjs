@@ -13,6 +13,7 @@ const cache = path.join(next, 'dev');
 const source = path.resolve('src/app/maps/[id]/MapEditor.tsx');
 const runner = fileURLToPath(new URL('./native-hmr.mjs', import.meta.url));
 const preload = fileURLToPath(new URL('./native-hmr-runner-fixture.mjs', import.meta.url));
+const provider = path.resolve('src/app/providers/MapRepositoryProvider.tsx');
 const load = (directory, file) => JSON.parse(fs.readFileSync(path.join(directory, file), 'utf8'));
 const hash = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const stat = (file) => fs.lstatSync(file, { throwIfNoEntry: false });
@@ -24,7 +25,7 @@ const liveGroup = (pid) => processGroup(pid).filter((member) => !member.state.st
 const wait = (work, stage) => deadline(work, 90000, stage);
 const sentinel = 'PRIVATE_CANARY_external-worktree-trace';
 
-async function prepare(t, name) {
+async function prepare(t, name, sourceFile = source) {
   assert(
     process.env.NATIVE_HMR_RUNNER_OUTPUT,
     'Set NATIVE_HMR_RUNNER_OUTPUT to a fresh artifact directory',
@@ -35,19 +36,24 @@ async function prepare(t, name) {
   assert.equal(await listening(), false, 'Port 3000 must be unused');
   const directory = path.resolve(process.env.NATIVE_HMR_RUNNER_OUTPUT, name);
   fs.mkdirSync(directory, { recursive: true });
-  const original = hash(source);
+  const original = hash(sourceFile);
   t.after(() => {
     if (stat(next)) fs.renameSync(next, path.join(directory, 'cache-final'));
   });
-  return { directory, output: path.join(directory, 'probe'), original };
+  return { directory, output: path.join(directory, 'probe'), original, sourceFile };
 }
 
-function start({ directory, output }, profile, probe, { externalCache, linked } = {}) {
+function start(
+  { directory, output },
+  profile,
+  probe,
+  { externalCache, linked, mode = 'source-change' } = {},
+) {
   const log = fs.openSync(path.join(directory, 'runner.log'), 'wx');
   try {
     const child = spawn(
       process.execPath,
-      ['--import', preload, runner, 'source-change', output, ...(profile ? ['--profile'] : [])],
+      ['--import', preload, runner, mode, output, ...(profile ? ['--profile'] : [])],
       {
         env: {
           ...process.env,
@@ -84,7 +90,7 @@ async function deliver(fixture, signal) {
 }
 
 async function restored(
-  { output, original },
+  { output, original, sourceFile },
   { sourcePrepared = true, cacheRestored = true } = {},
 ) {
   const result = load(output, 'result.json');
@@ -95,7 +101,7 @@ async function restored(
     ...(sourcePrepared ? { sourceHash: original, expectedSourceHash: original } : {}),
   });
   assert.deepEqual(load(output, 'cleanup.json'), result.cleanup);
-  assert.equal(hash(source), original);
+  assert.equal(hash(sourceFile), original);
   assert.equal(load(output, 'handles.json').active, false);
   assert(!stat('.next-profiles'));
   assert.equal(await listening(), false);
@@ -168,6 +174,122 @@ for (const profile of [false, true]) {
       );
     });
   }
+}
+
+test('a later restored trial failure cannot change the ready first-create attempt or label its capture', async (t) => {
+  const run = await prepare(t, 'restored-trial-failure', provider);
+  const cacheInode = createCache();
+  const fixture = start(run, false, 'restored-trial', { mode: 'restored-lifecycle' });
+  assert.deepEqual(await wait(fixture.exit, 'restored trial teardown'), [1, null]);
+  const result = await restored(run);
+  assert.deepEqual(inode(cache), cacheInode);
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.failures, ['Controlled restored trial click failure']);
+  const { events } = result;
+  const [attempt] = events.filter(({ type }) => type === 'public-create-evidence');
+  assert.equal(events.filter(({ type }) => type === 'public-create-evidence').length, 1);
+  assert.deepEqual(
+    [attempt.phase, attempt.data.mode, attempt.data.trial, attempt.data.outcome.status],
+    ['public-map-setup', 'restored-lifecycle', 0, 'ready'],
+  );
+  const failure = events.find(({ type }) => type === 'failure');
+  assert.deepEqual([failure.phase, failure.trial], ['spa-preparation', 1]);
+  assert(failure.ms > attempt.ms);
+  assert.equal(Object.hasOwn(load(run.output, 'failure-capture.json'), 'publicCreate'), false);
+});
+
+for (const [stage, failure] of [
+  ['action', 'Controlled first-create click failure'],
+  ['root', 'public-map root document commit: Controlled root commit failure'],
+  ['ready', null],
+]) {
+  test(`publication append failure at ${stage} preserves actual qualification and persistence`, async (t) => {
+    const run = await prepare(t, `publication-${stage}`);
+    const cacheInode = createCache();
+    const fixture = start(run, false, `publication-${stage}`);
+    assert.deepEqual(await wait(fixture.exit, 'publication probe teardown'), [
+      failure ? 1 : 0,
+      null,
+    ]);
+    const result = await restored(run);
+    assert.deepEqual(inode(cache), cacheInode);
+    assert.equal(result.status, failure ? 'failed' : 'passed');
+    assert.deepEqual(result.failures, failure ? [failure] : []);
+    const chunks = load(run.output, 'chunks.json');
+    const readiness = load(run.output, 'readiness.json');
+    assert(Array.isArray(chunks));
+    if (failure) assert.deepEqual(readiness, []);
+    else assert(readiness.some(({ data }) => data.label === 'public-navigation'));
+    const events = fs
+      .readFileSync(path.join(run.output, 'events.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map(JSON.parse);
+    assert.equal(
+      events.some(({ type }) => type === 'public-create-evidence'),
+      false,
+    );
+    const notice = { stage: 'publication', message: 'Public-create evidence publication failed' };
+    const persisted = result.events.filter(({ type }) =>
+      ['public-create-evidence', 'public-create-observation-error'].includes(type),
+    );
+    assert.deepEqual(
+      persisted.map(({ type }) => type),
+      ['public-create-evidence', 'public-create-observation-error'],
+    );
+    assert.deepEqual(
+      persisted.map(({ at, ms, phase, page, generation, trial }) => [
+        Number.isFinite(at),
+        Number.isFinite(ms),
+        phase,
+        page,
+        generation,
+        trial,
+      ]),
+      Array(2).fill([true, true, 'public-map-setup', 'retained-editor', 0, 0]),
+    );
+    const [evidence] = persisted;
+    assert.equal(
+      evidence.data.outcome.status,
+      { action: 'action-failed', root: 'unavailable', ready: 'ready' }[stage],
+    );
+    assert.deepEqual(
+      result.events
+        .filter(({ type }) => type === 'public-create-observation-error')
+        .map(({ data }) => data),
+      [notice],
+    );
+    assert.deepEqual(
+      events
+        .filter(({ type }) => type === 'public-create-observation-error')
+        .map(({ data }) => data),
+      stage === 'root' ? [] : [notice],
+    );
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE_CANARY.*append failure/);
+    const { before, after, rejected, pids } = load(run.directory, 'publication-exit.json');
+    assert.deepEqual(after, before);
+    assert.deepEqual(
+      rejected,
+      stage === 'root'
+        ? ['public-create-evidence', 'public-create-observation-error']
+        : ['public-create-evidence'],
+    );
+    assert.equal(pids.length, 1);
+    const servers = events.filter(({ type }) => type === 'server-stopped');
+    assert.equal(servers.length, 1);
+    for (const pid of [...pids, ...servers.map(({ data }) => data.pid)])
+      assert.deepEqual(liveGroup(pid), []);
+    if (failure) {
+      const [raw] = events.filter(({ type }) => type === 'failure');
+      assert.equal(raw.data.message, failure);
+      assert(raw.data.stack.includes(failure));
+      const capture = load(run.output, 'failure-capture.json');
+      assert.deepEqual(
+        capture.publicCreate,
+        stage === 'action' ? { phase: 'failed-tail' } : undefined,
+      );
+    }
+  });
 }
 
 function assertExternalTrace(

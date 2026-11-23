@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { observeEditorVisit } from './native-hmr-observation.mjs';
 import { countSamplerWork, liveReadiness } from './native-hmr-readiness-fixtures.mjs';
-import { deferred, noSecrets } from './native-hmr-profile-fixtures.mjs';
-import { deadline, waitForObserved, waitForReadiness } from './native-hmr-support.mjs';
+import { deferred, noSecrets, temporary } from './native-hmr-profile-fixtures.mjs';
+import { capturePage, deadline, waitForObserved, waitForReadiness } from './native-hmr-support.mjs';
 
 function acknowledgedBindingRemoval(cdp) {
   const removed = deferred();
@@ -279,26 +281,151 @@ test('detaching the actual CDP session abandons channels without changing the re
   noSecrets(evidence);
 });
 
+for (const timing of ['before-start', 'before-ready', 'failed-tail', 'after-ready']) {
+  test(`default CDP detach ${timing} preserves the original attempt`, async (t) => {
+    const fixture = await liveReadiness(t, { profile: false });
+    const { page, cdp, observation, now, requests, received, readEvidence } = fixture;
+    const detach = async () => {
+      await cdp.detach();
+      assert.equal(page.isClosed(), false);
+      assert.equal(await page.title(), '');
+    };
+    if (timing === 'before-start') {
+      const held = deferred();
+      const snapshot = deferred();
+      const send = cdp.send.bind(cdp);
+      cdp.send = async (...args) => {
+        const result = await send(...args);
+        snapshot.resolve();
+        await held.promise;
+        return result;
+      };
+      const beginning = observation.begin();
+      await snapshot.promise;
+      try {
+        await detach();
+        assert.equal(readEvidence(), undefined);
+      } finally {
+        held.resolve();
+      }
+      await beginning;
+    } else await observation.begin();
+    const start = now();
+    observation.start(start);
+    observation.actionSettled('fulfilled', start);
+    if (timing === 'before-ready') await detach();
+    const outcome = timing === 'failed-tail' ? 'readiness-failed' : 'ready';
+    observation.outcome(outcome, start);
+    await observation.end();
+    if (timing === 'failed-tail') {
+      const output = temporary(t);
+      const content = page.content.bind(page);
+      page.content = async () => {
+        await detach();
+        assert.equal(readEvidence(), undefined);
+        return content();
+      };
+      try {
+        await capturePage({ page, cdp }, 'failure', output, observation.failedCreateCapture());
+      } catch (error) {
+        // The original frame request can lose the race with detachment.
+        assert(error instanceof AggregateError);
+        assert.equal(error.errors.length, 1);
+        assert.match(error.errors[0].message, /closed|detached/i);
+      }
+      const capture = JSON.parse(
+        fs.readFileSync(path.join(output, 'failure-capture.json'), 'utf8'),
+      );
+      assert.deepEqual(capture.publicCreate, { phase: 'failed-tail' });
+      assert.match(fs.readFileSync(path.join(output, 'failure.html'), 'utf8'), /map-editor-ready/);
+      assert.equal(readEvidence(), undefined);
+    }
+    let ready;
+    if (timing === 'after-ready') {
+      ready = structuredClone(readEvidence());
+      await detach();
+    }
+    const lateRequest = {
+      requestId: 'late',
+      type: 'Script',
+      timestamp: 10,
+      request: { method: 'GET', url: new URL('/late.js', page.url()).href },
+    };
+    cdp.emit('Network.requestWillBeSent', lateRequest);
+    const evidence = await fixture.finish();
+    cdp.emit('Network.requestWillBeSent', lateRequest);
+    assert.deepEqual(readEvidence(), evidence);
+    if (timing === 'before-start') {
+      assert.deepEqual(evidence.budget, {
+        start: { epochMs: null, elapsedMs: null },
+        deadline: { epochMs: null, elapsedMs: null },
+      });
+      assert.equal(evidence.action.status, 'unavailable');
+      assert.equal(evidence.outcome.status, 'unavailable');
+      assert(evidence.network.codes.includes('missing-network-observation'));
+    } else {
+      assert.equal(evidence.budget.start.elapsedMs, start.ms);
+      assert.deepEqual(evidence.outcome, {
+        status: outcome,
+        at: { epochMs: start.at, elapsedMs: start.ms },
+      });
+    }
+    if (timing === 'after-ready') {
+      assert.deepEqual(evidence, ready);
+      assert.equal(evidence.network.status, 'complete');
+    } else {
+      assert.equal(evidence.network.status, 'partial');
+      assert(evidence.codes.includes('cdp-disconnected'));
+      assert(evidence.network.codes.includes('cdp-disconnected'));
+    }
+    assert.deepEqual(evidence.network.requests, []);
+    assert.deepEqual(received, []);
+    assert.deepEqual(requests, [{ method: 'GET', url: '/' }]);
+  });
+}
+
 for (const profile of [false, true]) {
   test(`${profile ? 'profiled' : 'default'} readiness observation issues no additional HTTP requests`, async (t) => {
     const fixture = await liveReadiness(t, { profile });
     const { page, observation, now, requests, received } = fixture;
     assert.deepEqual(requests, [{ method: 'GET', url: '/' }]);
-    await observation.begin();
-    observation.start(now());
-    observation.actionSettled('fulfilled', now());
-    await page.evaluate(() => globalThis.history.pushState({}, '', '/maps/private-no-request'));
-    if (profile) await fixture.sampled((sample) => sample.route === 'editor');
-    observation.outcome('ready', now());
-    await observation.end();
+    if (!profile) await countSamplerWork(page);
+    const commands = [];
+    const send = fixture.cdp.send.bind(fixture.cdp);
+    fixture.cdp.send = (method, params) => {
+      commands.push(method);
+      return send(method, params);
+    };
+    await observeEditorVisit(
+      { page, navigationObservation: observation },
+      () => page.evaluate(() => globalThis.history.pushState({}, '', '/maps/private-no-request')),
+      undefined,
+      {
+        guard: (promise) => promise,
+        readiness: profile
+          ? () => fixture.sampled((sample) => sample.route === 'editor')
+          : async () => undefined,
+        now,
+      },
+    );
     await page.goBack();
+    if (!profile) {
+      assert.equal(await page.evaluate(() => globalThis.__readinessWork.reads), 0);
+      assert.equal(
+        await page.evaluate(() => Object.hasOwn(globalThis, '__mindsproutReadinessSample')),
+        false,
+      );
+    }
     const evidence = await fixture.finish();
     assert.deepEqual(requests, [{ method: 'GET', url: '/' }]);
     if (profile) {
       assert.equal(evidence.outcome.status, 'ready');
       assert.equal(evidence.marker.shutdown, 'stopped');
     } else {
-      assert.equal(evidence, undefined);
+      assert.equal(evidence?.outcome.status, 'ready');
+      assert.deepEqual(evidence.marker.codes, ['missing-marker-observation']);
+      assert.deepEqual(evidence.routes.codes, ['missing-route-observation']);
+      assert.deepEqual(commands, ['Performance.getMetrics', 'Performance.getMetrics']);
       assert.deepEqual(received, []);
     }
   });

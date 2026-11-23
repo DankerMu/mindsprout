@@ -119,13 +119,59 @@ function eligibleBrowserFailure(failure) {
   return failure.phase === 'restart-observation' && failure.resumed;
 }
 
-function browserFailure(events) {
-  if (!Array.isArray(events) || !events.length || events.length > limits.records) return false;
-  const state = { failure: null, resumed: new Set() };
-  for (const event of events) {
-    if (!observeQualificationEvent(state, event)) return false;
+function validDefaultCreateEvent(event) {
+  return (
+    event.phase === 'public-map-setup' &&
+    event.page === 'retained-editor' &&
+    event.generation === 0 &&
+    event.trial === 0 &&
+    finite(event.at) &&
+    finite(event.ms) &&
+    event.data !== null &&
+    typeof event.data === 'object' &&
+    !Array.isArray(event.data)
+  );
+}
+
+function validPublicationNotice(event) {
+  return (
+    validDefaultCreateEvent(event) &&
+    Object.keys(event.data).length === 2 &&
+    event.data.stage === 'publication' &&
+    event.data.message === 'Public-create evidence publication failed'
+  );
+}
+
+function countReplayEvent(state, event) {
+  switch (event.type) {
+    case 'public-create-evidence':
+      if (state.createEvidence || !validDefaultCreateEvent(event)) return false;
+      state.createEvidence = true;
+      return true;
+    case 'public-create-observation-error':
+      if (state.publicationNotice || !validPublicationNotice(event)) return false;
+      state.publicationNotice = true;
+      return true;
+    default:
+      return ++state.legacy <= limits.records;
   }
-  return eligibleBrowserFailure(state.failure);
+}
+
+function browserFailure(events) {
+  if (!Array.isArray(events) || !events.length || events.length > limits.records + 2) return false;
+  const state = {
+    failure: null,
+    resumed: new Set(),
+    legacy: 0,
+    createEvidence: false,
+    publicationNotice: false,
+  };
+  for (const event of events) {
+    if (!observeQualificationEvent(state, event) || !countReplayEvent(state, event)) return false;
+  }
+  return (
+    (!state.publicationNotice || state.createEvidence) && eligibleBrowserFailure(state.failure)
+  );
 }
 
 function qualificationCode(evidence, mode) {

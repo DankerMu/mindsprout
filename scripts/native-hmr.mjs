@@ -82,10 +82,8 @@ let retained, window;
 const pendingBodies = new Set();
 const chunks = [];
 const readies = [];
-const profiling = createRuntimeProfile({ profile, repo, out, mode, started }, () => ({
-  generation,
-  trial,
-}));
+const context = () => ({ generation, trial });
+const profiling = createRuntimeProfile({ profile, repo, out, mode, started }, context);
 const now = () => ({ at: Date.now(), ms: performance.now() - started });
 const save = (name, value) => {
   fs.writeFileSync(file(name + '.pending'), JSON.stringify(value, null, 2) + '\n');
@@ -99,6 +97,7 @@ const record = (type, data = {}, page = 'collector') => {
   return event;
 };
 let interrupt;
+let signalReceived = false;
 const interrupted = new Promise((_, reject) => {
   interrupt = reject;
 });
@@ -106,7 +105,11 @@ interrupted.catch(() => {
   // Guard races observe the original rejection even when a signal arrives between operations.
 });
 const guard = (promise) => Promise.race([promise, interrupted]);
-const removeSignalHandlers = profiling.registerSignals(interrupt);
+const removeSignalHandlers = profiling.registerSignals((error) => {
+  signalReceived = true;
+  interrupt(error);
+});
+const defaultCreate = { origin, now, mode, context, interrupted: () => signalReceived };
 
 function handles() {
   save('handles.json', {
@@ -252,7 +255,8 @@ async function attach(page, label) {
     readiness: [],
   };
   trackInitialScripts(state, observed);
-  if (!profile) state.navigationObservation = observeNavigation(state, record);
+  if (!profile)
+    state.navigationObservation = observeNavigation(state, record, undefined, defaultCreate);
   page.on('console', (message) =>
     record(
       'console',
@@ -263,7 +267,10 @@ async function attach(page, label) {
   page.on('pageerror', (error) =>
     record('pageerror', { message: error.message, stack: error.stack }, label),
   );
-  page.on('crash', () => record('crash', {}, label));
+  page.on('crash', () => {
+    state.crashed = true;
+    record('crash', {}, label);
+  });
   cdp.on('Network.requestWillBeSent', (data) => {
     profiling.recordNetwork(data, label);
     record(
@@ -354,7 +361,7 @@ async function attach(page, label) {
   }
   return state;
 }
-const capture = (state, name) => capturePage(state, name, out);
+const capture = (state, name, publicCreate) => capturePage(state, name, out, publicCreate);
 const visitEditor = (state, action, expectedPath) =>
   observeEditorVisit(state, action, expectedPath, { guard, readiness, now });
 async function homeBack(state) {
@@ -665,18 +672,22 @@ async function run() {
     record('failure', { message: error.message, stack: error.stack });
     if (retained && !pausedBrowser) {
       try {
-        await capture(retained, 'failure');
+        await capture(retained, 'failure', retained.navigationObservation.failedCreateCapture());
       } catch (captureError) {
         result.failures.push(captureError.message);
       }
     }
   } finally {
-    phase = 'cleanup';
-    // Observation only: bodies requested before shutdown are saved, never affecting status.
-    await deadline(Promise.all([...pendingBodies]), 5000, 'Script body capture').catch((error) =>
-      record('chunk-body-error', { message: error.message }),
-    );
-    await cleanup();
+    try {
+      retained?.navigationObservation?.finish();
+    } finally {
+      phase = 'cleanup';
+      // Observation only: bodies requested before shutdown are saved, never affecting status.
+      await deadline(Promise.all([...pendingBodies]), 5000, 'Script body capture').catch((error) =>
+        record('chunk-body-error', { message: error.message }),
+      );
+      await cleanup();
+    }
     save('chunks.json', chunks);
     save('readiness.json', readies);
     profiling.recordInterrupt(result, record);
