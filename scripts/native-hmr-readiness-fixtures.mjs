@@ -73,7 +73,9 @@ export async function liveReadiness(t, { profile = true } = {}) {
     events.emit('event');
   });
   const readEvidence = () =>
-    JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8')).publicCreate;
+    profile
+      ? JSON.parse(fs.readFileSync(path.join(output, 'safe/summary.json'), 'utf8')).publicCreate
+      : defaultEvents.find(({ type }) => type === 'public-create-evidence')?.data;
   return {
     page,
     browser,
@@ -93,7 +95,6 @@ export async function liveReadiness(t, { profile = true } = {}) {
       if (!profile) {
         assert.equal(fs.existsSync(path.join(output, 'safe')), false);
         assert.equal(fs.existsSync(path.join(repo, '.next-profiles')), false);
-        return defaultEvents.find(({ type }) => type === 'public-create-evidence')?.data;
       }
       return readEvidence();
     },

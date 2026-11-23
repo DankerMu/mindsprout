@@ -198,6 +198,77 @@ test('a later restored trial failure cannot change the ready first-create attemp
   assert.equal(Object.hasOwn(load(run.output, 'failure-capture.json'), 'publicCreate'), false);
 });
 
+for (const [stage, failure] of [
+  ['action', 'Controlled first-create click failure'],
+  ['root', 'public-map root document commit: Controlled root commit failure'],
+  ['ready', null],
+]) {
+  test(`publication append failure at ${stage} preserves actual qualification and persistence`, async (t) => {
+    const run = await prepare(t, `publication-${stage}`);
+    const cacheInode = createCache();
+    const fixture = start(run, false, `publication-${stage}`);
+    assert.deepEqual(await wait(fixture.exit, 'publication probe teardown'), [
+      failure ? 1 : 0,
+      null,
+    ]);
+    const result = await restored(run);
+    assert.deepEqual(inode(cache), cacheInode);
+    assert.equal(result.status, failure ? 'failed' : 'passed');
+    assert.deepEqual(result.failures, failure ? [failure] : []);
+    const chunks = load(run.output, 'chunks.json');
+    const readiness = load(run.output, 'readiness.json');
+    assert(Array.isArray(chunks));
+    if (failure) assert.deepEqual(readiness, []);
+    else assert(readiness.some(({ data }) => data.label === 'public-navigation'));
+    const events = fs
+      .readFileSync(path.join(run.output, 'events.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map(JSON.parse);
+    assert.equal(
+      events.some(({ type }) => type === 'public-create-evidence'),
+      false,
+    );
+    const notice = { stage: 'publication', message: 'Public-create evidence publication failed' };
+    assert.deepEqual(
+      result.events
+        .filter(({ type }) => type === 'public-create-observation-error')
+        .map(({ data }) => data),
+      [notice],
+    );
+    assert.deepEqual(
+      events
+        .filter(({ type }) => type === 'public-create-observation-error')
+        .map(({ data }) => data),
+      stage === 'root' ? [] : [notice],
+    );
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE_CANARY.*append failure/);
+    const { before, after, rejected, pids } = load(run.directory, 'publication-exit.json');
+    assert.deepEqual(after, before);
+    assert.deepEqual(
+      rejected,
+      stage === 'root'
+        ? ['public-create-evidence', 'public-create-observation-error']
+        : ['public-create-evidence'],
+    );
+    assert.equal(pids.length, 1);
+    const servers = events.filter(({ type }) => type === 'server-stopped');
+    assert.equal(servers.length, 1);
+    for (const pid of [...pids, ...servers.map(({ data }) => data.pid)])
+      assert.deepEqual(liveGroup(pid), []);
+    if (failure) {
+      const [raw] = events.filter(({ type }) => type === 'failure');
+      assert.equal(raw.data.message, failure);
+      assert(raw.data.stack.includes(failure));
+      const capture = load(run.output, 'failure-capture.json');
+      assert.deepEqual(
+        capture.publicCreate,
+        stage === 'action' ? { phase: 'failed-tail' } : undefined,
+      );
+    }
+  });
+}
+
 function assertExternalTrace(
   run,
   summary,

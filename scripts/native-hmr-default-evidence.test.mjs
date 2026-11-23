@@ -117,14 +117,16 @@ const missingRoutes = {
 test('the default observer publishes a fixed ready attempt without changing legacy events or CDP work', async () => {
   const { cdp, commands, clock, context, events, observation, request, visit, evidence } =
     defaultAttempt();
-  assert.deepEqual(cdp.eventNames(), [
+  assert.equal(cdp.listenerCount('close'), 1);
+  const networkEvents = cdp.eventNames().filter((event) => event !== 'close');
+  assert.deepEqual(networkEvents, [
     'Network.requestWillBeSent',
     'Network.responseReceived',
     'Network.dataReceived',
     'Network.loadingFinished',
     'Network.loadingFailed',
   ]);
-  for (const event of cdp.eventNames()) assert.equal(cdp.listenerCount(event), 1);
+  for (const event of networkEvents) assert.equal(cdp.listenerCount(event), 1);
   const send = cdp.send;
   cdp.send = (method) => {
     if (!commands.length) {
@@ -144,6 +146,7 @@ test('the default observer publishes a fixed ready attempt without changing lega
       clock.ms = 150;
     },
   );
+  assert.equal(cdp.listenerCount('close'), 0);
   assert.deepEqual(evidence(), {
     ...provenance,
     budget,

@@ -52,6 +52,13 @@ function createNavigationDiagnostic(state, options) {
   const problems = new Set();
   let finalization;
   let claimed = false;
+  let networkDisconnected = false;
+  function disconnectNetwork() {
+    networkDisconnected = true;
+    problems.add('cdp-disconnected');
+    pending.clear();
+  }
+  if (options.sampler === false) state.cdp.once('close', disconnectNetwork);
   const receipt = () => {
     const clock = options.clock();
     return {
@@ -83,11 +90,18 @@ function createNavigationDiagnostic(state, options) {
       codes: [...problems],
     });
   }
-  function finalize(code) {
-    if (phase === 'finalized') return finalization;
+  function finishNetwork(code = options.terminal?.()) {
     if (code === 'page-closed') code = phase === 'armed' ? 'cdp-disconnected' : undefined;
     if (code) problems.add(code);
-    if (options.sampler === false && phase === 'armed') problems.add('missing-network-observation');
+    if (options.sampler === false) {
+      state.cdp.off('close', disconnectNetwork);
+      if (phase === 'armed') problems.add('missing-network-observation');
+    }
+    return code;
+  }
+  function finalize(code) {
+    if (phase === 'finalized') return finalization;
+    code = finishNetwork(code);
     if (omittedRequests) problems.add('request-limit');
     phase = 'finalized';
     pending.clear();
@@ -97,7 +111,7 @@ function createNavigationDiagnostic(state, options) {
     return finalization;
   }
   function start(value) {
-    if (phase !== 'armed' || options.terminal?.()) return;
+    if (phase !== 'armed' || networkDisconnected || options.terminal?.()) return;
     const start = originalClock(value);
     attempt.budget = {
       start,
@@ -109,7 +123,9 @@ function createNavigationDiagnostic(state, options) {
     phase = 'observing';
   }
   const acceptsRequest = (id) =>
-    ['observing', 'failed-tail'].includes(phase) && pending.get(id) !== null;
+    !networkDisconnected &&
+    ['observing', 'failed-tail'].includes(phase) &&
+    pending.get(id) !== null;
   return {
     start,
     finish: finalize,
@@ -200,6 +216,26 @@ function createNavigationDiagnostic(state, options) {
   };
 }
 
+function publishDefaultCreate(record, label, value, context, mode) {
+  try {
+    record(
+      'public-create-evidence',
+      safePublicCreate({ ...value, ...context, mode, page: label }, mode),
+      label,
+    );
+  } catch {
+    try {
+      record(
+        'public-create-observation-error',
+        { stage: 'publication', message: 'Public-create evidence publication failed' },
+        label,
+      );
+    } catch {
+      // The diagnostic log cannot control qualification or its persistence.
+    }
+  }
+}
+
 export function observeNavigation(state, record, diagnosticOptions, defaultCreate) {
   let active = false;
   let omittedRequests = 0;
@@ -232,12 +268,12 @@ export function observeNavigation(state, record, diagnosticOptions, defaultCreat
             return true;
           },
           sink(value) {
-            const { mode } = local;
-            const context = createContext ?? local.context();
-            record(
-              'public-create-evidence',
-              safePublicCreate({ ...value, ...context, mode, page: label }, mode),
+            publishDefaultCreate(
+              record,
               label,
+              value,
+              createContext ?? local.context(),
+              local.mode,
             );
           },
         }
@@ -354,7 +390,7 @@ export function observeNavigation(state, record, diagnosticOptions, defaultCreat
     outcome: (status, value) => diagnostic?.outcome(status, value),
     failedCreateCapture: () => (local ? diagnostic.failedCreateCapture() : undefined),
     finish() {
-      if (local) (finishCreate ?? diagnostic.finish)(terminal());
+      if (local) (finishCreate ?? diagnostic.finish)();
     },
     async begin() {
       diagnostic?.arm();

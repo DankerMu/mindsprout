@@ -155,6 +155,37 @@ for (const mode of ['restored-lifecycle', 'source-change']) {
   });
 }
 
+test('selector keeps the legacy record cap plus one valid first-create envelope', (t) => {
+  const fixture = diagnosticFixture(t);
+  const failure = failureEvent('public-map-setup');
+  const evidence = {
+    ...failure,
+    type: 'public-create-evidence',
+    page: 'retained-editor',
+    data: { attempt: 1 },
+  };
+  const legacy = [...Array(19_999).fill({ type: 'browser-request' }), failure];
+  for (const [name, events, eligible] of [
+    ['legacy boundary', legacy, true],
+    ['additive evidence', [...legacy, evidence], true],
+    ['arbitrary extra event', [...legacy, { type: 'extra' }], false],
+    ['excess legacy and evidence', [...legacy, { type: 'extra' }, evidence], false],
+    ['duplicate evidence', [failure, evidence, evidence], false],
+    ['malformed extra evidence', [...legacy, { ...evidence, page: 'collector' }], false],
+    ['malformed evidence within legacy cap', [failure, { type: evidence.type }], false],
+  ]) {
+    fixture.result.events = events;
+    fixture.save();
+    assert.deepEqual(
+      selectNativeDiagnostic(fixture.input),
+      eligible
+        ? { eligible: true, mode: 'restored-lifecycle', code: null }
+        : { eligible: false, mode: null, code: 'non-browser-failure' },
+      name,
+    );
+  }
+});
+
 test('success, Linux, cancellation and installation failures cannot select a diagnostic', (t) => {
   const { input } = diagnosticFixture(t);
   for (const changes of [

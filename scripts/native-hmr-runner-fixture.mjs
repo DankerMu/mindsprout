@@ -37,7 +37,48 @@ if (process.env.NATIVE_RUNNER_PROBE === 'post-stop') {
   };
 }
 
-if (process.env.NATIVE_RUNNER_PROBE === 'restored-trial') {
+const probe = process.env.NATIVE_RUNNER_PROBE;
+const publication = probe?.startsWith('publication-');
+if (publication) {
+  const append = fs.appendFileSync;
+  const signals = ['SIGINT', 'SIGTERM'];
+  const before = signals.map((signal) => process.listenerCount(signal));
+  const rejected = [];
+  const pids = [];
+  fs.appendFileSync = (filename, text, ...options) => {
+    if (path.basename(filename) === 'events.jsonl') {
+      const { type } = JSON.parse(text);
+      if (type === 'public-create-evidence' && !rejected.includes(type)) {
+        rejected.push(type);
+        throw new Error('PRIVATE_CANARY evidence append failure');
+      }
+      if (type === 'public-create-observation-error' && probe === 'publication-root') {
+        rejected.push(type);
+        throw new Error('PRIVATE_CANARY fallback append failure');
+      }
+    }
+    return append(filename, text, ...options);
+  };
+  const launch = chromium.launchServer.bind(chromium);
+  chromium.launchServer = async (...args) => {
+    const server = await launch(...args);
+    pids.push(server.process().pid);
+    return server;
+  };
+  process.once('exit', () => {
+    fs.writeFileSync(
+      path.join(path.dirname(process.argv[3]), 'publication-exit.json'),
+      JSON.stringify({
+        before,
+        after: signals.map((signal) => process.listenerCount(signal)),
+        rejected,
+        pids,
+      }),
+    );
+  });
+}
+
+if (probe === 'restored-trial' || probe === 'publication-action' || probe === 'publication-root') {
   const connect = chromium.connect.bind(chromium);
   chromium.connect = async (...args) => {
     const browser = await connect(...args);
@@ -47,6 +88,23 @@ if (process.env.NATIVE_RUNNER_PROBE === 'restored-trial') {
       const newPage = context.newPage.bind(context);
       context.newPage = async () => {
         const page = await newPage();
+        if (probe === 'publication-root') {
+          page.goto = async () => {
+            throw new Error('Controlled root commit failure');
+          };
+        } else if (probe === 'publication-action') {
+          const getByRole = page.getByRole.bind(page);
+          page.getByRole = (role, options) => {
+            const button = getByRole(role, options);
+            if (role === 'button' && options?.name === '新建导图') {
+              button.click = async () => {
+                throw new Error('Controlled first-create click failure');
+              };
+            }
+            return button;
+          };
+        }
+        if (probe !== 'restored-trial') return page;
         const locator = page.locator.bind(page);
         let mapClicks = 0;
         page.locator = (selector, ...options) => {

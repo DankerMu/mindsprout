@@ -2,13 +2,15 @@
 
 ## 1. Default bounded attempt evidence
 
-- [x] 1.1 先以 default `observeNavigation` + `observeEditorVisit` 写失败回归：原实现没有 budget/action/outcome、marker/route partial 或 safe evidence。复用现有 diagnostic factory 与 `safePublicCreate`，加入显式 no-sampler default wiring 和有界 `public-create-evidence` sink；保留 legacy empty outcome/raw network，不新增 listener/HTTP/CDP command、`safe/` 或 `.next-profiles`。
+- [x] 1.1 先以 default `observeNavigation` + `observeEditorVisit` 写失败回归：原实现没有 budget/action/outcome、marker/route partial 或 safe evidence。复用现有 diagnostic factory 与 `safePublicCreate`，加入显式 no-sampler default wiring 和有界 `public-create-evidence` sink；保留 legacy empty outcome/raw network，仅新增一个 CDP-close 生命周期 hook，不新增 network/timeline listener、HTTP/CDP command、`safe/` 或 `.next-profiles`。
 - [x] 1.2 覆盖 arm 在首个 awaited snapshot 前注册 finalizer、begin→start、start 前保持 armed，以及 interruption-before-claim/start 的 null budget/unavailable action/outcome 且不过早 finalize。覆盖 fulfilled/rejected action、ready/readiness-failed/action-failed、root-commit-before-start、第二次导航与 ready 后 save assertion failure。验证原始 start/+5000 deadline 和 outcome 不被改写；ready/save 顺序仅 pin 现有行为，不修产品归因。
 
 ## 2. Failed-tail capture and lifecycle
 
 - [x] 2.1 先写 readiness failure 后网络 receipt 与 DOM capture 红测，再让 default finalization 延后到现有 capture 后、cleanup 前；晚到记录只标记 failed-tail，success 立即 fence，root failure 仅 partial/unknown。不得增加 grace wait、deadline 或清理预算。
 - [x] 2.2 验证 canary URL/request/error 不进入 safe event，64-request cap/omissions、marker/route missing codes、异常/中断/页面关闭均显式 partial；profile replay/finalization 与 default 产物分离。增加首个 create ready 后 restored trial failure：attempt 1 保持 ready、迟到观察不改写、无关 capture 不含 failed-tail metadata，后续 failure/cleanup 仍权威。
+
+Fix-pass red/green 覆盖 Chromium CDP detach 的四个阶段、实际 runner 的 action/root/ready 发布错误，以及 replay selector 的 20,000 legacy + 1 valid evidence 边界；保留 later restored trial failure 回归。
 
 ## 3. Contract and verification
 

@@ -119,11 +119,31 @@ function eligibleBrowserFailure(failure) {
   return failure.phase === 'restart-observation' && failure.resumed;
 }
 
+function validDefaultCreateEvent(event) {
+  return (
+    event.phase === 'public-map-setup' &&
+    event.page === 'retained-editor' &&
+    event.generation === 0 &&
+    event.trial === 0 &&
+    finite(event.at) &&
+    finite(event.ms) &&
+    event.data !== null &&
+    typeof event.data === 'object' &&
+    !Array.isArray(event.data)
+  );
+}
+
 function browserFailure(events) {
-  if (!Array.isArray(events) || !events.length || events.length > limits.records) return false;
+  if (!Array.isArray(events) || !events.length || events.length > limits.records + 1) return false;
   const state = { failure: null, resumed: new Set() };
+  let createEvidence = false;
+  let legacy = 0;
   for (const event of events) {
     if (!observeQualificationEvent(state, event)) return false;
+    if (event.type === 'public-create-evidence') {
+      if (createEvidence || !validDefaultCreateEvent(event)) return false;
+      createEvidence = true;
+    } else if (++legacy > limits.records) return false;
   }
   return eligibleBrowserFailure(state.failure);
 }

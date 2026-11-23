@@ -15,9 +15,10 @@ Native navigation diagnostics SHALL retain a bounded public-create timeline that
 - **WHEN** an installed or candidate native command runs either mode without profiling
 - **THEN** the existing first-create observer records one bounded `public-create-evidence` event with original budget/action/outcome, fixed-class network receipts and explicit partial marker/route channels
 - **AND** the local claim registers finalization before the first awaited Performance snapshot, begin precedes start, and the claimed no-sampler attempt remains armed until start records the original budget
-- **AND** no additional public-create timeline commands, listeners, page sampling, HTTP requests, `.next-profiles` or `safe/` output are enabled
+- **AND** one CDP-close lifecycle hook marks network observation partial on detachment; no additional public-create timeline commands, network/timeline listeners, page sampling, HTTP requests, `.next-profiles` or `safe/` output are enabled
 - **AND** legacy empty outcome/raw network events, invocation grammar, qualification ordering, assertions and cleanup remain unchanged
 - **AND** the event's `data` carries the fixed `attempt`, `mode`, `generation`, `trial`, `page`, `budget`, `action`, `outcome`, `network`, `marker`, `routes`, `status` and `codes` fields; the addition requires no migration
+- **AND** if that publication fails, a fixed `public-create-observation-error` notice is attempted without replacing the original functional result or preventing its persistence
 
 #### Scenario: Profiled public creation
 
@@ -76,4 +77,5 @@ Native navigation diagnostics SHALL retain a bounded public-create timeline that
 - **WHEN** an eligible failed Darwin qualification triggers its existing single diagnostic execution
 - **THEN** the original invocation retains only its lightweight default attempt record while the separate profiled invocation supplies the richer sampled timeline
 - **AND** original qualification artifacts and failed job/aggregate remain authoritative and distinct from the replay
+- **AND** replay selection permits at most one valid default evidence envelope in addition to the existing legacy event limit; existing byte caps and failure/resume checks still apply
 - **AND** capture absence, diagnostic failure or non-reproduction is explicit, without same-head retry, warmup, altered cache, native package changes or a latency-repair claim
