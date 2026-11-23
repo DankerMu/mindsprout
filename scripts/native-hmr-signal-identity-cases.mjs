@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
 import {
   browserIdentity,
@@ -6,6 +7,7 @@ import {
   publishedSignalReadiness,
   reapSignalChild,
   readSignalCleanup,
+  secret,
   startSignalChild,
   temporary,
 } from './native-hmr-profile-fixtures.mjs';
@@ -152,4 +154,43 @@ test('signal identity: both signals revalidate browser identity after valid read
   }
   assert.deepEqual(await fixture.exited, { code: 2, signal: null });
   assertBrowserReaped(directory, browserPid);
+});
+
+test('signal readiness preserves the original unexpected bounded rejection, not a copy', async (t) => {
+  const directory = temporary(t);
+  const fixture = startSignalChild('default', directory, {
+    executable: path.join(directory, 'missing-executable'),
+  });
+  const reason = 'Signal child ready without verified browser identity';
+  try {
+    await assert.rejects(fixture.ready, (error) => {
+      assert.throws(() => publishedSignalReadiness(new Error(error.message), reason), {
+        message: `Expected bounded diagnostics after "${reason}"`,
+      });
+      assert.throws(
+        () => publishedSignalReadiness(error, reason),
+        (thrown) => thrown === error,
+      );
+      return true;
+    });
+  } finally {
+    await reapSignalChild(fixture);
+  }
+});
+
+test('signal readiness does not echo untrusted mismatches', () => {
+  const reason = 'Signal child could not spawn';
+  const error = new Error('raw readiness failure', { cause: new Error('raw readiness cause') });
+  assert.throws(
+    () => publishedSignalReadiness(error, reason),
+    (thrown) => {
+      assert.equal(thrown.message, `Expected bounded diagnostics after "${reason}"`);
+      assert.doesNotMatch(thrown.stack, /raw readiness (failure|cause)/);
+      assert.equal(thrown.cause, undefined);
+      return true;
+    },
+  );
+  assert.throws(() => publishedSignalReadiness(new Error('raw error', { cause: secret }), reason), {
+    message: 'Signal fixture output published a private canary',
+  });
 });
