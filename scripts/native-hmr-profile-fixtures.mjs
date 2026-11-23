@@ -179,6 +179,7 @@ const childFile = fileURLToPath(new URL('./native-hmr-signal-child.mjs', import.
 const readinessMs = 10000;
 const stderrLimit = 16 * 1024;
 const fixtureFailureLine = Buffer.from('Browser signal fixture failed\n');
+const readinessErrors = new WeakSet();
 const nextPhase = {
   launching: 'browser-launched',
   'browser-launched': 'connecting',
@@ -270,7 +271,7 @@ function startSignalChild(
       child?.stderr.readableEnded &&
       stderrBytes === fixtureFailureLine.length &&
       stderr.subarray(0, stderrRetainedBytes).equals(fixtureFailureLine);
-    return new Error(
+    const error = new Error(
       `${reason}: ${JSON.stringify({
         phase,
         phaseMs,
@@ -284,6 +285,8 @@ function startSignalChild(
         stderrTruncated: stderrBytes > stderrRetainedBytes,
       })}`,
     );
+    readinessErrors.add(error);
+    return error;
   }
 
   try {
@@ -460,10 +463,13 @@ function readSignalCleanup(directory) {
   return cleanup;
 }
 
-function publishedSignalReadiness({ message, stack, cause }, reason, minimumMs = 0) {
+function publishedSignalReadiness(error, reason, minimumMs = 0) {
+  const { message, stack, cause } = error;
   assertNoSignalSecrets({ message, stack, cause });
   const prefix = `${reason}: `;
-  assert(message?.startsWith(prefix), `Expected bounded diagnostics after "${reason}"`);
+  const matchesReason = message?.startsWith(prefix);
+  if (!matchesReason && readinessErrors.has(error)) throw error;
+  assert(matchesReason, `Expected bounded diagnostics after "${reason}"`);
   const { elapsedMs, ...status } = JSON.parse(message.slice(prefix.length));
   assert(Number.isSafeInteger(status.phaseMs) && status.phaseMs >= 0);
   assert(Number.isSafeInteger(elapsedMs) && elapsedMs >= Math.max(minimumMs, status.phaseMs));

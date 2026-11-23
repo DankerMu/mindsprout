@@ -62,6 +62,8 @@ The collector alone owns SIGINT/SIGTERM in both default and profiled launches; [
 
 The first SIGINT/SIGTERM is retained even if it arrives after the functional assertions pass. The collector finishes cleanup before reporting failure and exiting nonzero; the interruption does not replace an earlier functional failure.
 
+Signal readiness assertions surface unexpected fixture-produced bounded failures unchanged, including the last observed phase. They do not echo arbitrary errors.
+
 To exercise the actual runner's late-interrupt and linked-cache regressions, use a disposable checkout without `.next` or `.next-profiles`, port 3000 free, installed Chromium, and a migrated scratch database. Run `NATIVE_HMR_RUNNER_OUTPUT="$PWD/.run/runner-regression" pnpm native:browser:regression` with a fresh output directory on the checkout's filesystem. Stop the scratch database after the run.
 
 First public map creation also retains bounded diagnostic evidence: RSC and script response/completion timestamps, response timing/status, in-memory data-delivery totals, and browser Performance metrics immediately before its readiness clock and after the outcome. Failure captures timestamp the DOM, screenshot, URL and loader independently. These observations add no HTTP requests, body dumps, warmup, retry or extended readiness deadline; they do not attribute an unexplained slow navigation to runner pressure.
