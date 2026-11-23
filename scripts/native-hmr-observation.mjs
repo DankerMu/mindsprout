@@ -4,7 +4,12 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { deadline } from './native-hmr-support.mjs';
-import { bracket, finiteOrNull, limits } from './native-hmr-profile-projection.mjs';
+import {
+  bracket,
+  finiteOrNull,
+  limits,
+  safePublicCreate,
+} from './native-hmr-profile-projection.mjs';
 import { createReadinessSampler } from './native-hmr-readiness-sampler.mjs';
 
 function diagnosticGetClass(url, type) {
@@ -55,7 +60,10 @@ function createNavigationDiagnostic(state, options) {
       phase,
     };
   };
-  const sampler = options.claim ? createReadinessSampler(state, options, receipt) : undefined;
+  const sampler =
+    options.claim && options.sampler !== false
+      ? createReadinessSampler(state, options, receipt)
+      : undefined;
   function redirect(data) {
     const previous = pending.get(data.requestId);
     if (!previous || !data.redirectResponse) return false;
@@ -79,6 +87,7 @@ function createNavigationDiagnostic(state, options) {
     if (phase === 'finalized') return finalization;
     if (code === 'page-closed') code = phase === 'armed' ? 'cdp-disconnected' : undefined;
     if (code) problems.add(code);
+    if (options.sampler === false && phase === 'armed') problems.add('missing-network-observation');
     if (omittedRequests) problems.add('request-limit');
     phase = 'finalized';
     pending.clear();
@@ -88,7 +97,7 @@ function createNavigationDiagnostic(state, options) {
     return finalization;
   }
   function start(value) {
-    if (phase !== 'armed') return;
+    if (phase !== 'armed' || options.terminal?.()) return;
     const start = originalClock(value);
     attempt.budget = {
       start,
@@ -103,6 +112,8 @@ function createNavigationDiagnostic(state, options) {
     ['observing', 'failed-tail'].includes(phase) && pending.get(id) !== null;
   return {
     start,
+    finish: finalize,
+    failedCreateCapture: () => (phase === 'failed-tail' ? { phase } : undefined),
     arm() {
       if (claimed || phase !== 'armed') return;
       claimed = true;
@@ -189,13 +200,49 @@ function createNavigationDiagnostic(state, options) {
   };
 }
 
-export function observeNavigation(state, record, diagnosticOptions) {
+export function observeNavigation(state, record, diagnosticOptions, defaultCreate) {
   let active = false;
   let omittedRequests = 0;
   const requests = new Map();
   const documents = new Map();
   const { cdp, label } = state;
-  const diagnostic = createNavigationDiagnostic(state, diagnosticOptions);
+  const local = label === 'retained-editor' ? defaultCreate : undefined;
+  function terminal() {
+    if (local.interrupted?.()) return 'interrupted';
+    if (
+      state.crashed ||
+      state.page.isClosed?.() ||
+      state.page.context?.().browser()?.isConnected() === false
+    )
+      return 'cdp-disconnected';
+  }
+  let finishCreate, createContext;
+  const diagnostic = createNavigationDiagnostic(
+    state,
+    local
+      ? {
+          origin: local.origin,
+          clock: () => originalClock(local.now),
+          sampler: false,
+          terminal,
+          claim(finalize) {
+            if (finishCreate) return false;
+            finishCreate = finalize;
+            createContext = { ...local.context() };
+            return true;
+          },
+          sink(value) {
+            const { mode } = local;
+            const context = createContext ?? local.context();
+            record(
+              'public-create-evidence',
+              safePublicCreate({ ...value, ...context, mode, page: label }, mode),
+              label,
+            );
+          },
+        }
+      : diagnosticOptions,
+  );
   cdp.on('Network.requestWillBeSent', (data) => {
     if (data.type === 'Document') {
       documents.set(data.requestId, {
@@ -305,6 +352,10 @@ export function observeNavigation(state, record, diagnosticOptions) {
     start: (value) => diagnostic?.start(value),
     actionSettled: (status, value) => diagnostic?.actionSettled(status, value),
     outcome: (status, value) => diagnostic?.outcome(status, value),
+    failedCreateCapture: () => (local ? diagnostic.failedCreateCapture() : undefined),
+    finish() {
+      if (local) (finishCreate ?? diagnostic.finish)(terminal());
+    },
     async begin() {
       diagnostic?.arm();
       await snapshot('before');

@@ -13,6 +13,7 @@ const cache = path.join(next, 'dev');
 const source = path.resolve('src/app/maps/[id]/MapEditor.tsx');
 const runner = fileURLToPath(new URL('./native-hmr.mjs', import.meta.url));
 const preload = fileURLToPath(new URL('./native-hmr-runner-fixture.mjs', import.meta.url));
+const provider = path.resolve('src/app/providers/MapRepositoryProvider.tsx');
 const load = (directory, file) => JSON.parse(fs.readFileSync(path.join(directory, file), 'utf8'));
 const hash = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const stat = (file) => fs.lstatSync(file, { throwIfNoEntry: false });
@@ -24,7 +25,7 @@ const liveGroup = (pid) => processGroup(pid).filter((member) => !member.state.st
 const wait = (work, stage) => deadline(work, 90000, stage);
 const sentinel = 'PRIVATE_CANARY_external-worktree-trace';
 
-async function prepare(t, name) {
+async function prepare(t, name, sourceFile = source) {
   assert(
     process.env.NATIVE_HMR_RUNNER_OUTPUT,
     'Set NATIVE_HMR_RUNNER_OUTPUT to a fresh artifact directory',
@@ -35,19 +36,24 @@ async function prepare(t, name) {
   assert.equal(await listening(), false, 'Port 3000 must be unused');
   const directory = path.resolve(process.env.NATIVE_HMR_RUNNER_OUTPUT, name);
   fs.mkdirSync(directory, { recursive: true });
-  const original = hash(source);
+  const original = hash(sourceFile);
   t.after(() => {
     if (stat(next)) fs.renameSync(next, path.join(directory, 'cache-final'));
   });
-  return { directory, output: path.join(directory, 'probe'), original };
+  return { directory, output: path.join(directory, 'probe'), original, sourceFile };
 }
 
-function start({ directory, output }, profile, probe, { externalCache, linked } = {}) {
+function start(
+  { directory, output },
+  profile,
+  probe,
+  { externalCache, linked, mode = 'source-change' } = {},
+) {
   const log = fs.openSync(path.join(directory, 'runner.log'), 'wx');
   try {
     const child = spawn(
       process.execPath,
-      ['--import', preload, runner, 'source-change', output, ...(profile ? ['--profile'] : [])],
+      ['--import', preload, runner, mode, output, ...(profile ? ['--profile'] : [])],
       {
         env: {
           ...process.env,
@@ -84,7 +90,7 @@ async function deliver(fixture, signal) {
 }
 
 async function restored(
-  { output, original },
+  { output, original, sourceFile },
   { sourcePrepared = true, cacheRestored = true } = {},
 ) {
   const result = load(output, 'result.json');
@@ -95,7 +101,7 @@ async function restored(
     ...(sourcePrepared ? { sourceHash: original, expectedSourceHash: original } : {}),
   });
   assert.deepEqual(load(output, 'cleanup.json'), result.cleanup);
-  assert.equal(hash(source), original);
+  assert.equal(hash(sourceFile), original);
   assert.equal(load(output, 'handles.json').active, false);
   assert(!stat('.next-profiles'));
   assert.equal(await listening(), false);
@@ -169,6 +175,28 @@ for (const profile of [false, true]) {
     });
   }
 }
+
+test('a later restored trial failure cannot change the ready first-create attempt or label its capture', async (t) => {
+  const run = await prepare(t, 'restored-trial-failure', provider);
+  const cacheInode = createCache();
+  const fixture = start(run, false, 'restored-trial', { mode: 'restored-lifecycle' });
+  assert.deepEqual(await wait(fixture.exit, 'restored trial teardown'), [1, null]);
+  const result = await restored(run);
+  assert.deepEqual(inode(cache), cacheInode);
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.failures, ['Controlled restored trial click failure']);
+  const { events } = result;
+  const [attempt] = events.filter(({ type }) => type === 'public-create-evidence');
+  assert.equal(events.filter(({ type }) => type === 'public-create-evidence').length, 1);
+  assert.deepEqual(
+    [attempt.phase, attempt.data.mode, attempt.data.trial, attempt.data.outcome.status],
+    ['public-map-setup', 'restored-lifecycle', 0, 'ready'],
+  );
+  const failure = events.find(({ type }) => type === 'failure');
+  assert.deepEqual([failure.phase, failure.trial], ['spa-preparation', 1]);
+  assert(failure.ms > attempt.ms);
+  assert.equal(Object.hasOwn(load(run.output, 'failure-capture.json'), 'publicCreate'), false);
+});
 
 function assertExternalTrace(
   run,

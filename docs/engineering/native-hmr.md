@@ -66,6 +66,8 @@ To exercise the actual runner's late-interrupt and linked-cache regressions, use
 
 First public map creation also retains bounded diagnostic evidence: RSC and script response/completion timestamps, response timing/status, in-memory data-delivery totals, and browser Performance metrics immediately before its readiness clock and after the outcome. Failure captures timestamp the DOM, screenshot, URL and loader independently. These observations add no HTTP requests, body dumps, warmup, retry or extended readiness deadline; they do not attribute an unexplained slow navigation to runner pressure.
 
+See [public-create evidence](#public-create-evidence) for the fixed first-attempt fields and failure-capture attribution.
+
 The initial root commit failure is labeled `public-map root document commit`; passive Document response/completion metadata is captured even before the RSC observation window, without extra requests or body reads, and all 5000ms deadlines and no-warmup/no-retry rules remain unchanged.
 
 ## Opt-in diagnostic profiling
@@ -116,7 +118,9 @@ Missing, invalid, unstable, over-limit, disconnected, or interrupted collection 
 
 ### Public-create evidence
 
-With `--profile`, `publicCreate` attributes one first-create attempt to its mode, generation, trial and page. Its budget copies the original readiness start and five-second deadline synchronously; action settlement and readiness outcome are separate observations. Neither later delivery nor another navigation can replace that outcome. [Decision 0031](../../decisions/implemented/testing/0031-public-create-readiness-evidence.md) owns this diagnostic choice.
+Default qualification writes one `public-create-evidence` event in `events.jsonl`. Its `data` uses the same fixed projection as `publicCreate` in the opt-in profile summary. `attempt` (1), `mode`, `generation`, `trial` and `page` attribute the first-create attempt; `budget.start` and `budget.deadline` retain the original five-second window. `action` records `fulfilled` or `rejected`; `outcome` records `ready`, `action-failed` or `readiness-failed` independently. Each has its own collector timestamp. An attempt that did not start has null budget timestamps and `unavailable` action and outcome. Later navigation or a separate replay cannot replace these fields.
+
+The default event has `status: partial` and explicit `missing-marker-observation` and `missing-route-observation` codes because it does not sample the page. It adds no profiler commands, listeners, requests, `.next-profiles` or `safe/` output. This is additive, with no migration: the legacy empty `public-create-outcome` and raw `public-create-network` in the same log stay unchanged. Neither raw capture data nor error text is part of the fixed projection. [Decisions 0035](../../decisions/implemented/testing/0035-preserve-default-public-create-evidence.md) and [0031](../../decisions/implemented/testing/0031-public-create-readiness-evidence.md) govern default and sampled evidence.
 
 The network channel classifies same-origin item PUT/GET, editor RSC and scripts without retaining URLs, map identifiers, headers or bodies. Each redirect response belongs to the preceding hop. Excluded replacements terminate attribution; over-cap replacements retain the preceding redirect response but cannot accept subsequent response/data/completion into that hop. Standalone excluded requests consume no retained request slots. The request bound lives in [projection limits](../../scripts/native-hmr-profile-projection.mjs).
 
@@ -126,11 +130,13 @@ The marker channel samples presence and Playwright-compatible visibility without
 
 Sampling is profile-only and begins before the original clock. Its cadence, sample/route caps and autonomous lifetime are bounded by [projection limits](../../scripts/native-hmr-profile-projection.mjs); expiry is checked before layout reads, even after a stalled callback. Invalid or out-of-order binding payloads produce fixed partial codes without retaining their raw content.
 
-An attempt owns terminal cleanup before its first awaited snapshot. Interruption or disconnection before the readiness clock prevents sampler setup and leaves the unobserved budget/outcome unknown. Coded abandonment marks network, marker and route channels partial; a healthy route listener can legitimately observe no transitions.
+The observer registers attempt finalization before its first awaited Performance snapshot. Interruption or disconnection before the readiness clock leaves the budget, action and outcome unknown. Coded abandonment marks affected channels partial; a healthy profile route listener can legitimately observe no transitions.
 
 Binding ownership is tracked independently of sampler installation. Setup preserves pre-existing globals; cleanup checks the originating document and captured function/object identities before removing owned page resources. A late acknowledgement may trigger bounded owned cleanup, but cannot revive collection or revise published evidence.
 
-Success fences collector acceptance before later navigation and requests bounded best-effort sampler disposal. A disposal timeout leaves shutdown unknown, not stopped; residual page work remains bounded by autonomous expiry or page closure. Failure keeps sampling only during existing capture/teardown, with every post-outcome receipt labelled `failed-tail`. Closure, interruption or publication finalizes evidence without a grace period. Missing route or marker evidence remains partial. Compact publication preserves attempt identity, budget, outcome, first-observed brackets and channel omission/status fields within the same total safe-output cap.
+Success finalizes evidence before subsequent navigation, even if the subsequent save assertion or another trial fails. After an action or readiness failure, default qualification finalizes evidence immediately after its existing failure capture and before cleanup. Related late network receipts and the existing `failure-capture.json` carry `failed-tail` (`publicCreate.phase` in the capture); unrelated captures omit the field. A late screenshot or ready marker in captured HTML cannot qualify the attempt.
+
+Profile success requests bounded best-effort sampler disposal. A disposal timeout leaves shutdown unknown, not stopped; residual page work remains bounded by autonomous expiry or page closure. A failed profile may keep sampling during existing capture/teardown, labelling post-outcome receipts `failed-tail`; closure, interruption or publication finalizes it without a grace period. Compact publication preserves attempt identity, budget, outcome, first-observed brackets and channel omissions/status within the safe-output cap.
 
 Invalid provenance, budget, settlement or omission counts cannot produce complete evidence. Unknown omission counts remain null, including in compact output; rejected marker states cannot establish a visibility bracket.
 
@@ -140,7 +146,7 @@ The [installed-native action](../../.github/actions/native-installed-runtime/act
 
 The [eligibility policy](../../scripts/native-hmr-profile.mjs) requires matching failed-result evidence, verified source/cache cleanup, unchanged current source identity, and a navigation-phase failure. Initial setup failures are excluded. A restart failure needs an earlier browser-resumed event for the same generation and trial; a later cleanup resume cannot authorize replay. Missing, malformed, ambiguous, or cleanup-blocked evidence is reported ineligible without launching another probe. Successful qualifications, Linux, installation failures, and cancellation select no diagnosis.
 
-The original failed qualification, job, and required aggregate remain red whether diagnosis passes, fails, or is ineligible. Original qualification artifacts remain separate and unchanged. A useful safe summary or successful local replay is not evidence of CI capture, successful qualification, or a latency repair.
+The original failed qualification, job, and required aggregate remain red whether diagnosis passes, fails, or is ineligible. The default evidence and original raw artifacts remain separate from the replay. A useful safe summary or successful local replay is not evidence of CI capture, successful qualification, or a latency repair.
 
 ## Publication and frozen installation
 

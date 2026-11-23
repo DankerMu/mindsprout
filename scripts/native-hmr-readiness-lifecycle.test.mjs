@@ -284,21 +284,43 @@ for (const profile of [false, true]) {
     const fixture = await liveReadiness(t, { profile });
     const { page, observation, now, requests, received } = fixture;
     assert.deepEqual(requests, [{ method: 'GET', url: '/' }]);
-    await observation.begin();
-    observation.start(now());
-    observation.actionSettled('fulfilled', now());
-    await page.evaluate(() => globalThis.history.pushState({}, '', '/maps/private-no-request'));
-    if (profile) await fixture.sampled((sample) => sample.route === 'editor');
-    observation.outcome('ready', now());
-    await observation.end();
+    if (!profile) await countSamplerWork(page);
+    const commands = [];
+    const send = fixture.cdp.send.bind(fixture.cdp);
+    fixture.cdp.send = (method, params) => {
+      commands.push(method);
+      return send(method, params);
+    };
+    await observeEditorVisit(
+      { page, navigationObservation: observation },
+      () => page.evaluate(() => globalThis.history.pushState({}, '', '/maps/private-no-request')),
+      undefined,
+      {
+        guard: (promise) => promise,
+        readiness: profile
+          ? () => fixture.sampled((sample) => sample.route === 'editor')
+          : async () => undefined,
+        now,
+      },
+    );
     await page.goBack();
+    if (!profile) {
+      assert.equal(await page.evaluate(() => globalThis.__readinessWork.reads), 0);
+      assert.equal(
+        await page.evaluate(() => Object.hasOwn(globalThis, '__mindsproutReadinessSample')),
+        false,
+      );
+    }
     const evidence = await fixture.finish();
     assert.deepEqual(requests, [{ method: 'GET', url: '/' }]);
     if (profile) {
       assert.equal(evidence.outcome.status, 'ready');
       assert.equal(evidence.marker.shutdown, 'stopped');
     } else {
-      assert.equal(evidence, undefined);
+      assert.equal(evidence?.outcome.status, 'ready');
+      assert.deepEqual(evidence.marker.codes, ['missing-marker-observation']);
+      assert.deepEqual(evidence.routes.codes, ['missing-route-observation']);
+      assert.deepEqual(commands, ['Performance.getMetrics', 'Performance.getMetrics']);
       assert.deepEqual(received, []);
     }
   });

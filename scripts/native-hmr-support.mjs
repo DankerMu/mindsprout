@@ -136,8 +136,9 @@ export async function waitForReadiness(state, start, expectedPath, started) {
   return elapsedMs;
 }
 
-export async function capturePage(state, name, out) {
+export async function capturePage(state, name, out, publicCreate) {
   const evidence = { url: state.page.url(), started: Date.now(), steps: {} };
+  if (publicCreate) evidence.publicCreate = publicCreate;
   const capture = async (kind, action) => {
     const step = (evidence.steps[kind] = { started: Date.now(), monotonicMs: performance.now() });
     try {

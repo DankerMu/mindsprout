@@ -52,10 +52,14 @@ export async function liveReadiness(t, { profile = true } = {}) {
   await cdp.send('Network.enable');
   await cdp.send('Performance.enable');
   const diagnostic = await profiling.attach(page, cdp, 'retained-editor', browser, { origin });
+  const defaultEvents = [];
   const observation = observeNavigation(
     { page, cdp, label: 'retained-editor' },
-    () => undefined,
+    (type, data) => defaultEvents.push({ type, data }),
     diagnostic,
+    profile
+      ? undefined
+      : { origin, now, mode: 'source-change', context: () => ({ generation: 0, trial: 0 }) },
   );
   const events = new EventEmitter();
   const received = [];
@@ -83,11 +87,13 @@ export async function liveReadiness(t, { profile = true } = {}) {
     sampled: (predicate) =>
       waitForObserved(events, () => received.some(predicate), 1000, 'Fixture sample'),
     async finish() {
+      if (!profile) observation.finish?.();
       await close();
       await profiling.finish(true);
       if (!profile) {
         assert.equal(fs.existsSync(path.join(output, 'safe')), false);
-        return undefined;
+        assert.equal(fs.existsSync(path.join(repo, '.next-profiles')), false);
+        return defaultEvents.find(({ type }) => type === 'public-create-evidence')?.data;
       }
       return readEvidence();
     },

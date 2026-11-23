@@ -36,3 +36,35 @@ if (process.env.NATIVE_RUNNER_PROBE === 'post-stop') {
     fs.symlinkSync(process.env.NATIVE_RUNNER_EXTERNAL_CACHE, cache);
   };
 }
+
+if (process.env.NATIVE_RUNNER_PROBE === 'restored-trial') {
+  const connect = chromium.connect.bind(chromium);
+  chromium.connect = async (...args) => {
+    const browser = await connect(...args);
+    const newContext = browser.newContext.bind(browser);
+    browser.newContext = async (...contextArgs) => {
+      const context = await newContext(...contextArgs);
+      const newPage = context.newPage.bind(context);
+      context.newPage = async () => {
+        const page = await newPage();
+        const locator = page.locator.bind(page);
+        let mapClicks = 0;
+        page.locator = (selector, ...options) => {
+          const target = locator(selector, ...options);
+          if (selector.startsWith('a[href="/maps/')) {
+            const click = target.click.bind(target);
+            target.click = (...clickArgs) => {
+              if (++mapClicks === 2)
+                return Promise.reject(new Error('Controlled restored trial click failure'));
+              return click(...clickArgs);
+            };
+          }
+          return target;
+        };
+        return page;
+      };
+      return context;
+    };
+    return browser;
+  };
+}

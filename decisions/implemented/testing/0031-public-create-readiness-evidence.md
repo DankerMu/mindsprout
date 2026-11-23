@@ -16,6 +16,8 @@ A readiness timeout with observed RSC or map requests does not establish whether
 
 Extend the existing opt-in observer and safe-summary publisher, rather than adding a second network observer. Attribute one attempt to the original collector start, deadline, action settlement and readiness outcome. Keep request IDs private for redirect correlation; publish fixed request classes, bounded local hop ordinals and separate numeric clock domains. The [native guide](../../../docs/engineering/native-hmr.md#public-create-evidence) owns field interpretation and failure-tail behavior.
 
+[Decision 0035](0035-preserve-default-public-create-evidence.md) extends the same attribution to default qualification without enabling the sampler. This record still owns sampled readiness, redirect correlation and non-authoritative interpretation.
+
 Capture an original failure once. Passive evidence may continue through existing failure capture, but cannot renew its deadline or qualify it retroactively. Fence successful attempts before subsequent navigation, and finalize failed attempts on closure or publication. Project every publication field explicitly, including compact output; unavailable observations remain partial.
 
 Register attempt termination before asynchronous observation begins. Treat binding acquisition and sampler installation as distinct owned resources: acknowledgement delay or failed installation must not bypass cleanup, while foreign globals and later documents remain outside that ownership.
