@@ -29,6 +29,15 @@
   box-shadow: inset 0 0 0 1px var(--node-border);
 }
 
+.swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  margin-inline-end: 8px;
+  vertical-align: middle;
+}
+
 .node[aria-pressed='true'] {
   box-shadow: inset 0 0 0 2px var(--node-selected-border);
   background: var(--node-color, var(--node-selected-background));

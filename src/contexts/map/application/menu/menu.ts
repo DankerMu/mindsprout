@@ -22,6 +22,7 @@ interface MenuFields {
 }
 
 interface MenuAction extends MenuFields {
+  readonly colorToken?: ColorToken;
   run(ctx: MenuContext): void;
 }
 
@@ -124,6 +125,16 @@ nodeMenu.register({
     });
   },
 });
+
+const COLOR_LABELS: Record<ColorToken, string> = {
+  red: '红',
+  orange: '橙',
+  yellow: '黄',
+  green: '绿',
+  blue: '蓝',
+  purple: '紫',
+};
+
 nodeMenu.register({
   id: 'color',
   label: '设置颜色',
@@ -131,7 +142,8 @@ nodeMenu.register({
   children: (['red', 'orange', 'yellow', 'green', 'blue', 'purple', null] as const).map(
     (color: ColorToken | null) => ({
       id: color ?? 'clear',
-      label: color ?? '无颜色',
+      label: color === null ? '无颜色' : COLOR_LABELS[color],
+      ...(color === null ? {} : { colorToken: color }),
       isEnabled: () => true,
       run: (ctx: MenuContext) => {
         const ids = ctx.selection.includes(ctx.target) ? ctx.selection : [ctx.target];
