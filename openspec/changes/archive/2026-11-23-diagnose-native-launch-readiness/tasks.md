@@ -9,4 +9,6 @@
 ## 2. Qualification and falsification
 
 - [x] 2.1 运行 format/lint/typecheck、strict OpenSpec、docs/decisions；审查 launch hook 所有失败路径均 release/reap、无 secret/raw output、无测试遗漏。自然 launching、保存性回归、forced ownership 红绿与串行实验不得表述为已证明 OS 根因。
-- [ ] 2.2 最终 head 至少连续两次完整 GitHub Darwin native qualification 通过，Linux 与 required checks 同步通过，才接受 contention mitigation 并关闭 #258。若再出现 launching timeout，则移除串行 flag、记录假设被证伪、保留回归与证据且保持 issue open；不得用单次 lucky rerun 或提高 deadline 通过。
+- [x] 2.2 最终 head 至少连续两次完整 GitHub Darwin native qualification 通过，Linux 与 required checks 同步通过，才接受 contention mitigation 并关闭 #258。若再出现 launching timeout，则移除串行 flag、记录假设被证伪、保留回归与证据且保持 issue open；不得用单次 lucky rerun 或提高 deadline 通过。
+
+最终 head `1ed67740fe06fdc7972fe9344120143759abaf84` 的 CI run `45185909462` attempts 1、2 连续两次完整全绿；Darwin/Linux/E2E 均通过，PR #269 已合并，#258 按该资格边界关闭。早期五轮和 #270 冷 root/public-create 证据保留，不作全延迟根因修复声明。
