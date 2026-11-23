@@ -2,6 +2,11 @@ import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import type { MindMap } from '../src/contexts/map/domain/types';
+import {
+  holdCredentialHydration,
+  releaseCredentialHydration,
+  waitForCredentialHydrationWakeup,
+} from './support/credential-hydration';
 import { collectExpectedResponses, type ExpectedResponse } from './support/expected-responses';
 import { envelopeOf, readRecord } from './support/seed';
 import { E2E_ADMIN_USERNAME, E2E_ADMIN_PASSWORD } from './support/session';
@@ -28,40 +33,9 @@ async function authenticate(page: Page, username: string, action = '登录', pas
   await expect(page.getByTestId('session-username')).toHaveText(username);
 }
 
-declare global {
-  interface Window {
-    credentialHydration: { queued: (() => void)[]; release: () => void };
-  }
-}
-
 test('M2 authentication waits for hydration after load', async ({ page }) => {
   const collector = collectExpectedResponses(page, []);
-  await page.addInitScript(() => {
-    const queued: (() => void)[] = [];
-    let held = true;
-    window.credentialHydration = {
-      queued,
-      release: () => {
-        held = false;
-        for (const send of queued.splice(0)) send();
-      },
-    };
-    // React Scheduler posts null to wake its MessageChannel; hold the wakeup, not the scripts.
-    window.MessageChannel = class extends MessageChannel {
-      constructor() {
-        super();
-        this.port2.postMessage = new Proxy(this.port2.postMessage.bind(this.port2), {
-          apply(send, _port, args: [unknown]) {
-            if (held && args[0] === null) {
-              queued.push(() => {
-                send(...args);
-              });
-            } else send(...args);
-          },
-        });
-      }
-    };
-  });
+  await holdCredentialHydration(page);
 
   const paths: string[] = [];
   page.on('request', (request) => {
@@ -70,7 +44,7 @@ test('M2 authentication waits for hydration after load', async ({ page }) => {
       paths.push(pathname);
   });
   await page.goto('/login?next=%2F', { waitUntil: 'load' });
-  await page.waitForFunction(() => window.credentialHydration.queued.length > 0);
+  await waitForCredentialHydrationWakeup(page);
   const form = page.getByRole('form', { name: '登录', exact: true });
   await expect(form).toBeVisible();
   expect(await form.getAttribute('data-hydrated')).toBeNull();
@@ -99,9 +73,7 @@ test('M2 authentication waits for hydration after load', async ({ page }) => {
       expect(paths).toEqual([]);
       await expect(form.getByLabel('用户名')).toBeEmpty();
       expect(await form.getAttribute('data-hydrated')).toBeNull();
-      await page.evaluate(() => {
-        window.credentialHydration.release();
-      });
+      await releaseCredentialHydration(page);
     })(),
   ]);
   expect(login.status()).toBe(200);
