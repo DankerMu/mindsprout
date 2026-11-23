@@ -2,8 +2,8 @@
 
 ## 1. Shared presentation and semantic preservation
 
-- [x] 1.1 先扩展现有 map-library/account-admin 浏览器断言：两个列表 `list-style-type: none`、行 flex 布局和共享按钮 border/radius；保留同名行内目标、取消/焦点、持久化和 reset 断言。运行 focused e2e 确认默认样式红。
-- [x] 1.2 新建唯一 `src/components/list-page.module.css`，仅给 home/admin 两处 `<main>` 添加共享 class；覆盖列表、行、时间、按钮、输入和行内 form/dialog，不修改状态、语义、API 或其他路由。运行 focused e2e 转绿。
+- [x] 1.1 先扩展现有 map-library/account-admin 浏览器断言：两个列表 `list-style-type: none`、显式 `role="list"`、行 flex 布局和共享按钮 border/radius；保留同名行内目标、取消/焦点、持久化和 reset 断言。运行 focused e2e 确认默认样式及缺失显式角色红。
+- [x] 1.2 新建唯一 `src/components/list-page.module.css`，仅给 home/admin 两处 `<main>` 添加共享 class；覆盖列表、行、时间、按钮、输入和行内 form/dialog，并给两个 `<ul>` 添加显式 list role 以保留 WebKit 语义，不修改状态、其他语义、API 或路由。运行 focused e2e 转绿。
 
 ## 2. Visual and qualification evidence
 

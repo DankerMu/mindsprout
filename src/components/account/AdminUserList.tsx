@@ -161,7 +161,7 @@ export function AdminUserList() {
   if (state.status === 'error') return <p role="alert">无法读取用户列表</p>;
   return (
     <>
-      <ul aria-label="用户列表">
+      <ul role="list" aria-label="用户列表">
         {state.accounts.map(({ id, username, createdAt, isAdmin }) => (
           <li key={id}>
             <span>{username}</span> <time dateTime={createdAt}>{formatTimestamp(createdAt)}</time>{' '}

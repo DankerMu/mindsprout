@@ -140,6 +140,7 @@ test.describe('map-library', () => {
     const firstRow = rows.nth(0);
     const rename = firstRow.getByRole('button', { name: '重命名 B', exact: true });
     await Promise.all([
+      expect.soft(page.getByRole('list')).toHaveAttribute('role', 'list'),
       expect.soft(page.getByRole('list')).toHaveCSS('list-style-type', 'none'),
       expect.soft(firstRow).toHaveCSS('display', 'flex'),
       expect.soft(firstRow).toHaveCSS('flex-wrap', 'wrap'),

@@ -76,6 +76,7 @@ test('account-admin: Admin sees all accounts', async ({ adminPage, playwright, b
   const firstRow = rows.filter({ has: adminPage.getByText(first, { exact: true }) });
   const reset = firstRow.getByRole('button', { name: `重置密码 ${first}`, exact: true });
   await Promise.all([
+    expect.soft(adminPage.getByRole('list', { name: '用户列表' })).toHaveAttribute('role', 'list'),
     expect
       .soft(adminPage.getByRole('list', { name: '用户列表' }))
       .toHaveCSS('list-style-type', 'none'),
