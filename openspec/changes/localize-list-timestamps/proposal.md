@@ -4,8 +4,8 @@ Issue type: feature
 Fixture level: expanded
 Upstream suggested level: expanded (agree: shared timestamp units/presentation and compatibility across two lists)
 Blast radius: incorrect timezone conversion or duplicate formatters could misidentify recency/account age; changing raw values could break ordering or hydration.
-Selected risk packs: Schema/units/field names (display only); Legacy compatibility; Documentation.
-Evidence floor: deterministic cross-timezone unit tests, both list component contracts, real library/admin browser evidence, full unit/static/spec gates and required CI.
+Selected risk packs: Schema/units/field names (display only); Legacy compatibility; Error handling/fallback for accepted arbitrary timestamp strings; Documentation.
+Evidence floor: deterministic cross-timezone unit tests, invalid-string fallback with valid sibling rows/actions, both list component contracts, real library/admin browser evidence, full unit/static/spec gates and required CI.
 
 ## Why
 

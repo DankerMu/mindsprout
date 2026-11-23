@@ -21,3 +21,9 @@ The home page SHALL list every map of the signed-in user with its title and last
 - **WHEN** a map's original `updatedAt` is an ISO instant that falls on different dates in UTC and the browser's local timezone
 - **THEN** the visible time is the correct localized Chinese date and hour/minute without a raw `T…Z` string
 - **AND** the same element's `dateTime` remains the original ISO instant and raw-value ordering is unchanged
+
+#### Scenario: Unparseable timestamps preserve existing rendering
+
+- **WHEN** an accepted map record has an unparseable arbitrary string as `updatedAt`
+- **THEN** the library continues to render that original string as both visible text and `dateTime` without throwing
+- **AND** valid sibling rows, raw-value ordering and all row actions remain available

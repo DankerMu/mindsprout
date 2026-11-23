@@ -2,8 +2,8 @@
 
 ## 1. One formatter and both list consumers
 
-- [x] 1.1 先写红测：固定 UTC instant 在 UTC、America/Los_Angeles、Asia/Shanghai 的硬编码跨日期结果；`MapLibrary.test.tsx`、`MapLibrary-mutations.test.tsx`、`AdminUserList.test.tsx` 可见本地化文本、原始 `dateTime` 和既有排序/操作断言。运行 focused tests 确认旧 ISO 文本失败。
-- [x] 1.2 新建唯一 module-scoped `Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })` formatter，并只替换两列表 time 的可见 children；不改 API、排序、状态或属性。运行 focused tests 转绿。
+- [x] 1.1 先写红测：固定 UTC instant 在 UTC、America/Los_Angeles、Asia/Shanghai 的硬编码跨日期结果；`MapLibrary.test.tsx`、`MapLibrary-mutations.test.tsx`、`AdminUserList.test.tsx` 可见本地化文本、原始 `dateTime` 和既有排序/操作断言。增加不可解析字符串 fallback 及混合合法/非法行的排序、兄弟行和操作回归，先确认异常失败。
+- [x] 1.2 新建唯一 module-scoped `Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })` formatter，并只替换两列表 time 的可见 children；不可解析值原样返回，不改 API、排序、状态、校验或属性。运行 focused tests 转绿。
 
 ## 2. Browser and qualification evidence
 
@@ -21,5 +21,5 @@
 - Not selected: Auth / permissions / secrets — existing permissions and account data are unchanged.
 - Not selected: Concurrency / shared state / ordering — no new state or concurrent work; existing raw ordering only.
 - Not selected: Resource limits / large input / discovery — one formatter instance reused; no loops beyond existing rows.
-- Not selected: Error handling / rollback / partial outputs — ISO inputs already come from typed API contracts; no new failure path.
+- Selected: Error handling / rollback / partial outputs - unparseable timestamps accepted by existing contracts must fall back to the original string without losing sibling rows or actions (1.1/1.2).
 - Not selected: Release / packaging / dependency compatibility — no dependency or package changes.

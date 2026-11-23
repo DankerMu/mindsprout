@@ -3,6 +3,7 @@ const timestampFormatter = new Intl.DateTimeFormat('zh-CN', {
   timeStyle: 'short',
 });
 
-export function formatTimestamp(isoTimestamp: string): string {
-  return timestampFormatter.format(Date.parse(isoTimestamp));
+export function formatTimestamp(value: string): string {
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? value : timestampFormatter.format(timestamp);
 }

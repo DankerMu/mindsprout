@@ -19,3 +19,9 @@ it.each([
   const { formatTimestamp } = await import('./format-timestamp');
   expect(formatTimestamp(INSTANT)).toBe(expected);
 });
+
+it('returns an unparseable timestamp unchanged', async () => {
+  // Load a fresh module rather than sharing the instance from the timezone cases.
+  const { formatTimestamp } = await import('./format-timestamp');
+  expect(formatTimestamp('  not-a-timestamp  ')).toBe('  not-a-timestamp  ');
+});
