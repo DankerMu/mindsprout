@@ -3,8 +3,9 @@ import { CredentialsForm } from '../../components/account/CredentialsForm';
 export default async function RegisterPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string | string[] | undefined }>;
+  searchParams: Promise<{ next?: string | string[]; native?: string | string[] }>;
 }) {
-  const { next } = await searchParams;
-  return <CredentialsForm mode="register" next={typeof next === 'string' ? next : null} />;
+  const { next: nextParam, native } = await searchParams;
+  const next = typeof nextParam === 'string' ? nextParam : null;
+  return <CredentialsForm mode="register" next={next} native={native === '1'} />;
 }

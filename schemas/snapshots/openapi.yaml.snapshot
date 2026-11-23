@@ -19,6 +19,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
+  /native-auth/{mode}:
+    post:
+      summary: Return a native credential submission to a readable retry form
+      description: Ignores the body and does not authenticate, create an account, or set cookies.
+      parameters:
+        - name: mode
+          in: path
+          required: true
+          schema: { type: string, enum: [login, register] }
+        - name: next
+          in: query
+          description: Optional same-site return path and query; unsafe values become `/`.
+          schema: { type: string }
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: { type: object }
+      responses:
+        "303":
+          description: Return to the corresponding form with `native=1` and optional sanitized `next`
+          headers:
+            Location:
+              description: Relative same-origin form URL
+              schema: { type: string, example: "/login?native=1" }
+        "404":
+          description: Unsupported mode
   /api/auth/session:
     get:
       summary: Read the current session

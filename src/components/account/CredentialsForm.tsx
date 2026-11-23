@@ -16,19 +16,21 @@ const REQUEST_FAILED = '请求失败，请重试';
 export function CredentialsForm({
   mode,
   next,
+  native = false,
 }: {
   mode: 'login' | 'register';
   next: string | null;
+  native?: boolean;
 }) {
   const router = useRouter();
   const { publicAuthMounted, resumeAuthenticatedNavigation } = useSessionNavigation();
   useEffect(publicAuthMounted, [publicAuthMounted]);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>();
   const label = mode === 'login' ? '登录' : '注册';
   const otherPath = mode === 'login' ? '/register' : '/login';
-  const otherHref =
-    next === null ? otherPath : `${otherPath}?next=${encodeURIComponent(safeNextPath(next))}`;
+  const destination = safeNextPath(next);
+  const query = next === null ? '' : `?next=${encodeURIComponent(destination)}`;
 
   async function submit(credentials: FormData) {
     const username = credentials.get('username');
@@ -43,7 +45,7 @@ export function CredentialsForm({
       });
       if (response.ok) {
         resumeAuthenticatedNavigation();
-        router.push(safeNextPath(next));
+        router.push(destination);
       } else {
         setError(ERROR_MESSAGES[response.status] ?? REQUEST_FAILED);
       }
@@ -60,7 +62,7 @@ export function CredentialsForm({
       <form
         aria-label={label}
         method="post"
-        action={`/api/auth/${mode}`}
+        action={`/native-auth/${mode}${query}`}
         onSubmit={(event) => {
           event.preventDefault();
           const credentials = new FormData(event.currentTarget);
@@ -83,12 +85,31 @@ export function CredentialsForm({
           {label}
         </button>
         {pending && <p role="status">提交中…</p>}
-        {error !== null && <p role="alert">{error}</p>}
+        <CredentialFeedback native={native} error={error} returnHref={`/${mode}${query}`} />
       </form>
       <p>
         {mode === 'login' ? '还没有账号？' : '已有账号？'}
-        <Link href={otherHref}>{mode === 'login' ? '注册' : '登录'}</Link>
+        <Link href={`${otherPath}${query}`}>{mode === 'login' ? '注册' : '登录'}</Link>
       </p>
     </main>
   );
+}
+
+function CredentialFeedback({
+  native,
+  error,
+  returnHref,
+}: {
+  native: boolean;
+  error: string | null | undefined;
+  returnHref: string;
+}) {
+  const nativeNotice = native && error === undefined;
+  const message = nativeNotice ? '请启用 JavaScript 或等待页面加载后重试。' : error;
+  return message ? (
+    <>
+      <p role="alert">{message}</p>
+      {nativeNotice && <Link href={returnHref}>返回表单</Link>}
+    </>
+  ) : null;
 }

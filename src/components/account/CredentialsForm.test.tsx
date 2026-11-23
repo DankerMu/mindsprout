@@ -22,6 +22,7 @@ function setup(
   mode: 'login' | 'register',
   next: string | null = null,
   earlyInput?: { label: string; value: string },
+  native = false,
 ) {
   const router = {
     push: vi.fn(),
@@ -37,7 +38,7 @@ function setup(
   const form = (
     <AppRouterContext value={router}>
       <SessionNavigationScope>
-        <CredentialsForm mode={mode} next={next} />
+        <CredentialsForm mode={mode} next={next} native={native} />
       </SessionNavigationScope>
     </AppRouterContext>
   );
@@ -68,6 +69,38 @@ function submit(username = 'alice', password = 'pw') {
 
 describe.each(['login', 'register'] as const)('account-auth: %s', (mode) => {
   const [otherPath, otherLabel] = mode === 'login' ? ['/register', '注册'] : ['/login', '登录'];
+
+  it.each([
+    [null, ''],
+    ['/maps/abc?x=1&view=tree', '?next=%2Fmaps%2Fabc%3Fx%3D1%26view%3Dtree'],
+    ['//evil.example/x', '?next=%2F'],
+  ])('keeps the native POST and return link same-site for next %j', (next, query) => {
+    setup(mode, next, undefined, true);
+    const form = screen.getByRole('form');
+    expect(form.getAttribute('method')).toBe('post');
+    expect(form.getAttribute('action')).toBe(`/native-auth/${mode}${query}`);
+    expect(screen.getByRole('alert').textContent).toBe('请启用 JavaScript 或等待页面加载后重试。');
+    expect(screen.getByRole('link', { name: '返回表单' }).getAttribute('href')).toBe(
+      `/${mode}${query}`,
+    );
+  });
+
+  it('replaces the native notice with the hydrated error after a JSON retry', async () => {
+    const { fetch, router } = setup(mode, '/maps/abc', undefined, true);
+    expect(screen.getByRole('alert').textContent).toBe('请启用 JavaScript 或等待页面加载后重试。');
+    fetch.mockResolvedValueOnce(new Response(null, { status: 400 }));
+    submit(' Alice ', ' pw ');
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe('请输入用户名和密码');
+    });
+    expect(screen.queryByRole('link', { name: '返回表单' })).toBeNull();
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(`/api/auth/${mode}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"username":" Alice ","password":" pw "}',
+    });
+    expect(router.push).not.toHaveBeenCalled();
+  });
 
   it.each([
     [null, ''],
