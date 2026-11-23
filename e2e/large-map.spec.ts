@@ -36,7 +36,9 @@ function assertWorkload(map: MindMap): Set<object> {
   return objects;
 }
 
-test('opens a deterministic 500-node primary tree from browser storage', async ({ page }) => {
+test('opens a deterministic 500-node primary tree seeded through the maps API', async ({
+  page,
+}) => {
   const map = createLargeMap();
   const objects = assertWorkload(map);
   const freshMap = createLargeMap();
