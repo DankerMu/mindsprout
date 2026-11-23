@@ -159,7 +159,7 @@ Every non-GET API route SHALL accept only `Content-Type: application/json` and S
 
 ### Requirement: Session expiry while editing keeps pending edits
 
-When a save is refused because the session has ended, the editor SHALL stay open and keep the unsaved edits pending. It SHALL show the notice "登录已过期，请在新标签页重新登录后继续编辑" with a `重新登录` link that opens `/login?next=%2F` in a new tab, so signing in there lands on the library and never opens a second editor of the same map. After the user signs in again, the next edit or flush SHALL save the pending map. When a page's initial load is refused because there is no session, the page SHALL redirect to `/login?next=<current path>` instead.
+When a save is refused because the session has ended, the editor SHALL stay open and keep the unsaved edits pending. It SHALL show the notice "登录已过期，请在新标签页重新登录后继续编辑" with a `重新登录` link that opens `/login?next=%2F` in a new tab, so signing in there lands on the library and never opens a second editor of the same map. After the user signs in again, the next edit or flush SHALL save the pending map. When the current stable map saves successfully and no newer edit is pending, the editor SHALL clear the session-expiry notice and its re-login link. A successful older write SHALL NOT clear a notice caused by a newer failed edit. When a page's initial load is refused because there is no session, the page SHALL redirect to `/login?next=<current path>` instead.
 
 #### Scenario: Edit after the session ended
 
@@ -180,6 +180,12 @@ When a save is refused because the session has ended, the editor SHALL stay open
 
 - **WHEN** a visitor whose session cookie is no longer valid opens `/`
 - **THEN** they are taken to `/login?next=%2F`
+
+#### Scenario: Successful recovery clears the session warning
+
+- **WHEN** the current stable map saves successfully after a session-expiry refusal and no newer edit is pending
+- **THEN** the session-expiry notice and re-login link disappear without a manual close action
+- **AND** an older write succeeding after a newer edit was refused leaves the newer failure notice visible
 
 ### Requirement: Public authentication forms link to each other
 
