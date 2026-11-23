@@ -18,6 +18,7 @@ async function screenshot(page: Page, name: string) {
 }
 
 async function authenticate(page: Page, username: string, action = '登录', password = 'pw') {
+  await page.waitForLoadState('load');
   await page.getByLabel('用户名').fill(username);
   await page.getByLabel('密码').fill(password);
   await page.getByRole('button', { name: action, exact: true }).click();
