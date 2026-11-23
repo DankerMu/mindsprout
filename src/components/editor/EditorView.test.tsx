@@ -98,7 +98,7 @@ describe('EditorView', () => {
     { failure: 'HTTP 401', status: 401, notice: '登录已过期，请在新标签页重新登录后继续编辑' },
     { failure: 'HTTP 500', status: 500, notice: '保存失败' },
     { failure: 'network failure', status: null, notice: '保存失败' },
-  ])('recovers both edits after $failure until notice dismissal', async ({ status, notice }) => {
+  ])('saves both edits and clears the notice after $failure', async ({ status, notice }) => {
     vi.useFakeTimers();
     const server = new MapFetch();
     server.respondNext(() => {
@@ -128,6 +128,8 @@ describe('EditorView', () => {
       await vi.advanceTimersByTimeAsync(500);
     });
     expect(server.requests).toHaveLength(2);
+    expect(screen.queryByText(notice)).toBeNull();
+    expect(screen.queryByRole('link', { name: '重新登录' })).toBeNull();
     const body = server.requests[1]?.init?.body;
     if (typeof body !== 'string') throw new Error('Expected a JSON request body');
     expect(JSON.parse(body) as unknown).toMatchObject({
@@ -144,14 +146,11 @@ describe('EditorView', () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
     expect(server.requests).toHaveLength(2);
-    expect(screen.getByText(notice)).toBeTruthy();
-    expect(screen.queryByRole('link', { name: '重新登录' }) !== null).toBe(status === 401);
-    fireEvent.click(screen.getByRole('button', { name: '关闭提示' }));
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('link', { name: '重新登录' })).toBeNull();
   });
 
-  it('keeps a failed rename, renders the current store notice and clears it only on dismiss', async () => {
+  it('keeps a failed rename and lets the user dismiss an unrelated notice', async () => {
     vi.useFakeTimers();
     const repository = new RecordingRepository();
     repository.rejectNext(new DOMException('quota', 'QuotaExceededError'));
