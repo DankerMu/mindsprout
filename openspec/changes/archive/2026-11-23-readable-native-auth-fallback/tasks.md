@@ -8,7 +8,7 @@
 ## 2. Browser and qualification evidence
 
 - [x] 2.1 更新 native e2e helper：login/register × button/Enter 及 blocked-script 覆盖 POST/303/中文页面/返回链接/所有 URL 无凭据/session 401，保存截图；另直接验证两个 API form POST 仍 415，并验证 signed-out invalid/child 404、近邻 307。运行 `pnpm verify-ui "account-auth"`，保留 hydrated 200/201 与 safe-next 证据和零意外 console。
-- [ ] 2.2 更新 README Known Limitations 与 patch changeset，运行 `pnpm test:unit`、`pnpm test:guardrails`、fmt/lint/typecheck/boundaries、strict OpenSpec/docs/decisions 与 required CI；archive 前确认最终 head 全绿。
+- [x] 2.2 更新 README Known Limitations 与 patch changeset，运行 `pnpm test:unit`、`pnpm test:guardrails`、fmt/lint/typecheck/boundaries、strict OpenSpec/docs/decisions 与 required CI；archive 前确认最终 head 全绿。
 
 ## Risk packs
 
