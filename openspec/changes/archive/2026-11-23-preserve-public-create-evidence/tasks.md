@@ -17,8 +17,8 @@ Replay selector red/green 覆盖 20,000 legacy + 1 valid evidence + 1 paired pub
 ## 3. Contract and verification
 
 - [x] 3.1 更新 native guide、development-navigation contract 和决策记录：新增 testing decision 部分承接 0031 的 default scope，保留并交叉链接 0030/0031。以 JSONL 断言验证 legacy `public-create-outcome`/`public-create-network` 形状不变、新 `public-create-evidence` 字段/provenance 精确、capture metadata 仅在指定失败出现；文档说明字段解释与无需迁移。运行 `pnpm decisions:check`、`pnpm docs:check` 和 strict OpenSpec。
-- [ ] 3.2 运行 focused native tests、`pnpm native:browser:test`、`pnpm lint`、`pnpm typecheck`、`pnpm fmt:check`；以 fresh output 分别运行真实 unprofiled source-change 与 restored-lifecycle，断言无 profiler/sampler/extra HTTP、无 default safe/profile 目录、原 noise/readiness/cleanup 不变。最终 required CI 必须通过；不新增 changeset（测试工具）。
+- [x] 3.2 运行 focused native tests、`pnpm native:browser:test`、`pnpm lint`、`pnpm typecheck`、`pnpm fmt:check`；以 fresh output 分别运行真实 unprofiled source-change 与 restored-lifecycle，断言无 profiler/sampler/extra HTTP、无 default safe/profile 目录、原 noise/readiness/cleanup 不变。最终 required CI 必须通过；不新增 changeset（测试工具）。
 
-本地检查及两种真实 unprofiled mode 已通过，日志与退出码保存在 `.run/issue260-checks/`。Required Darwin/Linux CI 尚未执行，保留 3.2 未完成。
+本地检查及两种真实 unprofiled mode 已通过，日志与退出码保存在 `.run/issue260-checks/`。最终 head `afce15c54de3a907a2e90e0aaaee8f06718d68f3` 的 required CI run `45120472610` 全部通过，包括 Darwin/Linux installed native、E2E、aggregate、lockfile 与 diff guard；PR #265 已合并。
 
 Risk-pack mapping: CI/script entry → 1.1/3.2 原命令与 required CI；concurrency/ordering → 1.2/2.1 claim/start/action/outcome/capture/finalization；file IO/path safety → 2.1 仅现有 JSONL/capture 路径，不新增 safe/profile 文件；auth/permissions/secrets → 2.2 fixed projection/canary；schema/field names → 3.1 legacy 形状、新 event/provenance/capture metadata 精确断言；documentation/migration notes → 3.1 native guide、决策交叉链接、无需迁移说明及 docs/decisions/OpenSpec 检查；error handling/rollback → 1.2/2.1 原错误与 cleanup；resource limits → 1.1/2.2 既有 64/256 caps、无新 page work；legacy compatibility → 1.1/2.2/3.2 两模式、legacy/raw/profile 分离。
