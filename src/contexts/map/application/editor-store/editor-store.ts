@@ -27,7 +27,7 @@ export { AUTOSAVE_DELAY_MS } from './autosave';
 // change, and node creation is one History group owned by the inline edit until commit / cancel.
 // Autosave (design D7, "Fixture — issue #13") runs only when a repository is injected: it writes
 // the stable map (state.map observed while no group is open) after a change of identity, treats
-// load as a new baseline, and reports failures through the notice.
+// load as a new baseline, and reports failures through the notice until the stable map saves.
 
 export type EditorStoreErrorCode =
   'no-map' | 'unknown-node' | 'hidden-node' | 'already-editing' | 'not-editing';
@@ -103,6 +103,10 @@ function attachAutosave(
     },
     onFailed: () => {
       if (api.getState().notice !== SAVE_FAILED) api.setState({ notice: SAVE_FAILED });
+    },
+    onSaved: () => {
+      const { notice } = api.getState();
+      if (notice === SESSION_EXPIRED || notice === SAVE_FAILED) api.setState({ notice: null });
     },
   });
   api.subscribe(({ map, groupOpen }) => {

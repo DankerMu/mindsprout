@@ -19,6 +19,7 @@ import {
 import { httpRepository, MapFetch } from '../../../../../tests/support/map-fetch';
 import { heldResult } from '../../../../../tests/support/map-library';
 import { RecordingRepository } from '../../../../../tests/support/map-repository-stub';
+import { StorageUnauthorizedError } from '../../domain/errors';
 import type { TreeOp } from '../../domain/tree-op';
 import type { MindMap, NodeId } from '../../domain/types';
 import { AUTOSAVE_DELAY_MS, createEditorStore, type EditorState } from './editor-store';
@@ -31,6 +32,7 @@ import { AUTOSAVE_DELAY_MS, createEditorStore, type EditorState } from './editor
 // sampleMap(): r ─ p ─ (a, b)          f1 @ (10, 20) ─ fc        updatedAt UPDATED_AT (T0)
 const START = '2026-11-06T08:00:00.000Z';
 const SAVE_FAILED = '保存失败';
+const SESSION_EXPIRED = '登录已过期，请在新标签页重新登录后继续编辑';
 
 // A second map with its own id, for load-while-pending cases.
 function otherMap(): MindMap {
@@ -453,6 +455,44 @@ describe('autosave failures (spec "Save failures are visible")', () => {
     expect(store.getState().notice).toBe(SAVE_FAILED);
   });
 
+  it('keeps a newer session failure visible after an older save succeeds', async () => {
+    const { store, repository } = saving();
+    const older = repository.holdNext();
+    store.getState().dispatch(RENAME_A);
+    const firstSave = store.getState().flush();
+
+    repository.rejectNext(new StorageUnauthorizedError());
+    store.getState().dispatch(ADD_C);
+    await store.getState().flush();
+    const latest = applied(sampleMap(), [RENAME_A, ADD_C]).roots;
+    expect(repository.puts.map((map) => map.roots)).toStrictEqual([
+      applied(sampleMap(), [RENAME_A]).roots,
+      latest,
+    ]);
+    expect(store.getState().notice).toBe(SESSION_EXPIRED);
+
+    older.resolve();
+    await firstSave;
+    expect(store.getState().notice).toBe(SESSION_EXPIRED);
+
+    await store.getState().flush();
+    expect(repository.puts).toHaveLength(3);
+    expect(putAt(repository, 2).roots).toStrictEqual(latest);
+    expect(store.getState().notice).toBeNull();
+  });
+
+  it('preserves a notice unrelated to saving after a successful put', async () => {
+    const { store, repository } = saving();
+    const notice = '无法导出导图';
+    store.getState().showNotice(notice);
+    store.getState().dispatch(RENAME_A);
+    await store.getState().flush();
+
+    expect(repository.puts).toHaveLength(1);
+    expect(putAt(repository, 0).roots).toStrictEqual(applied(sampleMap(), [RENAME_A]).roots);
+    expect(store.getState().notice).toBe(notice);
+  });
+
   it('a failed write of the previous map shows "保存失败" after load and is not retried', async () => {
     const { store, repository } = saving();
     const held = repository.holdNext();
@@ -478,9 +518,9 @@ describe('HTTP save failure recovery', () => {
   }
 
   it.each([
-    { status: 401, notice: '登录已过期，请在新标签页重新登录后继续编辑' },
-    { status: 500, notice: '保存失败' },
-  ])('retries repeated HTTP $status failures on flush', async ({ status, notice }) => {
+    { status: 401, notice: SESSION_EXPIRED },
+    { status: 500, notice: SAVE_FAILED },
+  ])('clears the notice after recovering from HTTP $status', async ({ status, notice }) => {
     const { server, store } = httpSaving();
     store.getState().dispatch({ op: 'update_node', id: 'a', text: '保留的修改' });
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -490,6 +530,7 @@ describe('HTTP save failure recovery', () => {
     }
     expect(server.requests).toHaveLength(2);
     await store.getState().flush();
+    expect(store.getState().notice).toBeNull();
     expect(server.requests).toHaveLength(3);
     const body = server.requests[2]?.init?.body;
     if (typeof body !== 'string') throw new Error('Expected a JSON request body');
@@ -507,8 +548,6 @@ describe('HTTP save failure recovery', () => {
     });
     await store.getState().flush();
     expect(server.requests).toHaveLength(3);
-    expect(store.getState().notice).toBe(notice);
-    store.getState().clearNotice();
     expect(store.getState().notice).toBeNull();
   });
 
@@ -526,9 +565,10 @@ describe('HTTP save failure recovery', () => {
     await Promise.all([firstSave, secondSave]);
     expect(requestsBeforeRelease).toBe(1);
     expect(server.requests).toHaveLength(2);
-    expect(store.getState().notice).toBe('登录已过期，请在新标签页重新登录后继续编辑');
+    expect(store.getState().notice).toBe(SESSION_EXPIRED);
 
     await store.getState().flush();
+    expect(store.getState().notice).toBeNull();
     expect(server.requests).toHaveLength(3);
     const body = server.requests[2]?.init?.body;
     if (typeof body !== 'string') throw new Error('Expected a JSON request body');
@@ -546,6 +586,6 @@ describe('HTTP save failure recovery', () => {
     });
     await store.getState().flush();
     expect(server.requests).toHaveLength(3);
-    expect(store.getState().notice).toBe('登录已过期，请在新标签页重新登录后继续编辑');
+    expect(store.getState().notice).toBeNull();
   });
 });

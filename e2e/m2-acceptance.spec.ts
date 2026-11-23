@@ -223,9 +223,10 @@ test('M2 acceptance — two devices, pending-edit recovery and owner-only maps',
     const denied = mapResponse(editor, map.id, 'PUT');
     await rename(editor, first.id, '登录前保留的修改');
     expect((await denied).status()).toBe(401);
-    await expect(
-      editor.getByText('登录已过期，请在新标签页重新登录后继续编辑', { exact: true }),
-    ).toBeVisible();
+    const sessionNotice = editor.getByText('登录已过期，请在新标签页重新登录后继续编辑', {
+      exact: true,
+    });
+    await expect(sessionNotice).toBeVisible();
     expect(await readRecord(deviceB, map.id)).toStrictEqual(envelopeOf(map).value);
     const link = editor.getByRole('link', { name: '重新登录', exact: true });
     await expect(link).toHaveAttribute('href', '/login?next=%2F');
@@ -245,6 +246,9 @@ test('M2 acceptance — two devices, pending-edit recovery and owner-only maps',
     const saved = mapResponse(editor, map.id, 'PUT');
     await rename(editor, second.id, '登录后继续的修改');
     expect((await saved).status()).toBe(204);
+    await expect(sessionNotice).toHaveCount(0);
+    await expect(link).toHaveCount(0);
+    expect(await document.evaluate((original) => original === window.document)).toBe(true);
     first.text = '登录前保留的修改';
     second.text = '登录后继续的修改';
     const recovered = envelopeOf(map).value;
@@ -253,6 +257,8 @@ test('M2 acceptance — two devices, pending-edit recovery and owner-only maps',
     await expectMapUi(editor, map);
     await screenshot(editor, 'relogin-recovered');
     await document.dispose();
+    await editor.reload();
+    await expectMapUi(editor, map);
 
     await signOut(deviceB);
     const bob = await newPage(contextB, [{ url: `/api/maps/${map.id}`, status: 404 }]);

@@ -15,6 +15,8 @@ interface AutosaveOptions {
   readonly onUnauthorized: () => void;
   // A put rejected with anything else (quota, a dropped connection, ...).
   readonly onFailed: () => void;
+  // A put resolved while its map was still stable.
+  readonly onSaved: () => void;
 }
 
 export interface Autosave {
@@ -27,7 +29,7 @@ export interface Autosave {
 }
 
 export function createAutosave(options: AutosaveOptions): Autosave {
-  const { repository, now, onUnauthorized, onFailed } = options;
+  const { repository, now, onUnauthorized, onFailed, onSaved } = options;
   // Pending = the stable map is not the map the last write started with (identity, never deep
   // equality: only a new map object is a change).
   let stable: MindMap | null = null;
@@ -52,7 +54,9 @@ export function createAutosave(options: AutosaveOptions): Autosave {
       if (stable === sent) written = null;
       if (error instanceof StorageUnauthorizedError) onUnauthorized();
       else onFailed();
+      return;
     }
+    if (stable === sent) onSaved();
   };
 
   const writePending = (): Promise<void> =>

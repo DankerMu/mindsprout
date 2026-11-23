@@ -17,13 +17,15 @@ function version(text: string): MindMap {
 function setup() {
   const repository = new RecordingRepository();
   const onFailed = vi.fn<() => void>();
+  const onSaved = vi.fn<() => void>();
   const autosave = createAutosave({
     repository,
     now: () => new Date(),
     onUnauthorized: vi.fn(),
     onFailed,
+    onSaved,
   });
-  return { repository, onFailed, autosave };
+  return { repository, onFailed, onSaved, autosave };
 }
 
 beforeEach(() => {
@@ -83,6 +85,25 @@ describe('createAutosave', () => {
     autosave.observe(version('2'));
     await autosave.flush();
     expect(onFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports success only after a real write resolves', async () => {
+    const { repository, onSaved, autosave } = setup();
+    const held = repository.holdNext();
+    autosave.rebase(version('0'));
+    autosave.observe(version('1'));
+    const flushed = autosave.flush();
+    expect(repository.puts).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onSaved).not.toHaveBeenCalled();
+
+    held.resolve();
+    await flushed;
+    expect(onSaved).toHaveBeenCalledTimes(1);
+
+    await autosave.flush();
+    expect(repository.puts).toHaveLength(1);
+    expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
   it('leaves a failed write pending only while its map is still the current one', async () => {
