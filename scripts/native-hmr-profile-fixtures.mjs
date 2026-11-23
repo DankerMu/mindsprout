@@ -180,6 +180,7 @@ const readinessMs = 10000;
 const stderrLimit = 16 * 1024;
 const fixtureFailureLine = Buffer.from('Browser signal fixture failed\n');
 const readinessErrors = new WeakSet();
+const browserCleanupOwners = new WeakMap();
 const nextPhase = {
   launching: 'browser-launched',
   'browser-launched': 'connecting',
@@ -313,7 +314,21 @@ function startSignalChild(
   function verifyLaunch(browserPid) {
     observed.browserPid = Number.isSafeInteger(browserPid) && browserPid > 0 ? browserPid : null;
     observed.browserIdentity = readBrowserIdentity(observed.browserPid);
+    // A live but unverified normal launch must still be refused by the fallback reaper.
+    if (observed.browserPid !== null) {
+      browserCleanupOwners.set(child, {
+        pid: observed.browserPid,
+        identity: observed.browserIdentity,
+      });
+    }
     if (observed.browserIdentity === null) fail('Signal child reported an unverified browser');
+  }
+
+  function rememberLateLaunch(browserPid) {
+    if (browserCleanupOwners.has(child) || !Number.isSafeInteger(browserPid) || browserPid <= 0)
+      return;
+    const identity = readBrowserIdentity(browserPid);
+    if (identity !== null) browserCleanupOwners.set(child, { pid: browserPid, identity });
   }
 
   function acceptReady(browserPid) {
@@ -351,10 +366,14 @@ function startSignalChild(
     exited.resolve({ code, signal });
   });
   child.on('message', (message) => {
-    if (message?.type === 'browser-closed') send(child, { type: 'finish-cleanup' });
-    if (state !== 'pending' || message?.type !== nextPhase[observed.phase]) return;
-    const { type, elapsedMs, browserPid } = message;
+    const { type, elapsedMs, browserPid } = message ?? {};
+    if (type === 'browser-closed') send(child, { type: 'finish-cleanup' });
+    if (type !== nextPhase[observed.phase]) return;
     if (!Number.isSafeInteger(elapsedMs) || elapsedMs < observed.phaseMs) return;
+    if (state !== 'pending') {
+      if (type === 'browser-launched') rememberLateLaunch(browserPid);
+      return;
+    }
     observed.phase = type;
     observed.phaseMs = elapsedMs;
     if (type === 'browser-launched') verifyLaunch(browserPid);
@@ -407,7 +426,7 @@ function startStalledSignalChild(mode, directory) {
 }
 
 async function reapSignalChild(fixture) {
-  const { child, observed, exited } = fixture;
+  const { child, exited } = fixture;
   const running = () =>
     child.pid !== undefined && child.exitCode === null && child.signalCode === null;
   fixture.stop();
@@ -421,7 +440,8 @@ async function reapSignalChild(fixture) {
         await deadline(exited, 5000, 'Signal child forced cleanup');
       }
     } finally {
-      await reapBrowser(observed.browserPid, observed.browserIdentity);
+      const owner = browserCleanupOwners.get(child);
+      if (owner) await reapBrowser(owner.pid, owner.identity);
     }
   }
 }
