@@ -8,7 +8,7 @@
 ## 2. Visual and qualification evidence
 
 - [x] 2.1 运行 `pnpm verify-ui "map-library"` 与 `pnpm verify-ui "account-admin"`，检查列表、同名 rename/delete 和 admin 截图，确认控件/时间清晰、行内目标明确、零意外 console/page error。
-- [ ] 2.2 添加 patch changeset，运行 `pnpm test:unit`、fmt/lint/typecheck/boundaries、strict OpenSpec/docs/decisions 与 required CI；确认没有全局样式泄漏或第二份列表样式，archive 前最终 head 全绿。
+- [x] 2.2 添加 patch changeset，运行 `pnpm test:unit`、fmt/lint/typecheck/boundaries、strict OpenSpec/docs/decisions 与 required CI；确认没有全局样式泄漏或第二份列表样式，archive 前最终 head 全绿。
 
 ## Risk packs
 
