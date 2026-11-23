@@ -143,13 +143,17 @@ The native browser probe SHALL provide explicit opt-in, bounded compiler/server 
 
 ### Requirement: Diagnostic public-create timing remains attributable and non-authoritative
 
-Opt-in native navigation diagnostics SHALL retain a bounded public-create timeline that distinguishes observed API/RSC network delivery, SPA URL/history changes and sampled ready visibility in the same invocation. Evidence SHALL use fixed classifications, validated provenance and separate clock domains, and SHALL NOT alter or replace the original readiness outcome, five-second budget, browser-noise assertions or resource cleanup.
+Native navigation diagnostics SHALL retain a bounded public-create timeline that distinguishes observed API/RSC network delivery, SPA URL/history changes and sampled ready visibility in the same invocation. Default qualification SHALL retain a lightweight fixed-projection attempt record without enabling profiler commands, additional listeners, page sampling or profile artifacts. Evidence SHALL use fixed classifications, validated provenance and separate clock domains, and SHALL NOT alter or replace the original readiness outcome, five-second budget, browser-noise assertions or resource cleanup.
 
 #### Scenario: Default and existing caller behavior
 
 - **WHEN** an installed or candidate native command runs either mode without profiling
-- **THEN** no additional public-create timeline commands, listeners, sampling or output are enabled
-- **AND** existing invocation grammar, qualification ordering, assertions and cleanup remain unchanged
+- **THEN** the existing first-create observer records one bounded `public-create-evidence` event with original budget/action/outcome, fixed-class network receipts and explicit partial marker/route channels
+- **AND** the local claim registers finalization before the first awaited Performance snapshot, begin precedes start, and the claimed no-sampler attempt remains armed until start records the original budget
+- **AND** one CDP-close lifecycle hook marks network observation partial on detachment; no additional public-create timeline commands, network/timeline listeners, page sampling, HTTP requests, `.next-profiles` or `safe/` output are enabled
+- **AND** legacy empty outcome/raw network events, invocation grammar, qualification ordering, assertions and cleanup remain unchanged
+- **AND** the event's `data` carries the fixed `attempt`, `mode`, `generation`, `trial`, `page`, `budget`, `action`, `outcome`, `network`, `marker`, `routes`, `status` and `codes` fields; the addition requires no migration
+- **AND** if that publication fails, a fixed `public-create-observation-error` notice is attempted without replacing the original functional result or preventing its persistence
 
 #### Scenario: Profiled public creation
 
@@ -171,10 +175,22 @@ Opt-in native navigation diagnostics SHALL retain a bounded public-create timeli
 
 - **WHEN** the original action or readiness assertion fails, times out, or is interrupted
 - **THEN** the original failed outcome and deadline remain immutable regardless of later responses or marker visibility
-- **AND** the already-installed bounded sampler may continue only during existing failure capture/teardown; its page-side work and every post-outcome receipt remain labelled, without waiting for a late result or extending capture
-- **AND** success stops accepting observations before later navigation and requests bounded best-effort disposal; unacknowledged disposal is explicit partial shutdown-unknown evidence, with residual page work limited by autonomous expiry/cap/page close and no retry or grace wait
+- **AND** the default attempt finalizes after the existing failure capture without a grace wait, with related post-outcome network receipts and capture metadata explicitly labelled `failed-tail`
+- **AND** an already-installed profile sampler may continue only during existing failure capture/teardown; its page-side work and every post-outcome receipt remain labelled, without waiting for a late result or extending capture
+- **AND** success stops accepting observations before later navigation and requests bounded best-effort sampler disposal; unacknowledged disposal is explicit partial shutdown-unknown evidence, with residual page work limited by autonomous expiry/cap/page close and no retry or grace wait
 - **AND** diagnostic-command timeout, disconnect and interruption permanently abandon affected observation channels; late replies cannot revive them, rewrite a first-visible bracket, mutate finalized evidence or extend cleanup budgets
-- **AND** failure finalizes on page close or before publication, whichever comes first; accepted data remains immutable after finalization even if bounded page-side work has not yet acknowledged disposal
+- **AND** profiled failure finalizes on page close or before publication, whichever comes first; accepted data remains immutable after finalization even if bounded page-side work has not yet acknowledged disposal
+
+#### Scenario: Attempt has not started or readiness precedes save validation
+
+- **WHEN** interruption occurs before claim/start, root document commit fails before the first create attempt, or the save-failure assertion fails after readiness has already succeeded
+- **THEN** pre-claim/start interruption produces null budget and unavailable action/outcome without premature finalization, root failure produces only partial/unknown attempt evidence, and the save assertion preserves the already finalized ready outcome
+- **AND** none of these paths fabricates a budget/action/readiness transition or rewrites the functional failure
+
+#### Scenario: Later trial failure does not rewrite successful creation
+
+- **WHEN** the first create has finalized ready and a later restored-lifecycle trial fails
+- **THEN** attempt 1 remains ready and rejects later mutation, the unrelated failure capture omits `publicCreate.phase = failed-tail`, and the later functional failure and cleanup remain authoritative
 
 #### Scenario: Separate clocks and absent events
 
@@ -187,14 +203,17 @@ Opt-in native navigation diagnostics SHALL retain a bounded public-create timeli
 
 - **WHEN** requests, redirects, route transitions, marker samples or published output reach a bound, or browser-controlled inputs contain hostile strings
 - **THEN** one attempt retains at most64 request records including redirect hops,16 route observations and128 marker samples with sampling no faster than50ms; the sampler performs no layout reads after6400ms from arming, and cap-plus-one reports explicit partial evidence
-- **AND** publication contains only fixed enums, finite numbers, local bounded ordinals and validated provenance; no raw paths, URLs, query values, IDs, DOM text, headers, cookies, bodies, credentials or exception messages are added
-- **AND** normal and compact output preserve attempt identity, original budget/outcome and channel completeness/omission information within the existing1MiB safe-summary bound
+- **AND** default and profile fixed projections contain only fixed enums, finite numbers, local bounded ordinals and validated provenance; no raw paths, URLs, query values, IDs, DOM text, headers, cookies, bodies, credentials or exception messages are added
+- **AND** normal and compact profile output preserve attempt identity, original budget/outcome and channel completeness/omission information within the existing1MiB safe-summary bound
 - **AND** existing owned no-follow publication and foreign-entry preservation remain unchanged
 
 #### Scenario: CI evidence does not become qualification
 
 - **WHEN** an eligible failed Darwin qualification triggers its existing single diagnostic execution
-- **THEN** only that separate invocation supplies the added timeline; original qualification artifacts and failed job/aggregate remain authoritative
+- **THEN** the original invocation retains only its lightweight default attempt record while the separate profiled invocation supplies the richer sampled timeline
+- **AND** original qualification artifacts and failed job/aggregate remain authoritative and distinct from the replay
+- **AND** replay selection permits up to 20,000 legacy events plus one valid default evidence envelope and at most one paired `public-create-observation-error` notice, with a hard total of 20,002 and unchanged byte caps and failure/resume checks
+- **AND** the notice must use the same `public-map-setup` / `retained-editor` envelope, generation and trial zero, finite collector timestamps and exactly `stage: publication` and `message: Public-create evidence publication failed` in `data`; duplicates, unpaired or malformed notices and excess events are ineligible
 - **AND** capture absence, diagnostic failure or non-reproduction is explicit, without same-head retry, warmup, altered cache, native package changes or a latency-repair claim
 
 ### Requirement: Browser tests declare expected HTTP errors
