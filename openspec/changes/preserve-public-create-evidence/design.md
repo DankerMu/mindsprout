@@ -18,6 +18,7 @@ Non-goals: enabling CPU/trace profiling or marker/route sampling by default, new
 - `capturePage` accepts optional fixed metadata from the navigation observation. Only an action/readiness-failed attempt labels its existing failure capture `publicCreate.phase = failed-tail`; no attempt, ready outcome or unrelated capture adds that label. Capture content/timestamps/errors remain unchanged and never retroactively qualify readiness.
 - Preserve the existing ordering where readiness becomes `ready` before the subsequent save-failure assertion. Pin a negative test showing a later save assertion failure does not rewrite that ready outcome; correcting that attribution is outside this issue.
 - Update the `development-navigation` default and CI scenarios, native guide, and a new testing decision that partially supersedes 0031's profile-only scope. Keep 0030/0031 replay, safety and non-authoritative rationale, cross-link rather than rewriting them into a different decision.
+- Replay selection retains its 20,000-legacy-event cap and treats one valid first-create evidence envelope and one paired fixed publication-error notice separately. The notice uses the same first-create envelope and exactly the fixed publication stage and message; both events can survive in `result.json` even when their JSONL appends fail. The hard total is 20,002; byte caps and failure/resume validation are unchanged.
 
 ## Governing invariant
 

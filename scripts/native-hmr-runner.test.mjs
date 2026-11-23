@@ -230,6 +230,29 @@ for (const [stage, failure] of [
       false,
     );
     const notice = { stage: 'publication', message: 'Public-create evidence publication failed' };
+    const persisted = result.events.filter(({ type }) =>
+      ['public-create-evidence', 'public-create-observation-error'].includes(type),
+    );
+    assert.deepEqual(
+      persisted.map(({ type }) => type),
+      ['public-create-evidence', 'public-create-observation-error'],
+    );
+    assert.deepEqual(
+      persisted.map(({ at, ms, phase, page, generation, trial }) => [
+        Number.isFinite(at),
+        Number.isFinite(ms),
+        phase,
+        page,
+        generation,
+        trial,
+      ]),
+      Array(2).fill([true, true, 'public-map-setup', 'retained-editor', 0, 0]),
+    );
+    const [evidence] = persisted;
+    assert.equal(
+      evidence.data.outcome.status,
+      { action: 'action-failed', root: 'unavailable', ready: 'ready' }[stage],
+    );
     assert.deepEqual(
       result.events
         .filter(({ type }) => type === 'public-create-observation-error')

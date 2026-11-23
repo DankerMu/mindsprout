@@ -186,6 +186,87 @@ test('selector keeps the legacy record cap plus one valid first-create envelope'
   }
 });
 
+const capFailure = failureEvent('public-map-setup');
+const createEvidence = {
+  ...capFailure,
+  type: 'public-create-evidence',
+  page: 'retained-editor',
+  data: { attempt: 1 },
+};
+const publicationNotice = {
+  ...createEvidence,
+  type: 'public-create-observation-error',
+  data: { stage: 'publication', message: 'Public-create evidence publication failed' },
+};
+const capLegacy = [...Array(19_999).fill({ type: 'browser-request' }), capFailure];
+
+test('selector allows one paired publication notice beyond the legacy cap, even without JSONL', (t) => {
+  const fixture = diagnosticFixture(t);
+  fixture.result.events = [...capLegacy, createEvidence, publicationNotice];
+  fixture.save();
+  assert.deepEqual(selectNativeDiagnostic(fixture.input), {
+    eligible: true,
+    mode: 'restored-lifecycle',
+    code: null,
+  });
+});
+
+for (const [name, events] of [
+  ['unpaired notice', [capFailure, publicationNotice]],
+  ['duplicate notices', [capFailure, createEvidence, publicationNotice, publicationNotice]],
+  ['wrong phase notice', [capFailure, createEvidence, { ...publicationNotice, phase: 'cleanup' }]],
+  ['wrong page notice', [capFailure, createEvidence, { ...publicationNotice, page: 'collector' }]],
+  [
+    'wrong generation notice',
+    [capFailure, createEvidence, { ...publicationNotice, generation: 1 }],
+  ],
+  ['wrong trial notice', [capFailure, createEvidence, { ...publicationNotice, trial: 1 }]],
+  ['invalid clock notice', [capFailure, createEvidence, { ...publicationNotice, at: null }]],
+  ['missing data', [capFailure, createEvidence, { ...publicationNotice, data: null }]],
+  [
+    'extra data field',
+    [
+      capFailure,
+      createEvidence,
+      { ...publicationNotice, data: { ...publicationNotice.data, details: secret } },
+    ],
+  ],
+  [
+    'wrong notice message',
+    [
+      capFailure,
+      createEvidence,
+      { ...publicationNotice, data: { ...publicationNotice.data, message: secret } },
+    ],
+  ],
+  [
+    'unrelated observation error',
+    [
+      capFailure,
+      createEvidence,
+      { ...publicationNotice, data: { ...publicationNotice.data, stage: 'before' } },
+    ],
+  ],
+  [
+    'over-cap legacy with notice and no evidence',
+    [...capLegacy, { type: 'extra' }, publicationNotice],
+  ],
+  ['duplicate evidence at total cap', [...capLegacy, createEvidence, createEvidence]],
+  ['arbitrary extra event at total cap', [...capLegacy, createEvidence, { type: 'extra' }]],
+  ['total cap plus one', [...capLegacy, createEvidence, publicationNotice, { type: 'extra' }]],
+]) {
+  test(`selector rejects publication accounting: ${name}`, (t) => {
+    const fixture = diagnosticFixture(t);
+    fixture.result.events = events;
+    fixture.save();
+    assert.deepEqual(selectNativeDiagnostic(fixture.input), {
+      eligible: false,
+      mode: null,
+      code: 'non-browser-failure',
+    });
+  });
+}
+
 test('success, Linux, cancellation and installation failures cannot select a diagnostic', (t) => {
   const { input } = diagnosticFixture(t);
   for (const changes of [

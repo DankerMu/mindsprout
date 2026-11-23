@@ -77,5 +77,6 @@ Native navigation diagnostics SHALL retain a bounded public-create timeline that
 - **WHEN** an eligible failed Darwin qualification triggers its existing single diagnostic execution
 - **THEN** the original invocation retains only its lightweight default attempt record while the separate profiled invocation supplies the richer sampled timeline
 - **AND** original qualification artifacts and failed job/aggregate remain authoritative and distinct from the replay
-- **AND** replay selection permits at most one valid default evidence envelope in addition to the existing legacy event limit; existing byte caps and failure/resume checks still apply
+- **AND** replay selection permits up to 20,000 legacy events plus one valid default evidence envelope and at most one paired `public-create-observation-error` notice, with a hard total of 20,002 and unchanged byte caps and failure/resume checks
+- **AND** the notice must use the same `public-map-setup` / `retained-editor` envelope, generation and trial zero, finite collector timestamps and exactly `stage: publication` and `message: Public-create evidence publication failed` in `data`; duplicates, unpaired or malformed notices and excess events are ineligible
 - **AND** capture absence, diagnostic failure or non-reproduction is explicit, without same-head retry, warmup, altered cache, native package changes or a latency-repair claim

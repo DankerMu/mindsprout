@@ -12,6 +12,8 @@
 
 Fix-pass red/green 覆盖 Chromium CDP detach 的四个阶段、实际 runner 的 action/root/ready 发布错误，以及 replay selector 的 20,000 legacy + 1 valid evidence 边界；保留 later restored trial failure 回归。
 
+Replay selector red/green 覆盖 20,000 legacy + 1 valid evidence + 1 paired publication notice 边界及非法组合。实际 runner 验证 action/root/ready 的持久化形状，包括 root 的 JSONL fallback append 失败；later restored trial 回归仍通过。证据：`.run/issue260-checks/fix2/`。
+
 ## 3. Contract and verification
 
 - [x] 3.1 更新 native guide、development-navigation contract 和决策记录：新增 testing decision 部分承接 0031 的 default scope，保留并交叉链接 0030/0031。以 JSONL 断言验证 legacy `public-create-outcome`/`public-create-network` 形状不变、新 `public-create-evidence` 字段/provenance 精确、capture metadata 仅在指定失败出现；文档说明字段解释与无需迁移。运行 `pnpm decisions:check`、`pnpm docs:check` 和 strict OpenSpec。

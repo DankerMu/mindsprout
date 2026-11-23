@@ -148,6 +148,8 @@ The [installed-native action](../../.github/actions/native-installed-runtime/act
 
 The [eligibility policy](../../scripts/native-hmr-profile.mjs) requires matching failed-result evidence, verified source/cache cleanup, unchanged current source identity, and a navigation-phase failure. Initial setup failures are excluded. A restart failure needs an earlier browser-resumed event for the same generation and trial; a later cleanup resume cannot authorize replay. Missing, malformed, ambiguous, or cleanup-blocked evidence is reported ineligible without launching another probe. Successful qualifications, Linux, installation failures, and cancellation select no diagnosis.
 
+Replay selection reads `result.json` under the existing byte caps. It accepts up to 20,000 legacy events plus one valid `public-create-evidence` and, only with that evidence, one `public-create-observation-error` notice. The notice must have the same first-create envelope and exactly `stage: publication` and `message: Public-create evidence publication failed` in `data`. Duplicates, malformed or unpaired notices, and counts above either cap are ineligible.
+
 The original failed qualification, job, and required aggregate remain red whether diagnosis passes, fails, or is ineligible. The default evidence and original raw artifacts remain separate from the replay. A useful safe summary or successful local replay is not evidence of CI capture, successful qualification, or a latency repair.
 
 ## Publication and frozen installation
