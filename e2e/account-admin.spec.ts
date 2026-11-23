@@ -73,6 +73,17 @@ test('account-admin: Admin sees all accounts', async ({ adminPage, playwright, b
       row.getByRole('button', { name: `重置密码 ${username}`, exact: true }),
     ).toHaveCount(1);
   }
+  const firstRow = rows.filter({ has: adminPage.getByText(first, { exact: true }) });
+  const reset = firstRow.getByRole('button', { name: `重置密码 ${first}`, exact: true });
+  await Promise.all([
+    expect
+      .soft(adminPage.getByRole('list', { name: '用户列表' }))
+      .toHaveCSS('list-style-type', 'none'),
+    expect.soft(firstRow).toHaveCSS('display', 'flex'),
+    expect.soft(firstRow).toHaveCSS('flex-wrap', 'wrap'),
+    expect.soft(reset).toHaveCSS('border-top-left-radius', '6px'),
+    expect.soft(reset).toHaveCSS('border-top-color', 'rgb(208, 215, 222)'),
+  ]);
   await adminPage.screenshot({ path: '.run/ui-evidence/account-admin.png', fullPage: true });
   expect(await expected.noise()).toEqual([]);
 });

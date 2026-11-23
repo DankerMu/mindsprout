@@ -137,6 +137,15 @@ test.describe('map-library', () => {
     await expect(rows.nth(1).locator('time')).toHaveAttribute('datetime', EARLY);
     await expect(rows.nth(0).locator('time')).toBeVisible();
     await expect(rows.nth(1).locator('time')).toBeVisible();
+    const firstRow = rows.nth(0);
+    const rename = firstRow.getByRole('button', { name: '重命名 B', exact: true });
+    await Promise.all([
+      expect.soft(page.getByRole('list')).toHaveCSS('list-style-type', 'none'),
+      expect.soft(firstRow).toHaveCSS('display', 'flex'),
+      expect.soft(firstRow).toHaveCSS('flex-wrap', 'wrap'),
+      expect.soft(rename).toHaveCSS('border-top-left-radius', '6px'),
+      expect.soft(rename).toHaveCSS('border-top-color', 'rgb(208, 215, 222)'),
+    ]);
     await page.screenshot({ path: `${EVIDENCE}/map-library-ordering.png`, fullPage: true });
     const documents = watchDocuments(page);
 
@@ -158,6 +167,7 @@ test.describe('map-library', () => {
     const form = target.getByRole('form', { name: '重命名 新导图', exact: true });
     await trigger.click();
     await expect(form).toBeVisible();
+    await expect(form).toHaveCSS('display', 'flex');
     await expect(page.getByRole('form')).toHaveCount(1);
     const title = form.getByRole('textbox', { name: '标题', exact: true });
     await expect(title).toBeFocused();
@@ -214,6 +224,7 @@ test.describe('map-library', () => {
     const dialog = target.getByRole('dialog', { name: '删除 新导图', exact: true });
     await trigger.click();
     await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveCSS('position', 'static');
     await expect(page.getByRole('dialog')).toHaveCount(1);
     await expect(dialog.getByText('确定永久删除“新导图”吗？', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: '取消', exact: true })).toBeFocused();
