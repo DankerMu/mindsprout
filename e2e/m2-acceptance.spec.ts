@@ -18,14 +18,103 @@ async function screenshot(page: Page, name: string) {
 }
 
 async function authenticate(page: Page, username: string, action = '登录', password = 'pw') {
-  await page.waitForLoadState('load');
-  await page.getByLabel('用户名').fill(username);
-  await page.getByLabel('密码').fill(password);
-  await page.getByRole('button', { name: action, exact: true }).click();
+  const form = page.getByRole('form', { name: action, exact: true });
+  await expect(form).toHaveAttribute('data-hydrated', 'true');
+  await form.getByLabel('用户名').fill(username);
+  await form.getByLabel('密码').fill(password);
+  await form.getByRole('button', { name: action, exact: true }).click();
   await expect(page).toHaveURL('/');
   await expect(page.getByTestId('app-ready')).toBeVisible();
   await expect(page.getByTestId('session-username')).toHaveText(username);
 }
+
+declare global {
+  interface Window {
+    credentialHydration: { queued: (() => void)[]; release: () => void };
+  }
+}
+
+test('M2 authentication waits for hydration after load', async ({ page }) => {
+  const collector = collectExpectedResponses(page, []);
+  await page.addInitScript(() => {
+    const queued: (() => void)[] = [];
+    let held = true;
+    window.credentialHydration = {
+      queued,
+      release: () => {
+        held = false;
+        for (const send of queued.splice(0)) send();
+      },
+    };
+    // React Scheduler posts null to wake its MessageChannel; hold the wakeup, not the scripts.
+    window.MessageChannel = class extends MessageChannel {
+      constructor() {
+        super();
+        this.port2.postMessage = new Proxy(this.port2.postMessage.bind(this.port2), {
+          apply(send, _port, args: [unknown]) {
+            if (held && args[0] === null) {
+              queued.push(() => {
+                send(...args);
+              });
+            } else send(...args);
+          },
+        });
+      }
+    };
+  });
+
+  const paths: string[] = [];
+  page.on('request', (request) => {
+    const { pathname } = new URL(request.url());
+    if (pathname === '/api/auth/login' || pathname.startsWith('/native-auth/'))
+      paths.push(pathname);
+  });
+  await page.goto('/login?next=%2F', { waitUntil: 'load' });
+  await page.waitForFunction(() => window.credentialHydration.queued.length > 0);
+  const form = page.getByRole('form', { name: '登录', exact: true });
+  await expect(form).toBeVisible();
+  expect(await form.getAttribute('data-hydrated')).toBeNull();
+  await form.evaluate((element) => {
+    for (const type of ['input', 'submit']) {
+      element.addEventListener(
+        type,
+        () => {
+          if (element.getAttribute('data-hydrated') !== 'true') {
+            throw new Error(`${type} reached the credential form before its mount effect`);
+          }
+        },
+        true,
+      );
+    }
+  });
+
+  const response = page.waitForResponse(
+    (result) => new URL(result.url()).pathname === '/api/auth/login',
+  );
+  const [login] = await Promise.all([
+    response,
+    authenticate(page, E2E_ADMIN_USERNAME, '登录', E2E_ADMIN_PASSWORD),
+    (async () => {
+      await screenshot(page, 'hydration-held-after-load');
+      expect(paths).toEqual([]);
+      await expect(form.getByLabel('用户名')).toBeEmpty();
+      expect(await form.getAttribute('data-hydrated')).toBeNull();
+      await page.evaluate(() => {
+        window.credentialHydration.release();
+      });
+    })(),
+  ]);
+  expect(login.status()).toBe(200);
+  expect(login.request().method()).toBe('POST');
+  expect(login.request().headers()['content-type']).toBe('application/json');
+  expect(login.request().postDataJSON()).toEqual({
+    username: E2E_ADMIN_USERNAME,
+    password: E2E_ADMIN_PASSWORD,
+  });
+  expect(paths).toEqual(['/api/auth/login']);
+  expect(await collector.noise()).toEqual([]);
+  await screenshot(page, 'hydration-released-library');
+});
 
 async function signOut(page: Page) {
   await page.getByRole('button', { name: '退出登录' }).click();

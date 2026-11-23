@@ -45,9 +45,11 @@ function setup(
   if (earlyInput) {
     const container = document.createElement('div');
     container.innerHTML = renderToString(form);
+    expect(within(container).getByRole('form').hasAttribute('data-hydrated')).toBe(false);
     document.body.append(container);
     within(container).getByLabelText<HTMLInputElement>(earlyInput.label).value = earlyInput.value;
     render(form, { container, hydrate: true });
+    expect(within(container).getByRole('form').getAttribute('data-hydrated')).toBe('true');
     expect(within(container).getByLabelText<HTMLInputElement>(earlyInput.label).value).toBe(
       earlyInput.value,
     );

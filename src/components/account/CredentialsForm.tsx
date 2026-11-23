@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { safeNextPath } from '../../shared/safe-next-path';
 import { useSessionNavigation } from './session-navigation';
 
@@ -24,7 +24,11 @@ export function CredentialsForm({
 }) {
   const router = useRouter();
   const { publicAuthMounted, resumeAuthenticatedNavigation } = useSessionNavigation();
-  useEffect(publicAuthMounted, [publicAuthMounted]);
+  const form = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    publicAuthMounted();
+    form.current?.setAttribute('data-hydrated', 'true');
+  }, [publicAuthMounted]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>();
   const label = mode === 'login' ? '登录' : '注册';
@@ -60,6 +64,7 @@ export function CredentialsForm({
     <main data-testid={`${mode}-ready`}>
       <h1>{label}</h1>
       <form
+        ref={form}
         aria-label={label}
         method="post"
         action={`/native-auth/${mode}${query}`}
