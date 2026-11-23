@@ -5,8 +5,9 @@ async function submitNatively(
   page: Page,
   mode: 'login' | 'register',
   via: 'button' | 'Enter',
-  blockScripts: boolean,
+  scenario: { blockScripts: boolean; query: string; retryQuery: string },
 ) {
+  const { blockScripts, query, retryQuery } = scenario;
   const username = `native-${randomUUID()}`;
   const password = `secret-${randomUUID()}`;
   const urls: string[] = [];
@@ -29,8 +30,11 @@ async function submitNatively(
   });
   page.on('pageerror', (error) => noise.push(`pageerror: ${String(error)}`));
 
-  const next = 'next=%2Fmaps%2Fabc%3Fview%3Dtree';
-  await page.goto(`/${mode}?${next}`);
+  const formUrl = `/${mode}${query}`;
+  const action = `/native-auth/${mode}${query}`;
+  const location = `/${mode}${retryQuery}`;
+  await page.goto(formUrl);
+  await expect(page.getByRole('form')).toHaveAttribute('action', action);
   await page.getByLabel('用户名').fill(username);
   await page.getByLabel('密码').fill(password);
   const navigation = page.waitForRequest((request) => request.isNavigationRequest());
@@ -38,21 +42,22 @@ async function submitNatively(
   else await page.getByRole('button', { name: mode === 'login' ? '登录' : '注册' }).click();
   const submission = await navigation;
   expect(submission.method()).toBe('POST');
-  expect(new URL(submission.url()).pathname).toBe(`/native-auth/${mode}`);
+  const target = new URL(submission.url());
+  expect(`${target.pathname}${target.search}`).toBe(action);
   const response = await submission.response();
   expect(response?.status()).toBe(303);
-  expect(response?.headers().location).toBe(`/${mode}?native=1&${next}`);
+  expect(response?.headers().location).toBe(location);
   expect(await response?.headerValue('set-cookie')).toBeNull();
-  await expect(page).toHaveURL(`/${mode}?native=1&${next}`);
+  await expect(page).toHaveURL(location);
   await expect(page.getByRole('alert')).toHaveText('请启用 JavaScript 或等待页面加载后重试。');
   const returnLink = page.getByRole('link', { name: '返回表单' });
-  await expect(returnLink).toHaveAttribute('href', `/${mode}?${next}`);
+  await expect(returnLink).toHaveAttribute('href', formUrl);
   await page.screenshot({
     path: `.run/ui-evidence/issue242-native-auth/${mode}-${via}-${blockScripts ? 'blocked' : 'no-js'}.png`,
   });
   urls.push(page.url());
   await returnLink.click();
-  await expect(page).toHaveURL(`/${mode}?${next}`);
+  await expect(page).toHaveURL(formUrl);
   await expect(page.getByRole('alert')).toHaveCount(0);
   const session = await page.request.get('/api/auth/session');
   expect(session.status()).toBe(401);
@@ -64,7 +69,15 @@ async function submitNatively(
   expect(noise).toEqual([]);
 }
 
-for (const blockScripts of [false, true]) {
+for (const scenario of [
+  { blockScripts: false, query: '', retryQuery: '?native=1' },
+  {
+    blockScripts: true,
+    query: '?next=%2Fmaps%2Fabc%3Fview%3Dtree',
+    retryQuery: '?native=1&next=%2Fmaps%2Fabc%3Fview%3Dtree',
+  },
+]) {
+  const { blockScripts } = scenario;
   test.describe(`account-auth: Native with ${blockScripts ? 'blocked scripts' : 'JavaScript disabled'}`, () => {
     test.use({ javaScriptEnabled: blockScripts });
     for (const mode of ['login', 'register'] as const) {
@@ -72,7 +85,7 @@ for (const blockScripts of [false, true]) {
         test(`${mode} ${via} returns to a readable form without authenticating`, async ({
           page,
         }) => {
-          await submitNatively(page, mode, via, blockScripts);
+          await submitNatively(page, mode, via, scenario);
         });
       }
     }
