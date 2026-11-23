@@ -151,7 +151,7 @@ function LibraryRows({
   renderAction: (id: string) => ReactNode;
 }) {
   return (
-    <ul>
+    <ul role="list">
       {maps.map((summary) => {
         const { id, title, updatedAt } = summary;
         return (

@@ -1,0 +1,107 @@
+.page {
+  --list-border: #d0d7de;
+  max-inline-size: 960px;
+  margin: 24px auto;
+  padding-inline: 16px;
+  color: #24292f;
+  font:
+    1rem/1.5 system-ui,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.page h1 {
+  margin: 0 0 12px;
+  font-size: 1.5rem;
+}
+
+.page > section {
+  margin-block-start: 16px;
+}
+
+.page ul {
+  margin: 16px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.page li,
+.page form,
+.page dialog[open] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.page li {
+  padding-block: 8px;
+  border-block-end: 1px solid var(--list-border);
+}
+
+.page time {
+  color: #57606a;
+  font-size: 0.875rem;
+}
+
+.page button,
+.page input {
+  box-sizing: border-box;
+  max-inline-size: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--list-border);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+}
+
+.page input {
+  min-inline-size: 0;
+  background: #fff;
+}
+
+.page button {
+  background: #f6f8fa;
+}
+
+.page button:enabled:hover {
+  background: #eaeef2;
+  cursor: pointer;
+}
+
+.page button:disabled {
+  color: #6e7781;
+}
+
+.page form,
+.page dialog[open] {
+  box-sizing: border-box;
+  max-inline-size: 100%;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--list-border);
+  border-radius: 6px;
+  background: #f6f8fa;
+}
+
+.page dialog[open] {
+  position: static;
+  color: inherit;
+}
+
+.page li > :is(form, dialog[open]),
+.page :is(form, dialog[open]) > p {
+  flex-basis: 100%;
+}
+
+.page :is(form, dialog[open]) > p {
+  margin: 0;
+}
+
+.page label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+}
