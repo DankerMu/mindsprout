@@ -1,14 +1,9 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { setTimeout as sleep } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { chromium } from '@playwright/test';
 import { deadline, processGroup } from './native-hmr-support.mjs';
 import {
   cpu,
@@ -16,146 +11,35 @@ import {
   digest,
   generationFiles,
   noSecrets,
+  publishedSignalReadiness,
+  reapSignalChild,
+  readSignalCleanup,
   secret,
   span,
+  startSignalChild,
+  startStalledSignalChild,
   temporary,
 } from './native-hmr-profile-fixtures.mjs';
 import { createRuntimeProfile } from './native-hmr-runtime-profile.mjs';
-
-const childFile = fileURLToPath(new URL('./native-hmr-signal-child.mjs', import.meta.url));
-
-function send(child, message) {
-  if (child.connected) child.send(message, () => undefined);
-}
-
-function browserIdentity(pid) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return null;
-  try {
-    const output = execFileSync(
-      '/bin/ps',
-      ['-ww', '-p', String(pid), '-o', 'pid=', '-o', 'pgid=', '-o', 'lstart=', '-o', 'command='],
-      {
-        encoding: 'utf8',
-        env: { ...process.env, LC_ALL: 'C' },
-        stdio: ['ignore', 'pipe', 'ignore'],
-      },
-    );
-    const fields = output.match(
-      /^\s*(\d+)\s+(\d+)\s+([A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)\s*$/,
-    );
-    if (!fields || Number(fields[1]) !== pid || Number(fields[2]) !== pid) return null;
-    return {
-      started: fields[3],
-      commandSha256: createHash('sha256').update(fields[4]).digest('hex'),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function sameBrowserIdentity(expected, current) {
-  return (
-    expected !== null &&
-    current !== null &&
-    expected.started === current.started &&
-    expected.commandSha256 === current.commandSha256
-  );
-}
-
-function startChild(mode, directory) {
-  const child = spawn(process.execPath, [childFile, mode, directory], {
-    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-    env: {
-      ...process.env,
-      PLAYWRIGHT_CHROMIUM_PATH: process.env.PLAYWRIGHT_CHROMIUM_PATH || chromium.executablePath(),
-    },
-  });
-  const ready = deferred();
-  const observed = { browserPid: null, browserIdentity: null, stderr: '' };
-  child.stdout.resume();
-  child.stderr.on('data', (bytes) => {
-    observed.stderr += bytes.toString();
-  });
-  child.on('message', (message) => {
-    if (message.type === 'ready') {
-      observed.browserPid = message.browserPid;
-      observed.browserIdentity = browserIdentity(message.browserPid);
-      ready.resolve(message);
-    }
-    if (message.type === 'browser-closed') send(child, { type: 'finish-cleanup' });
-  });
-  const exited = new Promise((resolve, reject) => {
-    child.once('error', reject);
-    child.once('exit', (code, signal) => resolve({ code, signal }));
-  });
-  exited.catch(() => undefined);
-  const alive = Promise.race([
-    ready.promise,
-    exited.then(() => {
-      throw new Error('Signal child exited before browser readiness');
-    }),
-  ]);
-  alive.catch(() => undefined);
-  return { child, observed, ready: alive, exited };
-}
-
-async function reapChild(fixture) {
-  const { child, observed, exited } = fixture;
-  try {
-    if (child.exitCode === null && child.signalCode === null) {
-      send(child, { type: 'cleanup' });
-      await deadline(exited, 10000, 'Signal child cleanup');
-    }
-  } finally {
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill('SIGKILL');
-      await deadline(exited, 5000, 'Signal child forced cleanup');
-    }
-    await reapBrowser(observed.browserPid, observed.browserIdentity);
-  }
-}
-
-async function reapBrowser(pid, expectedIdentity) {
-  if (pid === null) return;
-  const live = () => processGroup(pid).filter((member) => !member.state.startsWith('Z'));
-  const remaining = live();
-  if (!remaining.length) return;
-  assert(
-    remaining.some((member) => member.pid === pid),
-    'Refusing to signal an unowned browser group',
-  );
-  assert(
-    sameBrowserIdentity(expectedIdentity, browserIdentity(pid)),
-    'Refusing to signal a browser whose process identity is unverified or changed',
-  );
-  process.kill(-pid, 'SIGKILL');
-  await deadline(
-    (async () => {
-      while (live().length) await sleep(10);
-    })(),
-    5000,
-    'Test-owned browser cleanup',
-  );
-}
 
 for (const mode of ['default', 'profile']) {
   for (const signal of ['SIGINT', 'SIGTERM']) {
     test(`${signal} lets the ${mode} collector complete real-browser cleanup and choose its exit`, async (t) => {
       const directory = temporary(t);
-      const fixture = startChild(mode, directory);
+      const fixture = startSignalChild(mode, directory);
       try {
-        const ready = await deadline(fixture.ready, 10000, 'Signal child browser readiness');
+        const ready = await fixture.ready;
+        assert.equal(fixture.observed.phase, 'ready');
         assert.notEqual(
           fixture.observed.browserIdentity,
           null,
           'Browser process identity must be verified before signalling',
         );
         assert(processGroup(ready.browserPid).some((member) => member.pid === ready.browserPid));
-        assert.equal(fixture.child.kill(signal), true);
+        assert.equal(fixture.signal(signal), true);
         const result = await deadline(fixture.exited, 10000, 'Signal child owned teardown');
         assert.deepEqual(result, { code: 1, signal: null });
-        const cleanup = JSON.parse(fs.readFileSync(path.join(directory, 'cleanup.json'), 'utf8'));
-        assert.deepEqual(cleanup, {
+        assert.deepEqual(readSignalCleanup(directory), {
           cleanupCompleted: true,
           signalReceived: true,
           browserExited: true,
@@ -165,13 +49,136 @@ for (const mode of ['default', 'profile']) {
           processGroup(ready.browserPid).some((member) => !member.state.startsWith('Z')),
           false,
         );
-        assert.equal(fixture.observed.stderr, '');
+        assert.equal(fixture.observed.stderrBytes, 0);
       } finally {
-        await reapChild(fixture);
+        await reapSignalChild(fixture);
       }
     });
   }
 }
+
+for (const [mode, signal] of [
+  ['default', 'SIGINT'],
+  ['profile', 'SIGTERM'],
+]) {
+  test(`stalled ${mode}/${signal} readiness retains verified browser ownership without sending the signal`, async (t) => {
+    const directory = temporary(t);
+    const probe = startStalledSignalChild(mode, directory);
+    const { fixture, phases } = probe;
+    let ownership;
+    let diagnostic;
+    try {
+      ownership = await deadline(probe.stalled, 10000, 'Signal child reached the connection stall');
+      assert.equal(fixture.signal(signal), false);
+      const failure = await fixture.ready.catch((error) => error);
+      diagnostic = publishedSignalReadiness(
+        failure,
+        'Signal child browser readiness exceeded 10000ms',
+        10000,
+      );
+      assert.equal(diagnostic.phase, 'connecting');
+      assert.deepEqual(phases, ['browser-launched', 'connecting']);
+      assert(ownership.verifiedAtLaunch, 'Browser identity must be verified on browser-launched');
+      assert(
+        processGroup(ownership.browserPid).some((member) => member.pid === ownership.browserPid),
+      );
+      assert.equal(fixture.signal(signal), false);
+      if (mode === 'profile') {
+        probe.releaseConnect();
+        await deadline(probe.connected, 10000, 'Signal child delivered late readiness');
+        assert.deepEqual(phases, ['browser-launched', 'connecting', 'ready']);
+        assert.equal(fixture.observed.phase, 'connecting');
+        assert.equal(fixture.observed.phaseMs, diagnostic.phaseMs);
+        await assert.rejects(fixture.ready, (error) => error === failure);
+        assert.equal(fixture.signal(signal), false);
+      }
+    } finally {
+      await reapSignalChild(fixture);
+    }
+    assert.deepEqual(await fixture.exited, { code: 2, signal: null });
+    if (mode === 'default') {
+      assert.deepEqual(phases, ['browser-launched', 'connecting', 'connecting']);
+      assert.equal(fixture.observed.phaseMs, diagnostic.phaseMs);
+    }
+    assert.equal(
+      processGroup(ownership.browserPid).some((member) => !member.state.startsWith('Z')),
+      false,
+    );
+    assert.deepEqual(readSignalCleanup(directory), {
+      cleanupCompleted: true,
+      signalReceived: false,
+      browserExited: true,
+      errors: [],
+    });
+  });
+}
+
+test('signal readiness publishes only bounded stderr and exit status', async (t) => {
+  const fixedLine = 'Browser signal fixture failed\n';
+  for (const [name, text, expectedState, expectedRetained] of [
+    ['exact failure line', fixedLine, 'fixture-failed'],
+    ['credential canary', secret, 'unpublished'],
+    ['mixed content', `${fixedLine}${secret}`, 'unpublished'],
+    ['multiline content', `${fixedLine}${fixedLine}`, 'unpublished'],
+    ['oversized content', `${fixedLine}${'é'.repeat(8192)}${secret}`, 'unpublished', 16384],
+  ]) {
+    await t.test(name, async (t) => {
+      const fixture = startSignalChild('default', temporary(t), {
+        nodeArgs: [
+          '--eval',
+          `process.stderr.write(${JSON.stringify(text)}); process.exitCode = 7;`,
+        ],
+      });
+      try {
+        await assert.rejects(fixture.ready, (error) => {
+          const status = publishedSignalReadiness(
+            error,
+            'Signal child exited before browser readiness',
+          );
+          assert.deepEqual(status, {
+            phase: 'launching',
+            phaseMs: 0,
+            spawnState: 'spawned',
+            exitCode: 7,
+            signal: null,
+            stderrState: expectedState,
+            stderrBytes: Buffer.byteLength(text),
+            stderrRetainedBytes: expectedRetained ?? Buffer.byteLength(text),
+            stderrTruncated: expectedRetained !== undefined,
+          });
+          return true;
+        });
+      } finally {
+        await reapSignalChild(fixture);
+      }
+    });
+  }
+});
+
+test('signal readiness reports spawn failures without publishing the underlying error', async (t) => {
+  const directory = temporary(t);
+  function verifySpawnFailure(error) {
+    const status = publishedSignalReadiness(error, 'Signal child could not spawn');
+    assert.equal(status.phase, 'launching');
+    assert.equal(status.spawnState, 'spawn-failed');
+    assert.equal(status.signal, null);
+    assert.equal(status.stderrBytes, 0);
+    assert.equal(status.stderrState, 'unpublished');
+    return true;
+  }
+  const fixture = startSignalChild('default', directory, {
+    executable: path.join(directory, secret),
+  });
+  try {
+    await assert.rejects(fixture.ready, verifySpawnFailure);
+  } finally {
+    await reapSignalChild(fixture);
+  }
+  assert.throws(
+    () => startSignalChild('default', directory, { executable: `${secret}\0` }),
+    verifySpawnFailure,
+  );
+});
 
 function preparedRuntime(t) {
   const repo = temporary(t);

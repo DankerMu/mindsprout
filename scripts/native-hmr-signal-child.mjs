@@ -6,13 +6,17 @@ import { createRuntimeProfile, launchNativeBrowser } from './native-hmr-runtime-
 
 async function run() {
   const [mode, directory] = process.argv.slice(2);
+  const started = performance.now();
+  function milestone(type, browserPid) {
+    process.send({ type, browserPid, elapsedMs: Math.round(performance.now() - started) });
+  }
   const profiling = createRuntimeProfile(
     {
       profile: mode === 'profile',
       repo: directory,
       out: directory,
       mode: 'source-change',
-      started: performance.now(),
+      started,
     },
     () => ({ generation: 0, trial: 0 }),
   );
@@ -37,10 +41,13 @@ async function run() {
   const errors = [];
   let browserServer, browser, browserProcess;
   try {
+    process.env.PLAYWRIGHT_CHROMIUM_PATH ||= chromium.executablePath();
     browserServer = await launchNativeBrowser();
     browserProcess = browserServer.process();
-    browser = await chromium.connect(browserServer.wsEndpoint());
-    process.send({ type: 'ready', browserPid: browserProcess.pid });
+    milestone('browser-launched', browserProcess.pid);
+    milestone('connecting');
+    browser = await Promise.race([chromium.connect(browserServer.wsEndpoint()), interrupted]);
+    milestone('ready', browserProcess.pid);
     await interrupted;
   } catch (error) {
     if (!signalReceived) throw error;
@@ -57,7 +64,7 @@ async function run() {
         cleanupCompleted: browserServer === undefined && browserExited && errors.length === 0,
         signalReceived,
         browserExited,
-        errors,
+        errors: errors.length ? ['Browser signal fixture cleanup failed'] : [],
       }),
     );
     removeSignals();
