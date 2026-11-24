@@ -87,12 +87,12 @@ it('loads only on the client and preserves exact API order, usernames, times and
   expect(assign).not.toHaveBeenCalled();
 });
 
-it('refuses a regular user with a home link and no account data', async () => {
+it('refuses a regular user without a home link or account data', async () => {
   const { fetch, assign } = setup();
   fetch.mockResolvedValue(Response.json(accounts, { status: 403 }));
   render(<AdminUserList />);
   expect(await screen.findByText('无权访问')).toBeTruthy();
-  expect(screen.getByRole('link').getAttribute('href')).toBe('/');
+  expect(screen.queryByRole('link')).toBeNull();
   expectNoAccounts();
   expect(assign).not.toHaveBeenCalled();
 });

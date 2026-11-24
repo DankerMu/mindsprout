@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { formatTimestamp } from '../../shared/format-timestamp';
 import { useSessionNavigation } from './session-navigation';
@@ -151,13 +150,7 @@ export function AdminUserList() {
 
   if (state.status === 'loading') return <p role="status">正在读取用户列表</p>;
   if (state.status === 'expired') return null;
-  if (state.status === 'forbidden') {
-    return (
-      <p>
-        无权访问 <Link href="/">返回首页</Link>
-      </p>
-    );
-  }
+  if (state.status === 'forbidden') return <p>无权访问</p>;
   if (state.status === 'error') return <p role="alert">无法读取用户列表</p>;
   return (
     <>
