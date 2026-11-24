@@ -3,8 +3,10 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { assertDevelopmentDatabaseSetup } from '../scripts/db-setup.mjs';
 import { deriveTestDatabaseTarget } from '../scripts/test-database.mjs';
+import { createMindMap } from '../src/contexts/map/domain/create-mind-map';
 import { test } from './support/session';
 import { collectExpectedResponses } from './support/expected-responses';
+import { envelopeOf, seedRecords } from './support/seed';
 
 // Automatic traces/screenshots could persist the temporary password on failure.
 test.use({ trace: 'off', screenshot: 'off', timezoneId: 'America/Los_Angeles' });
@@ -86,6 +88,115 @@ test('account-admin: Admin sees all accounts', async ({ adminPage, playwright, b
     expect.soft(reset).toHaveCSS('border-top-color', 'rgb(208, 215, 222)'),
   ]);
   await adminPage.screenshot({ path: '.run/ui-evidence/account-admin.png', fullPage: true });
+  expect(await expected.noise()).toEqual([]);
+});
+
+const BACK = '返回导图列表';
+const USERS_PATH = '/api/admin/users';
+
+function isUsersPath(url: URL) {
+  return url.pathname === USERS_PATH;
+}
+
+function usersResponse(page: Page) {
+  return page.waitForResponse((response) => isUsersPath(new URL(response.url())));
+}
+
+// Every /admin state carries exactly one same-origin exit to the library.
+async function expectSingleLibraryLink(page: Page) {
+  await expect(page.locator('a[href="/"]')).toHaveCount(1);
+  const back = page.getByRole('link', { name: BACK, exact: true });
+  await expect(back).toBeVisible();
+  await expect(back).toHaveAttribute('href', '/');
+  return back;
+}
+
+test('account-admin: Direct visit returns to the library by keyboard', async ({ adminPage }) => {
+  const expected = collectExpectedResponses(adminPage, []);
+  const id = `admin-return-${randomUUID()}`;
+  const title = `管理员导图 ${randomUUID()}`;
+  await seedRecords(adminPage, [
+    envelopeOf(createMindMap({ id, rootId: 'root', title, rootText: '根' })),
+  ]);
+  await adminPage.goto('/admin');
+  await expect(adminPage.getByRole('list', { name: '用户列表' })).toBeVisible();
+  const back = await expectSingleLibraryLink(adminPage);
+  for (let presses = 0; presses < 10; presses += 1) {
+    if (await back.evaluate((element) => element === document.activeElement)) break;
+    await adminPage.keyboard.press('Tab');
+  }
+  await expect(back).toBeFocused();
+  await adminPage.screenshot({
+    path: '.run/ui-evidence/account-admin-return-focus.png',
+    fullPage: true,
+  });
+  await adminPage.keyboard.press('Enter');
+
+  await expect(adminPage).toHaveURL('/');
+  await expect(adminPage.getByTestId('app-ready')).toBeVisible();
+  const mapLink = adminPage.getByRole('link', { name: title, exact: true });
+  await expect(mapLink).toBeVisible();
+  await expect(mapLink).toHaveAttribute('href', `/maps/${id}`);
+  await adminPage.screenshot({
+    path: '.run/ui-evidence/account-admin-return-library.png',
+    fullPage: true,
+  });
+  expect(await expected.noise()).toEqual([]);
+});
+
+test('account-admin: Loading list already offers the library link', async ({ adminPage }) => {
+  const expected = collectExpectedResponses(adminPage, []);
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // Development StrictMode issues the list read twice; both wait for the release.
+  await adminPage.route(isUsersPath, async (route) => {
+    await held;
+    await route.continue();
+  });
+  try {
+    await adminPage.goto('/admin');
+    await expect(adminPage.getByText('正在读取用户列表', { exact: true })).toBeVisible();
+    await expectSingleLibraryLink(adminPage);
+    await adminPage.screenshot({
+      path: '.run/ui-evidence/account-admin-loading.png',
+      fullPage: true,
+    });
+  } finally {
+    release();
+  }
+  await expect(adminPage.getByRole('list', { name: '用户列表' })).toBeVisible();
+  expect(await expected.noise()).toEqual([]);
+});
+
+test('account-admin: Refused user sees only the library link', async ({ page }) => {
+  const expected = collectExpectedResponses(page, [{ url: USERS_PATH, status: 403 }]);
+  const refused = usersResponse(page);
+  await page.goto('/admin');
+  expect((await refused).status()).toBe(403);
+  await expect(page.getByText('无权访问')).toBeVisible();
+  await expectSingleLibraryLink(page);
+  await expect(page.getByRole('list', { name: '用户列表' })).toHaveCount(0);
+  await expect(page.getByRole('listitem')).toHaveCount(0);
+  await expect(page.getByText('e2e-admin')).toHaveCount(0);
+  await page.screenshot({ path: '.run/ui-evidence/account-admin-refused.png', fullPage: true });
+  expect(await expected.noise()).toEqual([]);
+});
+
+test('account-admin: Unreadable list still offers the library link', async ({ adminPage }) => {
+  const expected = collectExpectedResponses(adminPage, [{ url: USERS_PATH, status: 500 }]);
+  await adminPage.route(isUsersPath, (route) => route.fulfill({ status: 500, body: '' }));
+  const failed = usersResponse(adminPage);
+  await adminPage.goto('/admin');
+  expect((await failed).status()).toBe(500);
+  await expect(adminPage.getByRole('alert').filter({ hasText: '无法读取用户列表' })).toBeVisible();
+  await expectSingleLibraryLink(adminPage);
+  await expect(adminPage.getByRole('list', { name: '用户列表' })).toHaveCount(0);
+  await adminPage.screenshot({
+    path: '.run/ui-evidence/account-admin-read-error.png',
+    fullPage: true,
+  });
   expect(await expected.noise()).toEqual([]);
 });
 
