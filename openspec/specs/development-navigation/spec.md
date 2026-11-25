@@ -78,7 +78,54 @@ The repair SHALL install through version-pinned package-manager metadata with in
 - **WHEN** the lockfile overrides contain no URL under the repository's native release prefix
 - **THEN** the check fails instead of passing vacuously
 
-### Requirement: Native navigation diagnosis remains separate from qualification
+### Requirement: Browser tests declare expected HTTP errors
+
+A browser test SHALL declare each expected non-2xx response by URL pattern and status. The shared collector SHALL suppress a `Failed to load resource` console error only when the message's URL and status match an actual observed response satisfying a declaration. It SHALL retain all other errors, warnings and page errors, report declarations never observed, and leave undeclared specs' console behavior unchanged.
+
+#### Scenario: Matched declaration versus mismatched or unused declaration
+
+- **WHEN** a signed-out page receives `/api/auth/session` with status 401
+- **THEN** a declaration for that URL with status 401 suppresses only its corresponding resource-load error, while an undeclared response or a status-404 declaration remains reported and the unused declaration is also reported
+
+#### Scenario: Unrelated browser error beside a declared response
+
+- **WHEN** a page emits a `console.error` next to an observed response that satisfies its declaration
+- **THEN** the collector retains the page's unrelated error
+
+### Requirement: Native browser probes use an isolated signed-in account
+
+The native HMR CI leg and each local native browser run SHALL prepare a reachable job-local Postgres 16 database with `pnpm db:setup` and both application and migration URLs. Before creating its first page, the probe SHALL register a fresh user through its browser context and verify that `/api/auth/session` returns that username from the same context. It SHALL preserve both native navigation scenarios and their existing timing, console, cleanup and artifact gates.
+
+#### Scenario: Linux and macOS database preparation
+
+- **WHEN** the required Linux native HMR leg starts, or a developer runs either browser mode locally on macOS arm64
+- **THEN** CI uses a healthy Postgres 16 service container and the local run uses an owned Postgres 16 database (never a shared developer database), and both run `pnpm db:setup` before either browser scenario
+
+#### Scenario: Session established before public map creation
+
+- **WHEN** the probe creates its browser context
+- **THEN** registration and a same-username session check succeed through that context before its first page opens, and the session remains usable across the existing restored-lifecycle restarts without re-registration or expected non-2xx browser noise
+
+### Requirement: Native-surface changes carry local macOS arm64 qualification
+
+CI SHALL qualify the installed native package and both browser modes on Linux x64 GNU only, as a dependency of `All checks passed`. A pull request, including a Renovate update, that changes a native qualification surface (`scripts/native-*`, `.github/actions/native-installed-runtime/`, the native jobs in `.github/workflows/ci.yml`, `patches/native/`, or the `@next/swc-*` overrides or their lockfile entries) SHALL NOT merge until its `## Runtime evidence` cites, for the PR head, a passed local macOS arm64 run of `pnpm native:browser restored-lifecycle` and `pnpm native:browser source-change` against the frozen installed tree: head SHA, command, exit code and `result.json` status. Without a macOS arm64 machine the PR is blocked, not exempt.
+
+#### Scenario: Native-surface PR with local evidence
+
+- **WHEN** a PR changes `scripts/native-hmr-support.mjs` and its runtime evidence cites both browser modes passing on macOS arm64 at the PR head
+- **THEN** the native-surface requirement is satisfied and the required Linux checks decide the merge
+
+#### Scenario: Native-surface PR without local evidence
+
+- **WHEN** a Renovate PR changes the `@next/swc-darwin-arm64` override and no local macOS arm64 run at its head is cited
+- **THEN** the PR does not merge, even if `All checks passed` is green
+
+#### Scenario: Non-native PR
+
+- **WHEN** a PR changes no native qualification surface
+- **THEN** no macOS evidence is required and `All checks passed` decides the merge
+
+### Requirement: Native navigation profiling remains separate from qualification
 
 The native browser probe SHALL provide explicit opt-in, bounded compiler/server and browser profiling. Default qualification SHALL remain unprofiled with unchanged deadlines, noise assertions, ordering, and cleanup. Profiling failures SHALL be reported as incomplete evidence and SHALL NOT clear or replace functional failures. Diagnostic artifacts SHALL contain only allowlisted, credential-safe projections with run/mode/generation provenance and explicitly labelled clock domains.
 
@@ -99,19 +146,6 @@ The native browser probe SHALL provide explicit opt-in, bounded compiler/server 
 - **WHEN** either invocation mode inherits `NEXT_CPU_PROF`, `NEXT_CPU_PROF_DIR`, `__NEXT_PRIVATE_CPU_PROFILE`, `NEXT_TURBOPACK_TRACING` or `NEXT_TURBOPACK_TRACING_PATH`
 - **THEN** it rejects setup with a fixed diagnostic before importing Next or mutating source/cache/profile state
 - **AND** it never emits the variable values or enables an implicit/redirected profiler
-
-#### Scenario: Failed Darwin qualification
-
-- **WHEN** an unprofiled Darwin restored-lifecycle or source-change step fails with valid matching failed-result evidence and verified source/cache cleanup
-- **THEN** CI runs exactly one separately labelled diagnostic execution of that failed mode in a fresh output directory
-- **AND** the original step and job remain failed whether diagnosis passes or fails; the required aggregate does not depend on the quarantined Darwin leg (decision 0037)
-- **AND** successful qualifications, Linux, cancellation, and installation/setup failures run no diagnosis and require no diagnostic artifact
-
-#### Scenario: Unsafe prior cleanup prevents replay
-
-- **WHEN** prior result/cleanup evidence is missing, malformed, cleanup-blocked, or mismatches the current source identity
-- **THEN** CI records a fixed ineligible reason without invoking another browser probe or modifying the original evidence
-- **AND** the original qualification remains failed
 
 #### Scenario: Safe correlated evidence
 
@@ -141,7 +175,7 @@ The native browser probe SHALL provide explicit opt-in, bounded compiler/server 
 - **THEN** within-limit valid input can produce complete evidence and every cap-plus-one case produces explicit partial evidence without exceeding the retained-output bound
 - **AND** bounds apply to collector ingestion/retention, not Next's raw producer memory/disk or already received CDP payloads
 
-### Requirement: Diagnostic public-create timing remains attributable and non-authoritative
+### Requirement: Public-create diagnostic timing remains attributable and non-authoritative
 
 Native navigation diagnostics SHALL retain a bounded public-create timeline that distinguishes observed API/RSC network delivery, SPA URL/history changes and sampled ready visibility in the same invocation. Default qualification SHALL retain a lightweight fixed-projection attempt record without enabling profiler commands, additional listeners, page sampling or profile artifacts. Evidence SHALL use fixed classifications, validated provenance and separate clock domains, and SHALL NOT alter or replace the original readiness outcome, five-second budget, browser-noise assertions or resource cleanup.
 
@@ -207,58 +241,9 @@ Native navigation diagnostics SHALL retain a bounded public-create timeline that
 - **AND** normal and compact profile output preserve attempt identity, original budget/outcome and channel completeness/omission information within the existing1MiB safe-summary bound
 - **AND** existing owned no-follow publication and foreign-entry preservation remain unchanged
 
-#### Scenario: CI evidence does not become qualification
+#### Scenario: Profiled evidence does not become qualification
 
-- **WHEN** an eligible failed Darwin qualification triggers its existing single diagnostic execution
-- **THEN** the original invocation retains only its lightweight default attempt record while the separate profiled invocation supplies the richer sampled timeline
-- **AND** original qualification artifacts and failed job (the required aggregate no longer depends on the quarantined Darwin leg, decision 0037) remain authoritative and distinct from the replay
-- **AND** replay selection permits up to 20,000 legacy events plus one valid default evidence envelope and at most one paired `public-create-observation-error` notice, with a hard total of 20,002 and unchanged byte caps and failure/resume checks
-- **AND** the notice must use the same `public-map-setup` / `retained-editor` envelope, generation and trial zero, finite collector timestamps and exactly `stage: publication` and `message: Public-create evidence publication failed` in `data`; duplicates, unpaired or malformed notices and excess events are ineligible
-- **AND** capture absence, diagnostic failure or non-reproduction is explicit, without same-head retry, warmup, altered cache, native package changes or a latency-repair claim
-
-### Requirement: Browser tests declare expected HTTP errors
-
-A browser test SHALL declare each expected non-2xx response by URL pattern and status. The shared collector SHALL suppress a `Failed to load resource` console error only when the message's URL and status match an actual observed response satisfying a declaration. It SHALL retain all other errors, warnings and page errors, report declarations never observed, and leave undeclared specs' console behavior unchanged.
-
-#### Scenario: Matched declaration versus mismatched or unused declaration
-
-- **WHEN** a signed-out page receives `/api/auth/session` with status 401
-- **THEN** a declaration for that URL with status 401 suppresses only its corresponding resource-load error, while an undeclared response or a status-404 declaration remains reported and the unused declaration is also reported
-
-#### Scenario: Unrelated browser error beside a declared response
-
-- **WHEN** a page emits a `console.error` next to an observed response that satisfies its declaration
-- **THEN** the collector retains the page's unrelated error
-
-### Requirement: Native browser probes use an isolated signed-in account
-
-Each native HMR CI leg SHALL prepare a reachable job-local Postgres 16 database with `pnpm db:setup` and both application and migration URLs. Before creating its first page, the probe SHALL register a fresh user through its browser context and verify that `/api/auth/session` returns that username from the same context. It SHALL preserve both native navigation scenarios and their existing timing, console, cleanup and artifact gates.
-
-#### Scenario: Linux and macOS database preparation
-
-- **WHEN** either native HMR leg starts (Linux required; Darwin quarantined under decision 0037)
-- **THEN** Linux uses a healthy Postgres 16 service container and macOS uses an owned ready Postgres 16 cluster, and both run `pnpm db:setup` before either browser scenario
-
-#### Scenario: Session established before public map creation
-
-- **WHEN** the probe creates its browser context
-- **THEN** registration and a same-username session check succeed through that context before its first page opens, and the session remains usable across the existing restored-lifecycle restarts without re-registration or expected non-2xx browser noise
-
-### Requirement: Darwin installed-native leg is quarantined from the required aggregate
-
-While decision 0037 is in force, the `Installed native HMR (darwin-arm64)` job SHALL keep its triggers, steps, deadlines, eligible diagnostic replay and always-uploaded evidence, and SHALL report its real result as the job conclusion, without `continue-on-error` at job or step level. `All checks passed` SHALL NOT list it in `needs`; every other CI job, including `Installed native HMR (linux-x64-gnu)`, SHALL remain in `needs`. A comment on the job SHALL link issue #286 and state the exit condition and its 2026-12-08 deadline. Branch protection required contexts SHALL remain unchanged.
-
-#### Scenario: Darwin browser qualification fails
-
-- **WHEN** a Darwin restored-lifecycle or source-change step fails on a pull request or main push
-- **THEN** the Darwin job concludes failed, its evidence and any eligible diagnostic are uploaded, and `All checks passed` still reflects only the remaining jobs
-
-#### Scenario: Linux leg still blocks
-
-- **WHEN** `Installed native HMR (linux-x64-gnu)` fails, is cancelled or is skipped
-- **THEN** `All checks passed` fails
-
-#### Scenario: Quarantine exit
-
-- **WHEN** a fix shows 10 consecutive first-attempt Darwin passes including main pushes, or the leg is deleted by its own decision
-- **THEN** the same change restores the job to `needs` or removes it, and updates this requirement
+- **WHEN** a separate `--profile` invocation runs after a failed default qualification
+- **THEN** the original invocation retains only its lightweight default attempt record while the profiled invocation supplies the richer sampled timeline
+- **AND** the original qualification artifacts and result remain authoritative and distinct from the profiled run
+- **AND** capture absence, diagnostic failure or non-reproduction is explicit, without retry, warmup, altered cache, native package changes or a latency-repair claim
