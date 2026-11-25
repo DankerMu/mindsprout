@@ -1,6 +1,6 @@
 # Enforcement index — detail
 
-Detail relocated from `AGENTS.md ## Enforcement Index`, which keeps one row per rule and links here.
+Detail relocated from `AGENTS.md ## Enforcement Index`, which keeps one row per rule and links here. `## Quarantined CI jobs` has no root row; agents reach it through the binding CI protocol in [agent-operating-rules.md](agent-operating-rules.md#debugging-ci-failures).
 
 ## Branch protection (applied)
 
@@ -23,4 +23,4 @@ Detail relocated from `AGENTS.md ## Enforcement Index`, which keeps one row per 
   - `.github/actions/native-installed-runtime/`
   - `patches/native/`
   - the `@next/swc-*` overrides or their lockfile entries
-- Checked by the reviewer agent and the merge gate. Level: review-only.
+- Checked by the reviewer agent and by the merging agent before merge, using step 7 of the [CI protocol](agent-operating-rules.md#debugging-ci-failures). No machine check enforces it. Level: review-only.

@@ -5,7 +5,7 @@
 - [x] 1.1 `.github/workflows/ci.yml`: delete `- native-installed-runtime-darwin` from `all-checks-passed.needs`; add a comment above the `native-installed-runtime-darwin` job: `flaky: quarantined from All checks passed (decision 0037, #286); exit by 2026-12-08: restore to needs after 10 consecutive first-attempt Darwin passes incl. main pushes, or delete the leg`. No other workflow or action edits.
 - [x] 1.2 Add `decisions/implemented/testing/0037-quarantine-darwin-native-leg.md` from the orchestrator draft (provided path); keep Problem/Decision/Alternatives considered/Consequences.
 - [x] 1.3 Back-links (decision-record-lifecycle: partial supersession keeps both and cross-links): append one Consequences bullet to each of 0020, 0021, 0027, 0030: "[Decision 0037](<rel path>) partially supersedes only <the quoted sentence>: <one-clause effect>." Do not otherwise edit those records.
-- [x] 1.4 `docs/engineering/enforcement-index.md`: add a `## Quarantined CI jobs` entry (rule, where it lives, where it is checked, level review-only) for the native-surface exception: native-surface PRs (`scripts/native-*`, the ci.yml Darwin job, `.github/actions/native-installed-runtime/`, `patches/native/`, `@next/swc-*` overrides/lockfile) need a passed Darwin job (decision 0037). Root AGENTS.md is not edited: it is at its 32 KiB byte budget (instruction-guard), and this doc is its linked enforcement detail.
+- [x] 1.4 `docs/engineering/enforcement-index.md`: add a `## Quarantined CI jobs` entry (rule, where it lives, where it is checked, level review-only) for the native-surface exception: native-surface PRs (`scripts/native-*`, the ci.yml Darwin job, `.github/actions/native-installed-runtime/`, `patches/native/`, `@next/swc-*` overrides/lockfile) need a passed Darwin job (decision 0037). Root AGENTS.md is not edited: it is 32,755 bytes, and the owner's local instruction guard rejects growth past 32 KiB. Agents reach the entry through step 7 of the binding CI protocol in `docs/engineering/agent-operating-rules.md`: merge on `gh pr checks --required`; quarantined failures do not trigger a fix loop; native-surface PRs wait for a Darwin pass.
 
 ## 2. Docs
 
@@ -15,7 +15,7 @@
 
 - [x] 3.1 YAML audit: parse ci.yml and print `all-checks-passed.needs` (8 entries, Linux included, Darwin absent); assert no `continue-on-error` key in ci.yml or `.github/actions/native-installed-runtime/action.yml`; `git diff origin/main -- .github/` shows only the removed line and comment lines.
 - [x] 3.2 `pnpm test:guardrails`, `pnpm decisions:check`, `pnpm docs:check`, `pnpm fmt:check`, `openspec validate quarantine-darwin-native-leg --strict --no-interactive` exit 0.
-- [ ] 3.3 Commit messages and PR body reference `Refs #286` only — no closing keyword (#286 stays open owning the exit).
+- [x] 3.3 Commit messages and PR body reference `Refs #286` only — no closing keyword (#286 stays open owning the exit).
 - [ ] 3.4 PR CI run (orchestrator): aggregate `NEEDS` echo lacks Darwin; Darwin job passed on the head (this PR is itself a native-surface PR; rerun pass accepted) and uploaded `native-installed-<sha>-darwin-arm64`.
 
 ## Risk packs

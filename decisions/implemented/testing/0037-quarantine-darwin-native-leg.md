@@ -10,11 +10,11 @@ date: 2026-11-24
 
 ## Problem
 
-`Installed native HMR (darwin-arm64)` failed 20 of 43 counted attempts after #270 closed on 2026-11-23, on changes unrelated to the code under test, including docs-only PRs and 6 of 13 main pushes ([#286](https://github.com/DankerMu/mindsprout/issues/286)). The failures are fixed five-second readiness deadlines expiring on the `macos-26` runner: 13 at root Document commit, 5 at first editor readiness and 2 at post-reconnect readiness. The two diagnosis issues #199 and #270 delivered no repair. Because the leg is a dependency of the only required status check, `All checks passed`, each such failure blocks merges and forces reruns. It also weakens the meaning of a red aggregate. The repository rule is to quarantine a flaky test with an issue, then fix or delete it within 14 days.
+`Installed native HMR (darwin-arm64)` failed 20 of 43 counted attempts after #270 closed on 2026-11-23, on changes unrelated to the code under test, including docs-only PRs and 6 of 13 main pushes ([#286](https://github.com/DankerMu/mindsprout/issues/286)). The failures are fixed five-second readiness deadlines expiring on the `macos-26` runner: 13 at root Document commit, 5 at first editor readiness and 2 at post-reconnect readiness. The two diagnosis issues #199 and #270 delivered no repair. Because the leg is a dependency of `All checks passed`, the required status check produced by `ci.yml`, each such failure blocks merges and forces reruns. It also weakens the meaning of a red aggregate. The repository rule is to quarantine a flaky test with an issue, then fix or delete it within 14 days.
 
 ## Decision
 
-The owner chose quarantine. Remove `native-installed-runtime-darwin` from the `needs` of `all-checks-passed` in `.github/workflows/ci.yml`. Mark the job with a comment that links #286, names the exit condition and gives the deadline of 2026-12-08.
+The owner chose quarantine on 2026-11-24 ([transcribed on #286](https://github.com/DankerMu/mindsprout/issues/286#issuecomment-7151720196)). Remove `native-installed-runtime-darwin` from the `needs` of `all-checks-passed` in `.github/workflows/ci.yml`. Mark the job with a comment that links #286, names the exit condition and gives the deadline of 2026-12-08.
 
 The job keeps its triggers, runner, steps, five-second deadlines, eligible Darwin diagnostic replay and always-uploaded evidence, so a failure still shows as a red job in the run. Nothing changes in the composite action, the probe scripts, the Linux leg, branch protection or the required contexts. Do not add `continue-on-error` at job or step level, because it would present a failed qualification as passing.
 
@@ -33,7 +33,7 @@ Native-surface exception: a PR that changes native qualification surfaces still 
 - `patches/native/`
 - the `@next/swc-*` overrides in `package.json`, or their `pnpm-lock.yaml` entries
 
-A pass on a rerun is accepted here: this is functional proof that the change works on macOS, not proof that the flake is fixed. The pass is cited in the PR's runtime evidence. This keeps [decision 0021](../bug-fix/0021-native-hmr-registration-maintenance.md)'s requirement that both platforms pass before an upstream repair is adopted. It also keeps [decision 0027](0027-signed-in-native-hmr-database.md)'s requirement that shared-probe changes pass on both installed platforms. The exception is review-only and is wired in [`docs/engineering/enforcement-index.md`](../../../docs/engineering/enforcement-index.md#quarantined-ci-jobs). Root AGENTS.md stays unchanged because it is at its byte budget.
+A pass on a rerun is accepted here: this is functional proof that the change works on macOS, not proof that the flake is fixed. The pass is cited in the PR's runtime evidence. This keeps [decision 0021](../bug-fix/0021-native-hmr-registration-maintenance.md)'s requirement that both platforms pass before an upstream repair is adopted. It also keeps [decision 0027](0027-signed-in-native-hmr-database.md)'s requirement that shared-probe changes pass on both installed platforms. The exception is review-only. It is recorded in [`docs/engineering/enforcement-index.md`](../../../docs/engineering/enforcement-index.md#quarantined-ci-jobs), and agents apply it through step 7 of the binding [CI protocol](../../../docs/engineering/agent-operating-rules.md#debugging-ci-failures). The root agent-rules index is unchanged: it is 32,755 bytes, and the owner's local instruction guard rejects edits that push it past 32 KiB. Growing it needs a separate repair of the root file.
 
 ## Alternatives considered
 
@@ -46,7 +46,7 @@ A pass on a rerun is accepted here: this is functional proof that the change wor
 ## Consequences
 
 - From this change until the exit, these macOS checks are advisory: installed-addon verification, the corrupt-artifact installation contract, native unit tests, both browser modes and the production build. A real macOS regression in any of them shows as a red job but no longer blocks a merge. The Linux leg remains required for the same steps.
-- Agents merge on required checks, not on a green workflow run. The native-surface exception is the only case in which a Darwin result gates a merge.
+- Agents merge on required checks (`gh pr checks <PR> --required`), not on a green workflow run, per step 7 of the CI protocol. The native-surface exception is the only case in which a Darwin result gates a merge.
 - Partial supersession, limited to the sentences below. Each of those records links back here.
   - [Decision 0021](../bug-fix/0021-native-hmr-registration-maintenance.md): "Both platforms require actual installed-package loading and browser proof ... before merge" and "Required `All checks passed` depends on the entire matrix". For Darwin this now holds only under the native-surface exception.
   - [Decision 0027](0027-signed-in-native-hmr-database.md): "`All checks passed` requires both job IDs". It now requires the Linux job ID only.
