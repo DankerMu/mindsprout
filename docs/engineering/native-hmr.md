@@ -152,6 +152,8 @@ Qualification commands run unprofiled, in CI and locally. No CI job selects or r
 
 The original failed qualification, its default public-create evidence and raw artifacts remain authoritative and separate from the profiled run. A useful safe summary, a passing profiled run or non-reproduction is not successful qualification or a latency repair.
 
+`NATIVE_PROFILE_WORKFLOW_SHA` and `NATIVE_PROFILE_HEAD_SHA` are optional provenance inputs for a profiled run. When they are unset, as in every local run unless the developer exports them, the summary's `workflowSha` and `prHeadSha` are `null` and `checkoutSha` remains the run's provenance.
+
 ## Publication and frozen installation
 
 The Linux PR workflow uploads `native-linux-x64-gnu-<workflow SHA>`. A candidate handoff consists of the emitted `.tgz`, `manifest.json`, native-test/build logs, both browser results and cleanup evidence. The tarball filename includes target, unchanged upstream version, patch identity and the complete tarball digest. Preserve that filename when publishing; do not overwrite an asset to change its bytes.
@@ -200,7 +202,7 @@ Run `pnpm native:installed:test <qualified-build-manifest> [stock-package-direct
 
 ## Known Limitations
 
-- Maintenance targets are macOS arm64 and Linux x64 GNU. CI qualifies the installed package on Ubuntu 24.04 only. macOS arm64 is qualified by local evidence on native-surface PRs under [decision 0038](../../decisions/implemented/testing/0038-delete-darwin-native-ci-leg.md), so no CI job catches a macOS regression, and a PR outside the native surface carries no macOS proof. The published Linux artifact's qualification baseline is Ubuntu 24.04.5 with glibc 2.39; compatibility with older glibc hosts is not established. Windows, macOS x64, Linux arm64 and musl are not represented as repaired.
+- Maintenance targets are macOS arm64 and Linux x64 GNU. CI qualifies the installed package on Ubuntu 24.04 only. macOS arm64 is qualified by local evidence on native-surface PRs under [decision 0038](../../decisions/implemented/testing/0038-delete-darwin-native-ci-leg.md), so no CI job catches a macOS regression, and a PR outside the native surface carries no macOS proof. On macOS, only `postinstall`'s installed guard and those two browser modes run. The corrupt-artifact installation contract, native unit tests and production build are not qualified there. The published Linux artifact's qualification baseline is Ubuntu 24.04.5 with glibc 2.39; compatibility with older glibc hosts is not established. Windows, macOS x64, Linux arm64 and musl are not represented as repaired.
 - A distinct upstream [SPA-only HMR subscription gap](https://github.com/vercel/next.js/issues/98699) can leave an editor reached only through client navigation without its route-specific HMR subscription. Native registration repair does not fix that gap. The source-change regression's intentional retained-document setup proves preservation of legitimate subscribed HMR, not SPA-only subscription repair.
 - The source-change contract starts from an established target HMR connection. It does not claim to repair the separate cold-tab initial connection/global-version race; the baseline prerequisite above isolates that race without suppressing its protocol messages or accepting recovery reloads.
 - Clean source/cache identity and pinned inputs do not promise bit-for-bit compiler output across operating systems or tool installations. Manifests bind the actual built bytes; rebuilds with different bytes require different immutable assets and renewed qualification.
