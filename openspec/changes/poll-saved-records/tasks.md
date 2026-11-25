@@ -7,7 +7,7 @@
 - [x] 1.3 `e2e/inline-title.spec.ts` "Edits older than the save window survive reload": left unchanged after task 1.4 found no red (see Non-goals).
 - [x] 1.4 Red/green proofs for the race (no product change, temporary code only): delay the browser's map PUT by ~1 s (`page.route` on `PUT /api/maps/**`, wait, then `route.continue()`).
   - Floating root: the pre-change version fails at the single `readRecord` after `waitForTimeout(600)` (`children: []`, same signature as CI run 45433931261); the polled version passes.
-  - Save window, as an experiment: the pre-change version and a `:258`-only-polled version both **pass** under the delay; the stored record holds both renames, stamped inside the reload window. The pagehide flush writes them, so no fix was shipped there.
+  - Save window, as an experiment: the pre-change version and a `:258`-only-polled version both **pass** under the delay. The stored record held both renames, with `updatedAt` inside the reload window. The experiment did not record which request wrote them. No red, so no fix was shipped there.
 
 ## 2. Negative proofs unchanged
 
@@ -35,7 +35,7 @@
 
 ## Non-goals
 
-- `e2e/inline-title.spec.ts` save-window test (issue erratum item 1). With the debounced PUT held in the browser it stays green, because the `pagehide` keep-alive flush stores the first rename along with the second. A server that applies the flush after the reloaded page's GET is a different race. Nothing evidences it: it is absent from the 194 counted CI E2E runs. Changing the test without a red run would only lengthen the spec's 600 ms wait.
+- `e2e/inline-title.spec.ts` save-window test (issue erratum item 1). Its `:258` read comes after the post-reload UI assertion at `:254`. The editor loads the map once from the server, and every later write contains the first rename, so the read is ordered after the write. The remaining race is a reloaded GET that reaches the server before the first PUT lands. It would fail at `:254`, polling `:258` cannot fix it, the browser-side delay experiment did not reproduce it, and none of the 194 counted CI E2E runs shows it. Changing the test without a red run would only lengthen the spec's 600 ms wait.
 - Product save behavior. If any poll times out (no PUT or stale PUT content), stop and report a possible product defect instead of changing product code.
 - Raising sleeps, adding Playwright retries, or editing `playwright.config.ts`.
 - The false-green risk of negative proofs on slow machines (separate issue if wanted).

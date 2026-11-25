@@ -4,7 +4,7 @@
 
 ### Requirement: Browser save evidence waits for the stored record
 
-Browser tests that prove an edit **was saved** SHALL wait until the signed-in user's stored record matches the expected map, bounded by the test's assertion timeout, rather than reading it once after a fixed delay. Tests that prove an edit was **not** saved SHALL keep waiting past the 500 ms debounce before asserting the stored record is unchanged. User-facing waits named by a scenario (such as waiting one second before reloading, or 600 ms between renames) SHALL be kept.
+Browser tests that prove an edit **was saved** SHALL NOT do it by reading the signed-in user's stored record once after a fixed delay. They SHALL either wait until the stored record matches the expected map, bounded by the assertion timeout, or read it once after an event that orders the read after the write, such as an observed completed save response or a reload whose editor already shows the edit. Tests that prove an edit was **not** saved SHALL keep waiting past the 500 ms debounce before asserting the stored record is unchanged. User-facing waits named by a scenario (such as waiting one second before reloading, or 600 ms between renames) SHALL be kept.
 
 #### Scenario: Saved edit is proven after a slow write
 
