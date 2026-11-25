@@ -43,9 +43,9 @@
 ## 5. Qualification
 
 - [x] 5.1 `pnpm test:guardrails`, `pnpm decisions:check`, `pnpm docs:check`, `pnpm fmt:check`, `openspec validate delete-darwin-native-leg --strict --no-interactive`; YAML audit.
-- [ ] 5.2 (orchestrator) Local macOS arm64 `pnpm native:browser restored-lifecycle` and `source-change` on the PR head with owned `app_native`; cite in PR runtime evidence.
-- [ ] 5.3 (orchestrator) PR closes #286 with a closing keyword; CI green; aggregate `NEEDS` lists every job.
-- [ ] 5.4 (orchestrator) Diff size: the change is deletion-dominated. The selector must go with its only caller, and the REMOVED+ADDED spec deltas copy two whole requirements, so the 400-line guard (`scripts/check-diff-size.sh`, which excludes only `decisions/**` and lockfiles/snapshots/changesets) will be exceeded. Apply the existing `diff-limit-exempt` label with this justification in the PR body. Do not split, because a split would leave dead CI-only code or a dangling action step on main between the two PRs.
+- [x] 5.2 (orchestrator) Local macOS arm64 `pnpm native:browser restored-lifecycle` and `source-change` on the PR head with owned `app_native`; cite in PR runtime evidence.
+- [x] 5.3 (orchestrator) PR closes #286 with a closing keyword; CI green; aggregate `NEEDS` lists every job.
+- [x] 5.4 (orchestrator) Diff size: the change is deletion-dominated. The selector must go with its only caller, and the REMOVED+ADDED spec deltas copy two whole requirements, so the 400-line guard (`scripts/check-diff-size.sh`, which excludes only `decisions/**` and lockfiles/snapshots/changesets) will be exceeded. Apply the existing `diff-limit-exempt` label with this justification in the PR body. Do not split, because a split would leave dead CI-only code or a dangling action step on main between the two PRs.
 
 ## Risk packs
 
