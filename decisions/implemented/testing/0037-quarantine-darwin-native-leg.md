@@ -33,7 +33,7 @@ Native-surface exception: a PR that changes native qualification surfaces still 
 - `patches/native/`
 - the `@next/swc-*` overrides in `package.json`, or their `pnpm-lock.yaml` entries
 
-A pass on a rerun is accepted here: this is functional proof that the change works on macOS, not proof that the flake is fixed. The pass is cited in the PR's runtime evidence. This keeps [decision 0021](../bug-fix/0021-native-hmr-registration-maintenance.md)'s requirement that both platforms pass before an upstream repair is adopted. It also keeps [decision 0027](0027-signed-in-native-hmr-database.md)'s requirement that shared-probe changes pass on both installed platforms. The exception is review-only and is listed in the AGENTS.md Enforcement Index.
+A pass on a rerun is accepted here: this is functional proof that the change works on macOS, not proof that the flake is fixed. The pass is cited in the PR's runtime evidence. This keeps [decision 0021](../bug-fix/0021-native-hmr-registration-maintenance.md)'s requirement that both platforms pass before an upstream repair is adopted. It also keeps [decision 0027](0027-signed-in-native-hmr-database.md)'s requirement that shared-probe changes pass on both installed platforms. The exception is review-only and is wired in [`docs/engineering/enforcement-index.md`](../../../docs/engineering/enforcement-index.md#quarantined-ci-jobs). Root AGENTS.md stays unchanged because it is at its byte budget.
 
 ## Alternatives considered
 

@@ -5,7 +5,7 @@
 - [x] 1.1 `.github/workflows/ci.yml`: delete `- native-installed-runtime-darwin` from `all-checks-passed.needs`; add a comment above the `native-installed-runtime-darwin` job: `flaky: quarantined from All checks passed (decision 0037, #286); exit by 2026-12-08: restore to needs after 10 consecutive first-attempt Darwin passes incl. main pushes, or delete the leg`. No other workflow or action edits.
 - [x] 1.2 Add `decisions/implemented/testing/0037-quarantine-darwin-native-leg.md` from the orchestrator draft (provided path); keep Problem/Decision/Alternatives considered/Consequences.
 - [x] 1.3 Back-links (decision-record-lifecycle: partial supersession keeps both and cross-links): append one Consequences bullet to each of 0020, 0021, 0027, 0030: "[Decision 0037](<rel path>) partially supersedes only <the quoted sentence>: <one-clause effect>." Do not otherwise edit those records.
-- [x] 1.4 AGENTS.md Enforcement Index: add one `review-only` row — rule "Quarantined Darwin native leg: native-surface PRs (`scripts/native-*`, the ci.yml Darwin job, `.github/actions/native-installed-runtime/`, `patches/native/`, `@next/swc-*` overrides/lockfile) need a passed Darwin job (decision 0037)", lives in `decisions/implemented/testing/0037-*.md` + ci.yml comment, checked by reviewer agent / merge gate. Flag the AGENTS.md change in the PR (owner approved the quarantine and its Enforcement Index update on 2026-11-24).
+- [x] 1.4 `docs/engineering/enforcement-index.md`: add a `## Quarantined CI jobs` entry (rule, where it lives, where it is checked, level review-only) for the native-surface exception: native-surface PRs (`scripts/native-*`, the ci.yml Darwin job, `.github/actions/native-installed-runtime/`, `patches/native/`, `@next/swc-*` overrides/lockfile) need a passed Darwin job (decision 0037). Root AGENTS.md is not edited: it is at its 32 KiB byte budget (instruction-guard), and this doc is its linked enforcement detail.
 
 ## 2. Docs
 
@@ -23,7 +23,7 @@
 - Selected: Config / project setup - CI aggregate wiring; tasks 1.1, 3.1, 3.4.
 - Selected: Error handling / rollback / partial outputs - Darwin failure must stay visible (no continue-on-error), evidence upload and diagnostic replay preserved; rollback = restore one line; tasks 1.1, 3.1, 3.4, decision 0037 Consequences.
 - Selected: Legacy compatibility / examples - every other required job and branch-protection contexts preserved; decisions 0021/0030 partially superseded explicitly; tasks 1.2, 3.1.
-- Selected: Documentation / migration notes - native-hmr.md, spec deltas, decision back-links, Enforcement Index row; tasks 1.3, 1.4, 2.1.
+- Selected: Documentation / migration notes - native-hmr.md, spec deltas, decision back-links, enforcement-index entry; tasks 1.3, 1.4, 2.1.
 - Selected: Release / packaging / dependency compatibility - quarantine must not let native package/override/lockfile or shared-probe changes merge without macOS proof (0021:44, 0027:41); 0037 native-surface exception + Enforcement Index row, tasks 1.2, 1.4.
 - Not selected: Public API / CLI / script entry - no scripts or routes change.
 - Not selected: File IO / path safety / overwrite - artifact paths unchanged.

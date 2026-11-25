@@ -19,5 +19,5 @@ Issue #286. `Installed native HMR (darwin-arm64)` failed 20 of 43 counted attemp
   - Its native-surface exception keeps macOS proof mandatory for native package, override, lockfile and shared-probe changes.
   - The exit defaults to deleting the leg on 2026-12-08, and the quarantine never renews itself.
   - It records the ratchet reasoning and the step-split alternative.
-- Docs: four sentences in `docs/engineering/native-hmr.md`. AGENTS.md gains one review-only Enforcement Index row for the native-surface exception. Branch protection contexts (`constraints.yaml`, `docs/engineering/enforcement-index.md`) are unchanged.
+- Docs: four sentences in `docs/engineering/native-hmr.md`. `docs/engineering/enforcement-index.md` gains a review-only "Quarantined CI jobs" entry for the native-surface exception. Root AGENTS.md is unchanged because it is at its 32 KiB byte budget. Branch protection contexts (`constraints.yaml`, `docs/engineering/enforcement-index.md`) are unchanged.
 - #286 stays open after merge and owns the fix-or-delete obligation until the exit lands. Commits and the PR use `Refs #286`, never a closing keyword.

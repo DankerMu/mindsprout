@@ -1,6 +1,6 @@
 # Design: quarantine-darwin-native-leg
 
-Change surface: `.github/workflows/ci.yml` job `all-checks-passed` (`needs`) and a comment on job `native-installed-runtime-darwin`; decision 0037; `docs/engineering/native-hmr.md` (aggregate topology paragraph, "Neither job ... may fail or be skipped", candidate "either required installed-package check", Darwin diagnosis "The original failed qualification, job, and required aggregate remain red", Known Limitations "Required installed qualification targets `macos-26` arm64"); back-link lines in decisions 0020, 0021, 0027, 0030; AGENTS.md Enforcement Index review-only row for the native-surface exception.
+Change surface: `.github/workflows/ci.yml` job `all-checks-passed` (`needs`) and a comment on job `native-installed-runtime-darwin`; decision 0037; `docs/engineering/native-hmr.md` (aggregate topology paragraph, "Neither job ... may fail or be skipped", candidate "either required installed-package check", Darwin diagnosis "The original failed qualification, job, and required aggregate remain red", Known Limitations "Required installed qualification targets `macos-26` arm64"); back-link lines in decisions 0020, 0021, 0027, 0030; `docs/engineering/enforcement-index.md` review-only entry for the native-surface exception.
 
 Must preserve:
 
@@ -21,7 +21,7 @@ Sibling surfaces:
 - Specs: development-navigation (diagnosis scenario "Failed Darwin qualification", "CI evidence does not become qualification" in the public-create timing requirement, database-preparation scenario), ci-e2e-results (complete needs set), required-check-sources (contexts - unchanged).
 - Decisions stating Darwin gates merges: 0021 (two sentences), 0027 ("requires both job IDs"), 0020 ("complete needs set"), 0030 ("aggregate remain failed") - partially superseded by 0037, each gains a back-link line.
 - Native-surface PRs (`scripts/native-*`, the `native-installed-runtime-darwin` job in ci.yml — including this PR — `.github/actions/native-installed-runtime/`, `patches/native/`, `@next/swc-*` overrides/lockfile): still need a passed Darwin job (0037 exception, review-only).
-- Docs: native-hmr.md, enforcement-index.md, AGENTS.md Enforcement Index gains the native-surface exception row (task 1.4).
+- Docs: native-hmr.md, enforcement-index.md, AGENTS.md unchanged (byte budget); `docs/engineering/enforcement-index.md` gains the native-surface exception entry (task 1.4).
 
 Seams under test: the workflow file as parsed by GitHub on the PR run (aggregate `NEEDS` echo), `pnpm test:guardrails`.
 
