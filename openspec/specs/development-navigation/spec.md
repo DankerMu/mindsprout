@@ -104,7 +104,7 @@ The native browser probe SHALL provide explicit opt-in, bounded compiler/server 
 
 - **WHEN** an unprofiled Darwin restored-lifecycle or source-change step fails with valid matching failed-result evidence and verified source/cache cleanup
 - **THEN** CI runs exactly one separately labelled diagnostic execution of that failed mode in a fresh output directory
-- **AND** the original step, job and required aggregate remain failed whether diagnosis passes or fails
+- **AND** the original step and job remain failed whether diagnosis passes or fails; the required aggregate does not depend on the quarantined Darwin leg (decision 0037)
 - **AND** successful qualifications, Linux, cancellation, and installation/setup failures run no diagnosis and require no diagnostic artifact
 
 #### Scenario: Unsafe prior cleanup prevents replay
@@ -211,7 +211,7 @@ Native navigation diagnostics SHALL retain a bounded public-create timeline that
 
 - **WHEN** an eligible failed Darwin qualification triggers its existing single diagnostic execution
 - **THEN** the original invocation retains only its lightweight default attempt record while the separate profiled invocation supplies the richer sampled timeline
-- **AND** original qualification artifacts and failed job/aggregate remain authoritative and distinct from the replay
+- **AND** original qualification artifacts and failed job (the required aggregate no longer depends on the quarantined Darwin leg, decision 0037) remain authoritative and distinct from the replay
 - **AND** replay selection permits up to 20,000 legacy events plus one valid default evidence envelope and at most one paired `public-create-observation-error` notice, with a hard total of 20,002 and unchanged byte caps and failure/resume checks
 - **AND** the notice must use the same `public-map-setup` / `retained-editor` envelope, generation and trial zero, finite collector timestamps and exactly `stage: publication` and `message: Public-create evidence publication failed` in `data`; duplicates, unpaired or malformed notices and excess events are ineligible
 - **AND** capture absence, diagnostic failure or non-reproduction is explicit, without same-head retry, warmup, altered cache, native package changes or a latency-repair claim
@@ -236,10 +236,29 @@ Each native HMR CI leg SHALL prepare a reachable job-local Postgres 16 database 
 
 #### Scenario: Linux and macOS database preparation
 
-- **WHEN** either required native HMR leg starts
+- **WHEN** either native HMR leg starts (Linux required; Darwin quarantined under decision 0037)
 - **THEN** Linux uses a healthy Postgres 16 service container and macOS uses an owned ready Postgres 16 cluster, and both run `pnpm db:setup` before either browser scenario
 
 #### Scenario: Session established before public map creation
 
 - **WHEN** the probe creates its browser context
 - **THEN** registration and a same-username session check succeed through that context before its first page opens, and the session remains usable across the existing restored-lifecycle restarts without re-registration or expected non-2xx browser noise
+
+### Requirement: Darwin installed-native leg is quarantined from the required aggregate
+
+While decision 0037 is in force, the `Installed native HMR (darwin-arm64)` job SHALL keep its triggers, steps, deadlines, eligible diagnostic replay and always-uploaded evidence, and SHALL report its real result as the job conclusion, without `continue-on-error` at job or step level. `All checks passed` SHALL NOT list it in `needs`; every other CI job, including `Installed native HMR (linux-x64-gnu)`, SHALL remain in `needs`. A comment on the job SHALL link issue #286 and state the exit condition and its 2026-12-08 deadline. Branch protection required contexts SHALL remain unchanged.
+
+#### Scenario: Darwin browser qualification fails
+
+- **WHEN** a Darwin restored-lifecycle or source-change step fails on a pull request or main push
+- **THEN** the Darwin job concludes failed, its evidence and any eligible diagnostic are uploaded, and `All checks passed` still reflects only the remaining jobs
+
+#### Scenario: Linux leg still blocks
+
+- **WHEN** `Installed native HMR (linux-x64-gnu)` fails, is cancelled or is skipped
+- **THEN** `All checks passed` fails
+
+#### Scenario: Quarantine exit
+
+- **WHEN** a fix shows 10 consecutive first-attempt Darwin passes including main pushes, or the leg is deleted by its own decision
+- **THEN** the same change restores the job to `needs` or removes it, and updates this requirement
