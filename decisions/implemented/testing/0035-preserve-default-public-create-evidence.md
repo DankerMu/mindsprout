@@ -27,3 +27,5 @@ A default first-create readiness timeout needs evidence from its own invocation.
 ## Consequences
 
 Default evidence is additive and has no migration. Marker and route samples remain opt-in, with their absence explicit in the default event. Evidence changes neither qualification nor replay eligibility, and does not establish a latency root cause. This testing change needs no product changeset.
+
+- [Decision 0038](0038-delete-darwin-native-ci-leg.md) partially supersedes only "failure-scoped replay" and "replay eligibility": no replay remains, because the Darwin CI leg and its selector are deleted. Default evidence and its attribution are unchanged.

@@ -35,3 +35,5 @@ Register attempt termination before asynchronous observation begins. Treat bindi
 Observation remains non-authoritative: absent events do not prove server non-response, and a successful diagnostic invocation does not repair or qualify another invocation. Resource and output bounds can make evidence partial without changing the functional result.
 
 [Decision 0035](0035-preserve-default-public-create-evidence.md) partially supersedes only the profile-only scope of attempt attribution. [Decision 0030](0030-native-navigation-diagnostic-profiling.md) retains profiling, signal ownership, publication safety and CI eligibility; this record retains sampled public-create attribution and its safety rules. This is diagnostic tooling, with no product behavior or package changeset.
+
+- [Decision 0038](0038-delete-darwin-native-ci-leg.md) partially supersedes only "CI eligibility" in "Decision 0030 retains profiling, signal ownership, publication safety and CI eligibility": no CI eligibility remains, because the Darwin CI leg and its replay are deleted.

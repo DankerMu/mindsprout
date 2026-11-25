@@ -24,6 +24,7 @@
 
 <!-- Required: commands run + key output. For UI changes: screenshot reference from .run/ui-evidence/.
      State which tree/branch was serving, real vs. fixture data/keys, and which mode flags were active.
+     Native-surface PR (paths: docs/engineering/enforcement-index.md, "Native-surface local macOS evidence"): cite passed local macOS arm64 runs of `pnpm native:browser restored-lifecycle` and `source-change` for the head (SHA, command, exit code, result.json status); without a macOS arm64 machine it is blocked.
      Only accepted escape hatch, verbatim: "None — review-only change (reason: ...)". -->
 
 ## Risk
