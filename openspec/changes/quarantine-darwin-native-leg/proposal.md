@@ -9,7 +9,7 @@ Evidence floor: `pnpm test:guardrails` and `pnpm decisions:check`/`docs:check`/`
 
 ## Why
 
-Issue #286. `Installed native HMR (darwin-arm64)` failed 20 of 43 counted attempts after #270 closed (fixed 5 s readiness deadlines on `macos-26`: 13 root Document commit, 5 first editor readiness, 2 reconnect), on unrelated changes including main pushes. It is a dependency of the only required status check, so every flake blocks merges and forces reruns. AGENTS.md: a flaky test is quarantined with an issue, then fixed or deleted within 14 days. The owner chose quarantine (2026-11-24; transcribed at https://github.com/DankerMu/mindsprout/issues/286#issuecomment-7151720196).
+Issue #286. `Installed native HMR (darwin-arm64)` failed 20 of 43 counted attempts after #270 closed (fixed 5 s readiness deadlines on `macos-26`: 13 root Document commit, 5 first editor readiness, 2 reconnect), on unrelated changes including main pushes. It is a dependency of `All checks passed`, the required status check produced by `ci.yml`, so every flake blocks merges and forces reruns. AGENTS.md: a flaky test is quarantined with an issue, then fixed or deleted within 14 days. The owner chose quarantine (2026-11-24; transcribed at https://github.com/DankerMu/mindsprout/issues/286#issuecomment-7151720196).
 
 ## What Changes
 
