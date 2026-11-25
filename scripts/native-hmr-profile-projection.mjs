@@ -24,7 +24,7 @@ export const disabled = () => ({ status: 'disabled', codes: [] });
 export const finite = (value) =>
   Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER;
 export const integer = (value) => Number.isSafeInteger(value) && value >= 0;
-export const matched = (value, pattern) =>
+const matched = (value, pattern) =>
   typeof value === 'string' && pattern.test(value) ? value : null;
 export const boundedInteger = (value, maximum) =>
   integer(value) && value <= maximum ? value : null;

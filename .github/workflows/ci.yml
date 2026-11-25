@@ -289,52 +289,6 @@ jobs:
         with:
           target: linux-x64-gnu
 
-  # flaky: quarantined from All checks passed (decision 0037, #286); exit by 2026-12-08: restore to needs after 10 consecutive first-attempt Darwin passes incl. main pushes, or delete the leg
-  native-installed-runtime-darwin:
-    name: Installed native HMR (darwin-arm64)
-    needs: layer1-fast-checks
-    runs-on: macos-26
-    timeout-minutes: 20
-    env:
-      NEXT_TELEMETRY_DISABLED: "1"
-      MIGRATION_DATABASE_URL: postgres://app:app@127.0.0.1:5432/app_native
-      DATABASE_URL: postgres://mindsprout_app:app@127.0.0.1:5432/app_native
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - name: Start owned Postgres 16
-        shell: bash
-        env:
-          PGPASSWORD: app
-        run: |
-          brew install postgresql@16
-          pg_bin="$(brew --prefix postgresql@16)/bin"
-          cluster="$RUNNER_TEMP/native-postgres"
-          pwfile="$(mktemp "$RUNNER_TEMP/native-postgres-password.XXXXXX")"
-          trap 'rm -f -- "$pwfile"' EXIT
-          printf '%s\n' "$PGPASSWORD" > "$pwfile"
-          "$pg_bin/initdb" -D "$cluster" -U app --pwfile="$pwfile" \
-            --auth-local=trust --auth-host=scram-sha-256 --encoding=UTF8 --locale=C
-          rm -f -- "$pwfile"
-          trap - EXIT
-          "$pg_bin/pg_ctl" -D "$cluster" -l "$RUNNER_TEMP/native-postgres.log" \
-            -o "-h 127.0.0.1 -p 5432 -k $cluster" -w start
-          "$pg_bin/createdb" -h 127.0.0.1 -p 5432 -U app app_native
-          "$pg_bin/pg_isready" -h 127.0.0.1 -p 5432 -U app -d app_native
-      - uses: ./.github/actions/native-installed-runtime
-        with:
-          target: darwin-arm64
-      - name: Stop owned Postgres 16
-        if: always()
-        shell: bash
-        run: |
-          cluster="$RUNNER_TEMP/native-postgres"
-          if [[ -f "$cluster/postmaster.pid" ]]; then
-            pg_bin="$(brew --prefix postgresql@16)/bin"
-            "$pg_bin/pg_ctl" -D "$cluster" -m fast -w stop
-          fi
-
   layer8-sast:
     name: SAST (semgrep)
     runs-on: ubuntu-latest

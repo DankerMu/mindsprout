@@ -124,7 +124,7 @@ function closeDescriptor(fd) {
   }
 }
 
-export function readBounded(filename, budget) {
+function readBounded(filename, budget) {
   let fd;
   try {
     const inspected = fs.lstatSync(filename);
