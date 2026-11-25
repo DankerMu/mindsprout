@@ -16,7 +16,7 @@
 - [x] 3.1 YAML audit: parse ci.yml and print `all-checks-passed.needs` (8 entries, Linux included, Darwin absent); assert no `continue-on-error` key in ci.yml or `.github/actions/native-installed-runtime/action.yml`; `git diff origin/main -- .github/` shows only the removed line and comment lines.
 - [x] 3.2 `pnpm test:guardrails`, `pnpm decisions:check`, `pnpm docs:check`, `pnpm fmt:check`, `openspec validate quarantine-darwin-native-leg --strict --no-interactive` exit 0.
 - [x] 3.3 Commit messages and PR body reference `Refs #286` only — no closing keyword (#286 stays open owning the exit).
-- [ ] 3.4 PR CI run (orchestrator): aggregate `NEEDS` echo lacks Darwin; Darwin job passed on the head (this PR is itself a native-surface PR; rerun pass accepted) and uploaded `native-installed-<sha>-darwin-arm64`.
+- [x] 3.4 PR CI run (orchestrator): aggregate `NEEDS` echo lacks Darwin; Darwin job passed on the head (this PR is itself a native-surface PR; rerun pass accepted) and uploaded `native-installed-<sha>-darwin-arm64`.
 
 ## Risk packs
 
