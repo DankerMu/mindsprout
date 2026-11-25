@@ -17,7 +17,7 @@
 ## 3. Qualification
 
 - [x] 3.1 `pnpm verify-ui "keyboard node creation"` and (unchanged) `pnpm verify-ui "Edits older than the save window"` pass with zero console noise.
-- [ ] 3.2 `pnpm fmt:check`, `pnpm lint`, `pnpm typecheck`, `openspec validate poll-saved-records --strict --no-interactive`; required CI green on the PR head with the E2E job passing on its first attempt. Test-only: no changeset, no decision record.
+- [x] 3.2 `pnpm fmt:check`, `pnpm lint`, `pnpm typecheck`, `openspec validate poll-saved-records --strict --no-interactive`; required CI green on the PR head with the E2E job passing on its first attempt. Test-only: no changeset, no decision record.
 
 ## Risk packs
 
