@@ -154,15 +154,16 @@ test.describe('keyboard node creation', () => {
     await nameNode(page, '浮动根的孩子');
     await expectChild(page, 'f', id);
     expect(await nodeAt(page, 'f').evaluate((node) => node.style.transform)).toBe(position);
-    await page.waitForTimeout(600);
-    expect(await readRecord(page, MAP.id)).toMatchObject({
-      map: {
-        roots: [
-          { id: 'r' },
-          { id: 'f', position: { x: 500, y: 200 }, children: [{ id, text: '浮动根的孩子' }] },
-        ],
-      },
-    });
+    await expect
+      .poll(() => readRecord(page, MAP.id))
+      .toMatchObject({
+        map: {
+          roots: [
+            { id: 'r' },
+            { id: 'f', position: { x: 500, y: 200 }, children: [{ id, text: '浮动根的孩子' }] },
+          ],
+        },
+      });
     await capture(page, 'floating-root');
   });
 
@@ -199,18 +200,19 @@ test.describe('keyboard node creation', () => {
     await nameNode(page, '中间的兄弟');
     await expectChild(page, 'r', id);
     await expectOrder(page, ['a', 'b', id, 'c']);
-    await page.waitForTimeout(600);
-    expect(await readRecord(page, MAP.id)).toMatchObject({
-      map: {
-        roots: [
-          {
-            id: 'r',
-            children: [{ id: 'a' }, { id: 'b' }, { id, text: '中间的兄弟' }, { id: 'c' }],
-          },
-          { id: 'f' },
-        ],
-      },
-    });
+    await expect
+      .poll(() => readRecord(page, MAP.id))
+      .toMatchObject({
+        map: {
+          roots: [
+            {
+              id: 'r',
+              children: [{ id: 'a' }, { id: 'b' }, { id, text: '中间的兄弟' }, { id: 'c' }],
+            },
+            { id: 'f' },
+          ],
+        },
+      });
     await capture(page, 'sibling');
   });
 
@@ -262,8 +264,8 @@ test.describe('keyboard node creation', () => {
         ],
       },
     };
+    await expect.poll(() => readRecord(page, MAP.id)).toMatchObject(expected);
     const saved = await readRecord(page, MAP.id);
-    expect(saved).toMatchObject(expected);
     await page.reload();
     await expect(page.getByTestId('map-editor-ready')).toBeVisible();
     for (const [id, text] of [
