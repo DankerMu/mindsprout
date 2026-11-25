@@ -10,6 +10,7 @@ Relocated from `AGENTS.md ## Agent Operating Rules`, which keeps the hard rules 
 4. Fix the root cause, not the symptom (correct a flaky test; do not raise timeouts).
 5. Re-run that layer locally, then the scoped checks (`.claude/skills/pre-push-checks/SKILL.md`), before pushing.
 6. If the failure is environment parity (OS/version/service), record the mismatch in `AGENTS.md ## Important Development Notes`.
+7. A quarantined job ([enforcement index](enforcement-index.md#quarantined-ci-jobs)) is not a CI failure for merge purposes. Do not enter a fix loop for it, do not rerun it to turn the run green, and do not change its deadlines. A PR may merge when its required checks pass (`gh pr checks <PR> --required`), even if the workflow run's conclusion is failure, for example when `gh run watch --exit-status` exits nonzero. One exception: a PR that touches a native surface listed in the enforcement index must also wait for `Installed native HMR (darwin-arm64)` to pass on its head, and cite that pass in `## Runtime evidence`. Rerunning the quarantined job is allowed only to meet this exception, and a pass on a rerun satisfies it.
 
 Hurl download-transport failures use the incident-scoped authorization, same-head recovery and evidence rules in [decision 0019](../../decisions/implemented/process/0019-incident-scoped-hurl-recovery.md). Recovery never substitutes local results for required CI or retries an application-test failure under a transport authorization.
 
