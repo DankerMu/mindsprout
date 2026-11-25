@@ -289,6 +289,7 @@ jobs:
         with:
           target: linux-x64-gnu
 
+  # flaky: quarantined from All checks passed (decision 0037, #286); exit by 2026-12-08: restore to needs after 10 consecutive first-attempt Darwin passes incl. main pushes, or delete the leg
   native-installed-runtime-darwin:
     name: Installed native HMR (darwin-arm64)
     needs: layer1-fast-checks
@@ -359,7 +360,6 @@ jobs:
       - layer7-e2e
       - layer8-sast
       - native-installed-runtime
-      - native-installed-runtime-darwin
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
