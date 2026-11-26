@@ -31,3 +31,7 @@ _Avoid_: 自由节点, Detached node, Orphan
 **Grow**:
 对选中 MindNode 的节点级 AI 动作，四种：展开、换角度、精简、举例。
 _Avoid_: Expand（泛指时）, Generate（指节点级时）, Extend
+
+**Generate**:
+一次性生成：从用户输入的主题，为空 MindMap（主根无子节点、无浮动根）流式长出两层骨架；整次生成是一个撤销步骤。与节点级的 Grow 区分。
+_Avoid_: Sprout, Seed, Grow（指一次性生成时）
