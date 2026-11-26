@@ -8,7 +8,7 @@ Let a user turn an empty map into a streamed skeleton from one topic, applied th
 
 ### Requirement: Topic input appears only on an empty map
 
-The editor SHALL show a topic input with a Generate action while the map is empty: the primary root has no children and the map has no floating roots. Generate SHALL be enabled only when the trimmed topic is 1–200 UTF-16 code units long and no generation is running. While a generation runs, the input SHALL be read-only and only Stop SHALL be offered. The form SHALL disappear as soon as the map is no longer empty. Manual editing of an empty map SHALL remain available while no generation runs.
+The editor SHALL show a topic input with a Generate action while the map is empty: the primary root has no children and the map has no floating roots. Generate SHALL be enabled only when the trimmed topic is 1–200 UTF-16 code units long and no generation is running. While a generation runs, the input SHALL be read-only and Generate SHALL NOT be offered. The form SHALL disappear as soon as the map is no longer empty. A Stop control, separate from the form, SHALL be visible for the whole generation, including after the first op. Manual editing of an empty map SHALL remain available while no generation runs.
 
 #### Scenario: New map
 

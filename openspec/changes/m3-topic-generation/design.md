@@ -240,7 +240,7 @@ Each adapter runs at most **4 model turns per attempt**.
   - While `generating`, the store's tree-changing actions refuse: dispatch outside the session, createNode, delete, move, color, note, title edits, undo and redo. The store is the single lock authority.
   - Keyboard, menu, drag and toolbar handlers check `generating` and do nothing, so no refusal surfaces as an uncaught error.
   - Pan, zoom and selection remain available.
-- **UI.** `EditorView` renders the topic form over the empty map: an input, Generate (disabled while the trimmed topic is invalid or a generation runs), and the `AI 未配置` state. While generating it renders Stop. The form disappears once the map is non-empty.
+- **UI.** `EditorView` renders the topic form over the empty map: an input, Generate (disabled while the trimmed topic is invalid or a generation runs), and the `AI 未配置` state. The form disappears once the map is non-empty. Stop is a separate control rendered for the whole generation, including after the first op.
 
 ### D10. Layout transitions
 

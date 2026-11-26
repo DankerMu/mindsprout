@@ -80,7 +80,7 @@ Minimal mergeable slice: 2.1 - env validation is self-contained; 2.2 depends onl
   - Inject `fetch`.
   - Update TECH §5.1 and §5.3 to the shipped protocol (design D12).
   - Verify (unit with hand-authored chat-completions SSE fixtures):
-    - `describeProviderContract` passes;
+    - `describeProviderContract` passes (ai-provider "Same contract for every adapter");
     - ai-provider "Two-turn skeleton" and "Turn limit";
     - the request body carries the prompt constant, the tool schema, the topic only in the user turn and `max_tokens` 8000;
     - a 500 fixture is requested exactly once and surfaces as `ProviderTransportError` without its body;
@@ -90,7 +90,7 @@ Minimal mergeable slice: 2.1 - env validation is self-contained; 2.2 depends onl
   - Inject the client transport.
   - Use `client.beta.messages.stream` with the fallback beta, a `strict` + `eager_input_streaming` tool with `tool_choice: auto`, effort `medium`, a cached system block, `max_tokens` 8000, `maxRetries` 0 and an optional `baseURL`.
   - Verify (unit with hand-authored Messages SSE fixtures):
-    - `describeProviderContract` passes;
+    - `describeProviderContract` passes (ai-provider "Same contract for every adapter");
     - "Two-turn skeleton" and "Turn limit";
     - the request body asserts every setting above, no forced `tool_choice`, and the same prompt and tool as 3.2 ("Same instruction for real adapters");
     - a `tool_use` turn is followed by `tool_result` `ok` blocks.
@@ -132,7 +132,7 @@ Minimal mergeable slice: 4.1 - the composition is unit-tested alone; 4.2 adds th
     - abort stops reading.
 - [ ] 5.2 Add the editor store `generate(topic)` action, first-op deferral, the reducer-rejection path and the `generating` lock (design D9).
   - Verify (unit, fake `GenerateSource`):
-    - topic-generation "Root text and title", "Custom title kept", "Failure before the first op", "Undo completed generation", "Undo partial generation", "Double submit" (store refusal), "Reducer rejection", "AI unavailable", "Session expired at submit", "Network failure" and "Saved after completion" (autosave holds while generating and saves once afterwards);
+    - topic-generation "Root text and title", "Custom title kept", "Failure before the first op", "Undo completed generation", "Undo partial generation", "Double submit" (store refusal), "Reducer rejection", "AI unavailable", "Session expired at submit", "Network failure", every row of "Failure notices use fixed texts" (table-driven over all five codes, both prefixes) and "Saved after completion" (autosave holds while generating and saves once afterwards);
     - the store halves of "Stop" and "Mid-stream error";
     - refusal on a non-empty map;
     - every listed tree action refuses while generating.
