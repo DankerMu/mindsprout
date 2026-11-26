@@ -10,14 +10,14 @@ date: 2026-11-26
 
 ## Problem
 
-M3's acceptance has two latency limits that only a real model can show: the first node within 3 s (PRD §6) and a three-layer map within 10 s (PRD §8). AGENTS.md ("What agents may not do"), CONTEXT.md (Forbidden Logic) and decision 0002 (Consequences) forbid calling a real paid key from tests, CI or local verification. With that rule, no agent-run check can prove the acceptance. In the M3 Stage 1 grill (2026-11-26), the owner chose to verify with their own dmxapi.cn key and `deepseek-v4.1-flash-1017`, including from local e2e.
+M3's acceptance has two latency limits that only a real model can show: the first node within 6 s (PRD §6, relaxed from 3 s by the owner on 2026-11-26 after provider probes) and a three-layer map within 10 s (PRD §8). AGENTS.md ("What agents may not do"), CONTEXT.md (Forbidden Logic) and decision 0002 (Consequences) forbid calling a real paid key from tests, CI or local verification. With that rule, no agent-run check can prove the acceptance. In the M3 Stage 1 grill (2026-11-26), the owner chose to verify with their own dmxapi.cn key and `deepseek-v4.1-flash-1017`, including from local e2e.
 
 ## Decision
 
-- Exactly one surface may call a real provider: the Playwright spec `e2e/ai-live.spec.ts`. It runs only when `E2E_AI_LIVE=1` is set explicitly.
+- Exactly one surface may call a real provider: the Playwright spec `e2e/ai-live.spec.ts`, run by `pnpm e2e:live`. The default run does not collect it (`testIgnore` unless `E2E_AI_LIVE=1`), so the CI zero-skip gate is untouched.
 - In live mode the e2e server takes the AI configuration from the local `.env`. In every other run it forces `AI_PROVIDER=mock`.
 - When both `E2E_AI_LIVE=1` and `CI=true` are set, the e2e server refuses to start and exits non-zero. CI therefore never runs live.
-- Vitest (unit, integration, contract), smoke and the default `pnpm e2e` never read provider keys; they use the mock provider or injected wire fixtures.
+- Vitest (unit, integration, contract), `pnpm smoke` and the default `pnpm e2e` never call a real provider: the verification servers (`scripts/dev-bg.sh`, `scripts/e2e-server.mjs`) export `AI_PROVIDER=mock`, and unit tests inject wire fixtures.
 - Agents may run the live spec only for M3-class acceptance evidence, one generation per run, and never in a retry loop. Each live run's timings go in the PR or Epic.
 
 ## Alternatives considered
@@ -32,5 +32,5 @@ M3's acceptance has two latency limits that only a real model can show: the firs
 - When this record moves to `implemented` (M3 task 8.1), the following change in the same PR:
   - The AGENTS.md "What agents may not do" bullet and the CONTEXT.md forbidden-logic row cite this exception.
   - Decision 0002's Consequences line is cross-linked as partially superseded on this point only.
-- The CI guard is a script check in `scripts/e2e-server.mjs`, covered by its own test. Without that check, this exception would be only a written rule.
+- The CI guard is a script check in `scripts/e2e-server.mjs`, proven on every pull request by a fixture in `scripts/test-guardrails.sh`. Without that check, this exception would be only a written rule.
 - Live results are evidence for latency only. Correctness stays proven by the mock and fixture tests.
