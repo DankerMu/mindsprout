@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { sampleMap, UPDATED_AT } from '../../../tests/support/map-domain';
 import { ControlledLibrary, heldResult } from '../../../tests/support/map-library';
@@ -15,9 +15,6 @@ const SAME_TITLE_TARGET = { ...TARGET, title: '新导图' };
 const SAME_TITLE_PEER = { ...PEER, title: '新导图' };
 type Mutation = 'rename' | 'delete';
 type Phase = 'get' | 'put' | 'delete';
-
-vi.hoisted(() => vi.stubEnv('TZ', 'UTC'));
-afterAll(() => vi.unstubAllEnvs());
 
 failOnConsoleNoise();
 beforeEach(() => {

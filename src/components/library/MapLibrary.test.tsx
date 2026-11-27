@@ -6,7 +6,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 import type { MapSummary } from '../../contexts/map/domain/map-repository';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
@@ -16,9 +16,6 @@ import type { MindMap } from '../../contexts/map/domain/types';
 import { heldResult, memoryLibrary } from '../../../tests/support/map-library';
 import { SessionNavigationScope } from '../account/session-navigation';
 import { MapLibrary } from './MapLibrary';
-
-vi.hoisted(() => vi.stubEnv('TZ', 'UTC'));
-afterAll(() => vi.unstubAllEnvs());
 
 failOnConsoleNoise();
 afterEach(() => {
