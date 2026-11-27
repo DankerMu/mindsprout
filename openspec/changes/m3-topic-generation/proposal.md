@@ -201,7 +201,7 @@ Blast radius: the second real adapter, selected with `AI_PROVIDER=openai-compati
 - A `tool-error` part is ignored. It always follows an invalid call.
 - An `error` or `abort` part, or a throw from iteration such as a mid-body read failure, is recorded as a transport failure.
 - The verdict at the end of the stream, in order:
-  1. A transport failure gives `ProviderTransportError`. `runTurnLoop` normalises an abort to `signal.reason`.
+  1. A transport failure gives `ProviderTransportError`, and so does a missing `finish` part or a `finishReason` of `error`, `interrupted` or `other`. `runTurnLoop` normalises an abort to `signal.reason`. A failed turn yields no op, so D5 can still retry before the first op. This differs on purpose from the Claude adapter, which yields each input at its block stop.
   2. A `finish` part with `finishReason` `content-filter` gives `ProviderRefusedError`, even when a call is invalid. The SDK maps `stop` with a refusal delta to `content-filter`.
   3. Any invalid call gives `ProviderOutputError`.
   4. Otherwise the buffered inputs are yielded in order as `tool-input` items, and the turn end follows the mapping below.
@@ -211,9 +211,9 @@ Blast radius: the second real adapter, selected with `AI_PROVIDER=openai-compati
 - `length` gives natural, because an invalid call has already decided the turn, so every input is complete.
 - `tool-calls` gives tool-use.
 - `content-filter` gives `ProviderRefusedError`.
-- `error`, `interrupted`, `other` and a missing finish part give `ProviderTransportError`. The provider maps a stream with no `finish_reason` to `error`.
+- `error`, `interrupted`, `other` and a missing finish part are decided in step 1 above. The provider maps a stream with no `finish_reason` to `error`.
   History and acks: after a tool-use turn, the adapter appends `(await result.response).messages`. That is the SDK's assistant message, which keeps any reasoning parts and so preserves `reasoning_content` for DeepSeek thinking mode. It then appends one `{ role: 'tool', content: [...] }` message with `{ type: 'tool-result', toolCallId, toolName, output: { type: 'text', value: 'ok' } }` per yielded call, in order. The SDK adds no tool message of its own for valid calls without `execute`. An invalid call always rejects the turn, so the SDK's `error-text` results are never replayed.
-  Residual: the SDK emits tool calls only at stream end (`streaming-tool-call-tracker.ts` deliberately finalises nothing early), so ops do not appear progressively within one turn, against the PRD §45 principle. The first node is visible after turn 1's stream closes. The 7.3 live run measures first-node latency on this endpoint, and the owner already has the 12.7 s total probe (design Context).
+  Residual: the SDK emits tool calls only at stream end (`streaming-tool-call-tracker.ts` deliberately finalises nothing early), so ops do not appear progressively within one turn, against the PRD §4 principle "流式呈现，节点逐个出现". The first node is visible after turn 1's stream closes. The 7.3 live run measures first-node latency on this endpoint, and the owner already has the 12.7 s total probe (design Context).
   Contract: `describeProviderContract('openai-compatible', …)` runs every scenario, including `natural`. The harness encodes the canonical inputs as hand-authored chat-completions SSE over the injected `fetch`:
 - `data:` chunks carry `choices[0].delta.tool_calls` with `index`, `id`, `function.name` and `arguments` fragments.
 - `finish_reason` is `tool_calls` or `stop`.
@@ -232,10 +232,16 @@ Blast radius: the second real adapter, selected with `AI_PROVIDER=openai-compati
   - `tool_choice: 'auto'`, `max_tokens: 8000`, `stream: true`, and no `stream_options`. The whole body is asserted with `toStrictEqual`.
 - The URL is `<baseURL>/chat/completions`. The key appears only in `Authorization: Bearer`.
 - The turn-2 body ends with the assistant message, carrying `tool_calls` with JSON-string `arguments`, then one `role: 'tool'` message with `content: 'ok'` per `tool_call_id`.
-- A truncated `arguments` string at `finish_reason: length` gives `ProviderOutputError` and zero ops from that call.
+- A truncated `arguments` string at `finish_reason: length` gives `ProviderOutputError` and zero ops.
 - Malformed `arguments` at `tool_calls` gives `ProviderOutputError`.
 - `finish_reason: content_filter` gives `ProviderRefusedError`.
-- A stream without `finish_reason` and an unknown finish reason each give `ProviderTransportError`.
+- A stream without `finish_reason` and an unknown finish reason each give `ProviderTransportError` and zero ops.
+- Buffering rows. Each begins with one complete valid `add_children(root)` call, then:
+  - a truncated call at `length` gives `ProviderOutputError` and 0 ops;
+  - `content_filter` gives `ProviderRefusedError` and 0 ops;
+  - no `finish_reason` gives `ProviderTransportError` and 0 ops;
+  - an unknown `finish_reason` gives `ProviderTransportError` and 0 ops.
+    Each of these fails against an adapter that yields while reading.
 - `length` with complete inputs gives natural, 1 turn.
 - A 500 whose body contains the key and a request id is requested exactly once. It gives `ProviderTransportError` with a fixed message, and the body, key, request id and topic are absent from the message, the stack, the `cause` and the console. A console spy covers `error`, `warn` and `log`.
 - `content_filter` after a truncated `arguments` string (`{"parentId":"root","chil`) gives `ProviderRefusedError`, zero ops and one request.

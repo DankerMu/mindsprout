@@ -53,6 +53,8 @@ All names in the following group are approved only at **1.3.4 / LGPL-3.0-or-late
 - `@img/sharp-libvips-linuxmusl-arm64`
 - `@img/sharp-libvips-linuxmusl-x64`
 
+[Decision 0040](0040-json-schema-license-exception.md) adds one more exact exception under this policy: `json-schema` at **0.4.0 / (AFL-2.1 OR BSD-3-Clause)**.
+
 These 22 package identities were separately metadata-verified. Their registration is not evidence that every variant was installed or runtime-audited on either macOS or Linux.
 
 This blocking license gate extends [decision 0001](0001-l4-profile-and-agent-review-governance.md). It does not supersede or retire that record's L4 governance, agent cross-review or owner functional-acceptance responsibilities. Existing thresholds and required-check identities remain unchanged.
@@ -71,4 +73,3 @@ This blocking license gate extends [decision 0001](0001-l4-profile-and-agent-rev
 - Approval and exceptions do not waive attribution, notice, source, distribution or other license obligations. Those obligations remain separate from this engineering gate.
 - Unknown or composite declarations require explicit policy review rather than automatic interpretation. Exact exceptions intentionally block unapproved upgrades and license changes.
 - Gate changes retain full-depth cross-review and owner functional acceptance. Rollback is a reviewed revert, not a deleted test, relaxed threshold or ad hoc exemption.
-- [Decision 0040](0040-json-schema-license-exception.md) adds one more exact exception under this policy: `json-schema` 0.4.0, `(AFL-2.1 OR BSD-3-Clause)`.
