@@ -363,6 +363,80 @@ Blast radius: every generation. The possible failures:
 - An unknown error (`TypeError`) gives `provider-error` with no retry.
 - Per-file coverage is at least 90%. `pnpm boundaries` and `pnpm lint` pass, with complexity at most 10.
 
+## Issue #304 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded. Agree: `src/app/server/` is a Critical Path, and this module decides which vendor, key and gateway every generation bills.
+Blast radius: every generation once 4.3 lands. A wrong mapping sends:
+
+- the wrong key to a gateway;
+- a request with no base URL to a vendor's default host;
+- an unpaced mock that defeats the progressive-appearance e2e;
+- an unredacted logger.
+  Selected risk packs:
+- Config: env to adapter mapping, unset provider, caching.
+- Auth/secrets: a key reaches only its own adapter, is never logged or echoed, and no real key, including one from the host shell, reaches a test.
+  Not selected:
+- Public API (the route is 4.3)
+- Schema (env validation is 2.1)
+- Concurrency
+- File IO
+- Legacy
+- Release
+- Docs (TECH §7 lands with 4.3)
+  Interface: new `src/app/server/ai-services.ts` exports three things:
+- `createAiService(env: Env): AiService | undefined` is the pure mapping.
+- `aiService(): AiService | undefined` reads `loadEnv(process.env)` on first use.
+  - It caches a defined service and an `undefined` result.
+  - It never caches a throw, the same as `accountResources()`, so a fixed env succeeds on the next call.
+- `AiService` is `{ provider: Provider; providerId: NonNullable<Env['AI_PROVIDER']>; model: string; log: GenerationLog }`.
+  - `providerId`, `model` and `log` are exactly what `generate` takes (#299).
+  - `log` is the shared `logger` from `src/shared/logger.ts`, so redaction stays in force. This discharges the #299 handoff "4.1 passes `logger`".
+    Mapping (D1, D7, D11):
+- `anthropic` calls `createAnthropicProvider({ apiKey: ANTHROPIC_API_KEY, model: AI_MODEL, idFactory })`, plus `baseURL: ANTHROPIC_BASE_URL` only when it is set. It is a conditional spread under `exactOptionalPropertyTypes`, so an unset value means the SDK default host.
+- `openai-compatible` calls `createOpenAICompatibleProvider({ apiKey: OPENAI_API_KEY, baseURL: OPENAI_BASE_URL, model: AI_MODEL, idFactory })`.
+- `mock` calls `createMockProvider({ idFactory, delayMs: 150 })` with no `script`. `model` is the constant `'mock'`, because no vendor model is called. Verification servers force the mock even when the owner's `.env` sets `AI_MODEL`.
+- An unset `AI_PROVIDER` returns `undefined`.
+- `idFactory` is `() => nanoid()`, the editor's node-id generator.
+- A key goes only to its own vendor's adapter. No variable is read from `process.env` except through `loadEnv`.
+- `loadEnv` already guarantees the selected provider's required fields, but the `Env` type still marks them optional.
+  - One helper, `required(value, name)`, narrows them. It throws a fixed `Error` that names the variable, never its value.
+  - It is reached only by a hand-built `Env` in tests. No non-null assertions.
+  - This discharges the #298 handoff that narrowing is task 4.1.
+    Not in this slice (recorded):
+- `ANTHROPIC_CUSTOM_HEADERS`: already documented in the adapter comment (anthropic.ts, #302). No change here.
+- Whitespace-only AI values (#298 residual): trimming changes D7.
+- A dependency-cruiser rule enforcing D1's "nothing else imports adapters": not in this issue. Today no non-test module imports an adapter. 4.3's review checks it as a review-only line, and the stage-end report proposes a follow-up issue for the rule.
+  Must preserve: `account-services.ts` and its tests, the adapters, `env.ts`, `generate.ts`.
+  Evidence floor (Vitest):
+- Test setup:
+  - The Claude and OpenAI-compatible factories are mocked with `vi.mock` as collaborators, never the SUT.
+  - `providers/mock` is mocked as a passthrough spy (`vi.fn(actual.createMockProvider)` via `importOriginal`), so the mapping rows and the real pacing row share one file.
+  - Sentinel strings only.
+- Isolation:
+  - `beforeEach` calls `vi.resetModules()` and stubs all six AI variables and `NODE_ENV` with `vi.stubEnv`; empty means unset.
+  - `afterEach` calls `vi.unstubAllEnvs()`.
+  - The suite passes with `ANTHROPIC_API_KEY`, `AI_PROVIDER` and `AI_MODEL` exported in the shell that runs it.
+- `anthropic` with a base URL:
+  - The Claude factory is called once, with exactly the key, the model, the base URL and a function `idFactory`.
+  - The other factories are not called.
+  - The result holds `providerId` `anthropic`, the model and `log === logger`.
+- `anthropic` without a base URL: the arguments have no `baseURL` key.
+- `openai-compatible`: the factory receives exactly its key, base URL, model and `idFactory`. The Claude key is never passed, even when it is present in the env.
+- `mock`: the arguments are exactly `{ idFactory, delayMs: 150 }`. `model` is `'mock'` even when `AI_MODEL` is set.
+- Unset: the result is `undefined`, and no factory is called.
+- `idFactory` returns distinct non-empty strings across calls.
+- A hand-built `Env` with `AI_PROVIDER: 'anthropic'` and no key throws an error that names `ANTHROPIC_API_KEY` and contains no other env value. The same holds for `openai-compatible` without a base URL.
+- `aiService()`:
+  - `AI_PROVIDER=mock` returns a mock service. A second call returns the same object, and no factory is called again.
+  - Unset, the first call returns `undefined`. After `vi.stubEnv('AI_PROVIDER', 'mock')` with no module reset, the second call is still `undefined` and no factory is called.
+  - An invalid env (`AI_PROVIDER=anthropic` with no key) throws the `loadEnv` error. After the key is stubbed, the next call without a module reset returns a service.
+- Real pacing:
+  - Run through `createAiService` on fake timers, draining `streamOps` of the real mock.
+  - At 149 ms no op has settled, and at 150 ms the first op is present.
+- Per-file coverage is at least 90%. `pnpm boundaries`, `lint` and `typecheck` pass.
+
 ## Impact
 
 - **Code:**
