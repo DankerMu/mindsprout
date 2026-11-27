@@ -40,7 +40,7 @@
 
 ## 1. AI core
 
-- [ ] 1.1 Add the ai domain, acl and op assembler (design D1, D2).
+- [x] 1.1 Add the ai domain, acl and op assembler (design D1, D2).
   - `ai/domain/` gets:
     - the strict Generate tool input schema;
     - the caps type and production caps;
