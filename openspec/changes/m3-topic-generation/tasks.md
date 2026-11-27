@@ -67,7 +67,7 @@ Minimal mergeable slice: 1.1 - the domain, acl and assembler are green alone; 1.
     - drop `OLLAMA_BASE_URL`.
   - Verify (unit): ai-provider "AI not configured", "Example environment loads" (parses the real `.env.example` file), "Partially configured provider fails at load" (each missing or empty variable is named), "Claude provider configuration" and "Mock refused in production". Existing env tests pass.
 - [ ] 2.2 Add `generate(provider, request, { timeoutMs })` in `ai/application/` with the `ai.generate` log event (design D5).
-  - Verify (unit, fake providers, Vitest fake timers): ai-provider "Retry succeeds", "Retry exhausted", "Failure after first op", "Refusal", "No tool call is invalid output" (as a zero-op attempt) and "Slow provider". A client abort ends silently without retry. A spy logger proves the logging half of "Provider HTTP error body withheld": no topic, body or key in any entry.
+  - Verify (unit, fake providers, Vitest fake timers): ai-provider "Retry succeeds", "Retry exhausted", "Failure after first op", "Refusal", "No tool call is invalid output" (the `ProviderOutputError` raised by the 1.3 helper is retried like any invalid output; `generate` does not detect zero ops itself) and "Slow provider". A client abort ends silently without retry. A spy logger proves the logging half of "Provider HTTP error body withheld": no topic, body or key in any entry.
 
 Suggested fixture level: expanded - production configuration loaded on every account request, and the retry/timeout rules are billing guards (a wrong retry doubles spend).
 Minimal mergeable slice: 2.1 - env validation is self-contained; 2.2 depends only on 1.1 and merges independently of 2.1.
@@ -167,8 +167,8 @@ Minimal mergeable slice: atomic - the CSS, the drag suppression and the reduced-
 - [ ] 7.1 Add live gating to `scripts/e2e-server.mjs`.
   - It passes the `.env` AI variables through only when `E2E_AI_LIVE=1`; variables already in the process environment always win over `.env`.
   - It exits non-zero before starting when `E2E_AI_LIVE=1` and `CI=true`.
-  - Add the matching fixtures to `scripts/test-guardrails.sh`, each using a temporary `.env` fixture (never the owner's `.env`): (a) without `E2E_AI_LIVE` the child process gets `AI_PROVIDER=mock`; (b) with `E2E_AI_LIVE=1` and no `CI` the child gets the fixture's AI variables; (c) with `E2E_AI_LIVE=1` and `CI=true` the script exits non-zero and no server process or provider request starts.
-  - Verify: ai-live-acceptance "Live under CI refused" and the pass-through rules via `pnpm test:guardrails`. The PR flags the guardrail script edit.
+  - Add the matching fixtures to `scripts/test-guardrails.sh`, each using a temporary `.env` fixture (never the owner's `.env`): (a) without `E2E_AI_LIVE` the child process gets `AI_PROVIDER=mock`; (b) with `E2E_AI_LIVE=1` and no `CI` the child gets the fixture's AI variables; (c) with `E2E_AI_LIVE=1` and `CI=true` the script exits non-zero and no server process or provider request starts; (d) with `E2E_AI_LIVE=1`, no `CI`, `AI_PROVIDER=mock` in the process environment and `AI_PROVIDER=anthropic` in the fixture `.env`, the child gets `AI_PROVIDER=mock`.
+  - Verify: ai-live-acceptance "Live under CI refused", "Process environment wins in live mode" and the pass-through rules via `pnpm test:guardrails`. The PR flags the guardrail script edit.
 - [ ] 7.2 Add `e2e/ai-live.spec.ts`, its `testIgnore` unless `E2E_AI_LIVE=1`, and the `pnpm e2e:live` script.
   - Add the script to the AGENTS daily-commands table and to `constraints.yaml` verification.
   - Move decision 0039 to implemented, citing it in AGENTS Important Development Note 5, the AGENTS Critical Paths `providers/` row, the AGENTS "What agents may not do" bullet, the CONTEXT forbidden-logic row and decision 0002's Consequences.

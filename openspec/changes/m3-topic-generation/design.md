@@ -265,14 +265,14 @@ Each adapter runs at most **4 model turns per attempt**.
 - **Live acceptance.**
   - `e2e/ai-live.spec.ts` is excluded from collection unless `E2E_AI_LIVE=1`: `playwright.config.ts` adds it to `testIgnore` otherwise. The default run therefore has no skipped test, and the zero-skip gate is untouched.
   - `pnpm e2e:live` runs `E2E_AI_LIVE=1` with only that spec.
-  - `scripts/e2e-server.mjs` forces `AI_PROVIDER=mock` unless `E2E_AI_LIVE=1`. With live mode it passes the `.env` AI variables through. It exits non-zero when `E2E_AI_LIVE=1` and `CI=true`.
+  - `scripts/e2e-server.mjs` forces `AI_PROVIDER=mock` unless `E2E_AI_LIVE=1`. With live mode it passes the `.env` AI variables through; a variable already in the process environment wins over `.env`, so a mock rehearsal never reaches a real provider. It exits non-zero when `E2E_AI_LIVE=1` and `CI=true`.
   - The CI refusal is proven by a fixture in `scripts/test-guardrails.sh`, which already runs on every PR and weekly. It runs the server script with both variables and asserts a non-zero exit before any server or provider starts.
   - The live spec asserts:
     - the first generated node is visible < 6 s after submit;
     - the generation completes without an error notice < 10 s after submit, with a node two levels below the root;
     - depth ≤ 2.
   - It is run once with the platform default (Anthropic-native, `deepseek-v4.1-flash-1017`), once with `AI_PROVIDER=openai-compatible` and the same model, and once with a Claude model through dmxapi's Anthropic-native endpoint (PRD §8 "Claude 和 OpenAI 兼容接口都能跑").
-- **Docs.** Decision 0039 records the exception. When it moves to implemented, AGENTS "What agents may not do", the CONTEXT forbidden-logic row and decision 0002's Consequences are cross-linked in the same PR.
+- **Docs.** Decision 0039 records the exception. When it moves to implemented, AGENTS Important Development Note 5, the AGENTS Critical Paths `providers/` row, AGENTS "What agents may not do", the CONTEXT forbidden-logic row and decision 0002's Consequences are cross-linked in the same PR.
 
 ### D12. Documentation lands with the code
 

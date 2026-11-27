@@ -22,12 +22,17 @@ The following SHALL never call a real provider, whatever the local `.env` contai
 
 ### Requirement: Live mode is opt-in and local only
 
-The live spec SHALL be collected and run only when `E2E_AI_LIVE=1`. In that mode, the e2e server SHALL use the AI configuration from the local `.env`. When `E2E_AI_LIVE=1` and `CI=true` are both set, the e2e server SHALL refuse to start and exit non-zero before any server or provider starts. A guardrail test SHALL prove this refusal on every pull request.
+The live spec SHALL be collected and run only when `E2E_AI_LIVE=1`. In that mode, the e2e server SHALL use the AI configuration from the local `.env`, except that a variable already set in the process environment SHALL win over `.env`. When `E2E_AI_LIVE=1` and `CI=true` are both set, the e2e server SHALL refuse to start and exit non-zero before any server or provider starts. A guardrail test SHALL prove this refusal on every pull request.
 
 #### Scenario: Live under CI refused
 
 - **WHEN** `E2E_AI_LIVE=1` and `CI=true`
 - **THEN** the e2e server exits non-zero before starting and no provider is called
+
+#### Scenario: Process environment wins in live mode
+
+- **WHEN** `E2E_AI_LIVE=1`, `AI_PROVIDER=mock` is set in the process environment and `.env` sets another provider
+- **THEN** the e2e server runs with the mock provider
 
 ### Requirement: Live spec checks the M3 latency acceptance
 
