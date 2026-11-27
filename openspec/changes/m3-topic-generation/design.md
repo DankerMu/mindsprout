@@ -173,7 +173,8 @@ Each adapter runs at most **4 model turns per attempt**.
 - **Protocol it states:** changes only through the tool; flat lists per parent; temporary ids with `root`; the root call first, then all first-level calls in parallel in one turn.
 - **Content constraints it states:** two levels below the root, 3–7 children per parent, each ≤ 40 characters with no paragraphs, MECE siblings, and output language following the topic (PRD §9 resolved: one unified prompt).
 - **Topic placement:** a builder places the topic only in the user turn.
-- Adapters add no instruction text of their own.
+- **Tool definition:** the same module exports the one wire tool definition `{ name, description, inputSchema }` that 3.2 and 3.3 send. `inputSchema` is a byte-stable literal matching 1.1's zod schema, without the keywords Claude strict tools reject (`minLength`) and without `$schema`; the assembler's zod parse remains the enforcement point.
+- Adapters add no instruction text or tool definition of their own.
 
 ### D7. Configuration
 
