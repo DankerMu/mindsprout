@@ -81,6 +81,7 @@ Each item is ablated or out of scope; its revival trigger is in parentheses.
 - **`ai/application/`** may import its own `acl/`. It holds:
   - the `Provider` port: `streamOps(request: GenerateRequest) → AsyncIterable<TreeOp>`, where `GenerateRequest = { topic, rootId, signal }`;
   - the op assembler (D2);
+  - the turn-loop helper (D3), the single implementation of turn counting and stopping;
   - the Generate prompt (D6);
   - `generate(provider, request, { timeoutMs })` (D5).
 - **`ai/infrastructure/providers/`** holds `anthropic.ts` (`@anthropic-ai/sdk`), `openai-compatible.ts` (Vercel AI SDK `@ai-sdk/openai-compatible`) and `mock.ts`. Each adapter receives its transport by injection (`fetch` or an SDK client), and each uses the application assembler, prompt and loop helper.

@@ -30,7 +30,8 @@ M3's acceptance has two latency limits that only a real model can show: the firs
 ## Consequences
 
 - When this record moves to `implemented` (M3 task 7.2), the following change in the same PR:
-  - The AGENTS.md "What agents may not do" bullet and the CONTEXT.md forbidden-logic row cite this exception.
+  - AGENTS.md Important Development Note 5, its Critical Paths `providers/` row and its "What agents may not do" bullet, and the CONTEXT.md forbidden-logic row, cite this exception.
   - Decision 0002's Consequences line is cross-linked as partially superseded on this point only.
 - The CI guard is a script check in `scripts/e2e-server.mjs`, proven on every pull request by a fixture in `scripts/test-guardrails.sh`. Without that check, this exception would be only a written rule.
 - Live results are evidence for latency only. Correctness stays proven by the mock and fixture tests.
+- A rehearsal `AI_PROVIDER=mock E2E_AI_LIVE=1 pnpm e2e:live` uses no real key (process environment wins over `.env`) and is not a real-key run.
