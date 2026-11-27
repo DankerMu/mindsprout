@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import type {
   BetaRawMessageStreamEvent,
   BetaStopReason,
@@ -129,6 +130,35 @@ function fallbackBlock(index: number): StreamEvent[] {
   ];
 }
 
+// A thinking block: the text as one thinking_delta (none when display is omitted), then the
+// signature_delta just before its stop, as the API streams it.
+function thinkingBlock(index: number, thinking: string, signature: string): StreamEvent[] {
+  const text: StreamEvent[] = [
+    {
+      type: 'content_block_delta',
+      index,
+      delta: { type: 'thinking_delta', thinking, estimated_tokens: null },
+    },
+  ];
+  return [
+    {
+      type: 'content_block_start',
+      index,
+      content_block: { type: 'thinking', thinking: '', signature: '' },
+    },
+    ...(thinking === '' ? [] : text),
+    { type: 'content_block_delta', index, delta: { type: 'signature_delta', signature } },
+    { type: 'content_block_stop', index },
+  ];
+}
+
+function redactedThinkingBlock(index: number, data: string): StreamEvent[] {
+  return [
+    { type: 'content_block_start', index, content_block: { type: 'redacted_thinking', data } },
+    { type: 'content_block_stop', index },
+  ];
+}
+
 function turnOf(blocks: StreamEvent[][], stopReason: BetaStopReason | null): StreamEvent[] {
   return [
     messageStart(),
@@ -156,13 +186,50 @@ function sse(events: readonly StreamEvent[]): string {
   return events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
 }
 
-type Reply = StreamEvent[] | Response | 'stall';
+// `stall` sends nothing; `open` sends its events and then stalls the same way.
+type Reply = StreamEvent[] | Response | 'stall' | { open: StreamEvent[] };
 
 interface SentRequest {
   url: URL;
   headers: Headers;
   body: Record<string, unknown>;
   text: string;
+  signal: AbortSignal | undefined;
+}
+
+// A body that sends `prefix` and then settles only when `signal` aborts.
+function heldBody(prefix: string, signal: AbortSignal | undefined, started: () => void) {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (prefix !== '') controller.enqueue(new TextEncoder().encode(prefix));
+      signal?.addEventListener(
+        'abort',
+        () => {
+          controller.error(signal.reason);
+        },
+        { once: true },
+      );
+      started();
+    },
+  });
+}
+
+function recorded(input: string | URL | Request, init?: RequestInit): SentRequest {
+  const text = typeof init?.body === 'string' ? init.body : '';
+  return {
+    url: new URL(input instanceof Request ? input.url : input),
+    headers: new Headers(init?.headers),
+    body: JSON.parse(text) as Record<string, unknown>,
+    text,
+    signal: init?.signal ?? undefined,
+  };
+}
+
+function respond(answer: Reply, signal: AbortSignal | undefined, started: () => void): Response {
+  if (answer instanceof Response) return answer;
+  if (Array.isArray(answer)) return new Response(sse(answer), SSE_INIT);
+  const prefix = answer === 'stall' ? '' : sse(answer.open);
+  return new Response(heldBody(prefix, signal, started), SSE_INIT);
 }
 
 // The injected transport: records each request and answers turn n with `reply(n)`. A stalled
@@ -174,30 +241,9 @@ function transport(reply: (turn: number) => Reply) {
     box.release = resolve;
   });
   const fetch = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const text = typeof init?.body === 'string' ? init.body : '';
-    sent.push({
-      url: new URL(input instanceof Request ? input.url : input),
-      headers: new Headers(init?.headers),
-      body: JSON.parse(text) as Record<string, unknown>,
-      text,
-    });
-    const answer = reply(sent.length);
-    if (answer instanceof Response) return Promise.resolve(answer);
-    if (answer !== 'stall') return Promise.resolve(new Response(sse(answer), SSE_INIT));
-    const signal = init?.signal;
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        signal?.addEventListener(
-          'abort',
-          () => {
-            controller.error(signal.reason);
-          },
-          { once: true },
-        );
-        box.release?.();
-      },
-    });
-    return Promise.resolve(new Response(body, SSE_INIT));
+    const request = recorded(input, init);
+    sent.push(request);
+    return Promise.resolve(respond(reply(sent.length), request.signal, () => box.release?.()));
   };
   return { fetch, sent, waiting };
 }
@@ -240,8 +286,10 @@ function sentAt(wire: { sent: SentRequest[] }, turn: number): SentRequest {
   return sent;
 }
 
-// Every ANTHROPIC_* variable is cleared, then the ones the SDK reads get decoys, so a client that
-// falls back to the environment for its key, token, host or log level is caught.
+// Every ANTHROPIC_* variable is cleared, then the ones the SDK reads for credentials, host and
+// logging get decoys, so a client that falls back to the environment for them is caught. The SDK
+// always merges ANTHROPIC_CUSTOM_HEADERS under the client's default headers: only the names the
+// adapter pins (x-api-key, authorization) are overridden; any other name in it is sent as is.
 beforeEach(() => {
   for (const name of Object.keys(process.env)) {
     if (name.startsWith('ANTHROPIC_')) vi.stubEnv(name, undefined);
@@ -250,6 +298,10 @@ beforeEach(() => {
   vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'env-decoy-auth-token');
   vi.stubEnv('ANTHROPIC_BASE_URL', 'https://env-decoy.invalid');
   vi.stubEnv('ANTHROPIC_LOG', 'debug');
+  vi.stubEnv(
+    'ANTHROPIC_CUSTOM_HEADERS',
+    'x-api-key: env-decoy-custom-key\nauthorization: Bearer env-decoy-custom-token\nx-unpinned: custom-pass-through',
+  );
 });
 
 afterEach(() => {
@@ -316,7 +368,7 @@ describe('Claude adapter: request', () => {
     expect(url.origin + url.pathname).toBe('https://api.anthropic.com/v1/messages');
   });
 
-  it('sends the key only as x-api-key and never reads ANTHROPIC_* or logs', async () => {
+  it('sends the key only as x-api-key over the env key, token, host, log and pinned custom-header decoys, and logs nothing', async () => {
     const logged = (['debug', 'info', 'log', 'warn', 'error'] as const).map((level) =>
       vi.spyOn(console, level).mockImplementation(() => undefined),
     );
@@ -327,6 +379,8 @@ describe('Claude adapter: request', () => {
     expect(wire.sent).toHaveLength(2);
     for (const sent of wire.sent) {
       expect(sent.headers.get('x-api-key')).toBe(API_KEY);
+      // An unpinned ANTHROPIC_CUSTOM_HEADERS name reaches the wire: the SDK always merges them.
+      expect(sent.headers.get('x-unpinned')).toBe('custom-pass-through');
       expect(sent.headers.has('authorization')).toBe(false);
       const others = [...sent.headers].filter(([name]) => name !== 'x-api-key');
       expect(JSON.stringify(others)).not.toContain(API_KEY);
@@ -345,7 +399,49 @@ describe('Claude adapter: request', () => {
     const { url } = sentAt(wire, 1);
     expect(url.origin + url.pathname).toBe('https://gateway.example.test/v1/messages');
   });
+
+  it('starts no SDK span even when ANTHROPIC_OPEN_TELEMETRY asks for content traces', async () => {
+    vi.stubEnv('ANTHROPIC_OPEN_TELEMETRY', 'true');
+    vi.stubEnv('ANTHROPIC_OPEN_TELEMETRY_TRACES_CONTENT_MODE', 'content');
+    const { trace, INVALID_SPAN_CONTEXT } = sdkOpenTelemetryApi();
+    const started: string[] = [];
+    const tracer = {
+      startSpan(name: string) {
+        started.push(name);
+        return trace.wrapSpanContext(INVALID_SPAN_CONTEXT);
+      },
+    };
+    expect(trace.setGlobalTracerProvider({ getTracer: () => tracer })).toBe(true);
+    try {
+      const wire = sequence([ROOT_TURN, NATURAL_TURN]);
+
+      const result = await attempt(providerOver(wire.fetch).streamOps(request()));
+
+      expect(result.error).toBeUndefined();
+      expect(wire.sent).toHaveLength(2);
+      expect(started).toStrictEqual([]);
+    } finally {
+      trace.disable();
+    }
+  });
 });
+
+// The slice of `@opentelemetry/api` the span test uses. It is the SDK's own dependency, resolved
+// from the SDK's location so this repo takes no direct dependency on it; registration is global
+// (one registry per API major version), so the SDK sees a provider registered through it.
+interface OpenTelemetryApi {
+  trace: {
+    setGlobalTracerProvider(provider: { getTracer(): unknown }): boolean;
+    wrapSpanContext(context: unknown): unknown;
+    disable(): void;
+  };
+  INVALID_SPAN_CONTEXT: unknown;
+}
+
+function sdkOpenTelemetryApi(): OpenTelemetryApi {
+  const sdk = createRequire(import.meta.url).resolve('@anthropic-ai/sdk');
+  return createRequire(sdk)('@opentelemetry/api') as OpenTelemetryApi;
+}
 
 describe('Claude adapter: turn loop', () => {
   it('follows a tool_use turn with its assistant content and one ok tool_result per call', async () => {
@@ -354,8 +450,9 @@ describe('Claude adapter: turn loop', () => {
       turnOf(
         [
           textBlock(0, '先建根节点'),
-          toolUse(1, 'toolu_1', ROOT_CALL),
-          toolUse(2, 'toolu_2', call('a', 'a1', 'a2')),
+          thinkingBlock(1, '根下先放两枝', 'sig-signed-302'),
+          toolUse(2, 'toolu_1', ROOT_CALL),
+          toolUse(3, 'toolu_2', call('a', 'a1', 'a2')),
         ],
         'tool_use',
       ),
@@ -374,6 +471,7 @@ describe('Claude adapter: turn loop', () => {
         role: 'assistant',
         content: [
           { type: 'text', text: '先建根节点', citations: null },
+          { type: 'thinking', thinking: '根下先放两枝', signature: 'sig-signed-302' },
           { type: 'tool_use', id: 'toolu_1', name: TOOL_NAME, input: firstCalls[0] },
           { type: 'tool_use', id: 'toolu_2', name: TOOL_NAME, input: firstCalls[1] },
         ],
@@ -387,6 +485,9 @@ describe('Claude adapter: turn loop', () => {
       },
     ]);
     expect({ ...second, messages: [] }).toStrictEqual({ ...first, messages: [] });
+    expect(sentAt(wire, 2).text).toContain(
+      JSON.stringify({ type: 'thinking', thinking: '根下先放两枝', signature: 'sig-signed-302' }),
+    );
   });
 
   it('starts every attempt from the topic alone', async () => {
@@ -454,6 +555,17 @@ describe('Claude adapter: tool input and fallback', () => {
     expect((result.error as Error).cause).toBeUndefined();
   });
 
+  it('aborts the HTTP request when the SDK rejects malformed input while the body is open', async () => {
+    const malformed = '{"parentId":"root","children":[{"id":"a","text":"节点 a"}]}}';
+    const wire = sequence([{ open: [messageStart(), ...rawToolUse(0, 'toolu_bad', malformed)] }]);
+
+    const result = await attempt(providerOver(wire.fetch).streamOps(request()));
+
+    expect(result.emitted).toStrictEqual([]);
+    expect(result.error).toBeInstanceOf(ProviderTransportError);
+    expect(sentAt(wire, 1).signal?.aborted).toBe(true);
+  });
+
   it('replays a fallback-first turn with the fallback block in place and acks only the later call', async () => {
     const wire = sequence([
       turnOf([fallbackBlock(0), toolUse(1, 'toolu_after', ROOT_CALL)], 'tool_use'),
@@ -480,7 +592,7 @@ describe('Claude adapter: tool input and fallback', () => {
     ]);
   });
 
-  it('rejects a fallback block after an emitted op as a transport error', async () => {
+  it('rejects a fallback block after a yielded tool input as a transport error', async () => {
     const wire = sequence([
       turnOf(
         [
@@ -497,7 +609,46 @@ describe('Claude adapter: tool input and fallback', () => {
 
     expect(result.emitted).toHaveLength(1);
     expect(result.error).toBeInstanceOf(ProviderTransportError);
+    expect((result.error as Error).message).toBe('Claude fell back after a tool input was yielded');
     expect(wire.sent).toHaveLength(1);
+  });
+
+  it('drops thinking blocks before the last fallback block and replays the rest unchanged', async () => {
+    const wire = sequence([
+      turnOf(
+        [
+          textBlock(0, '主模型的话'),
+          thinkingBlock(1, '', 'sig-primary'),
+          redactedThinkingBlock(2, 'redacted-primary'),
+          fallbackBlock(3),
+          thinkingBlock(4, '换模型后继续', 'sig-fallback'),
+          toolUse(5, 'toolu_after', ROOT_CALL),
+        ],
+        'tool_use',
+      ),
+      NATURAL_TURN,
+    ]);
+
+    const result = await attempt(providerOver(wire.fetch).streamOps(request()));
+
+    expect(result.error).toBeUndefined();
+    expect(result.emitted).toHaveLength(2);
+    expect(sentAt(wire, 2).body.messages).toStrictEqual([
+      { role: 'user', content: TOPIC },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '主模型的话', citations: null },
+          FALLBACK_BLOCK,
+          { type: 'thinking', thinking: '换模型后继续', signature: 'sig-fallback' },
+          { type: 'tool_use', id: 'toolu_after', name: TOOL_NAME, input: ROOT_CALL },
+        ],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'toolu_after', content: 'ok' }],
+      },
+    ]);
   });
 });
 

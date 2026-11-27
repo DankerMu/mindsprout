@@ -93,7 +93,7 @@ function acceptEvent(event: BetaRawMessageStreamEvent, turn: TurnInputs): TurnIt
     if (type === 'tool_use') turn.json.set(event.index, '');
     // An emitted op cannot be withdrawn, so a fallback hop after one ends the attempt.
     if (type === 'fallback' && turn.inputs.size > 0) {
-      throw new ProviderTransportError('Claude fell back after an op was emitted');
+      throw new ProviderTransportError('Claude fell back after a tool input was yielded');
     }
   } else if (event.type === 'content_block_delta' && event.delta.type === 'input_json_delta') {
     const json = turn.json.get(event.index);
@@ -109,12 +109,24 @@ function acceptEvent(event: BetaRawMessageStreamEvent, turn: TurnInputs): TurnIt
   return undefined;
 }
 
-// Turn n's assistant content as received (fallback blocks in place) with each tool_use input
-// replaced by its strict parse, then one `ok` tool_result per tool_use, in order.
+// Block types dropped before the last fallback block on replay (vendor "Continuing the
+// conversation" table). `connector_text` is not in the SDK's content union, hence a string set.
+const DROPPED_BEFORE_FALLBACK: ReadonlySet<string> = new Set([
+  'thinking',
+  'redacted_thinking',
+  'connector_text',
+]);
+
+// Turn n's assistant content as received (fallback blocks in place) minus the blocks above before
+// the last fallback block, with each tool_use input replaced by its strict parse, then one `ok`
+// tool_result per tool_use, in order. A turn that kept a tool_use before a fallback block has
+// already rejected, so every acked call follows the last fallback.
 function acknowledged(content: readonly BetaContentBlock[], turn: TurnInputs): BetaMessageParam[] {
-  const replay = content.map((block, index): BetaContentBlockParam => {
-    if (block.type !== 'tool_use') return block;
-    return { type: 'tool_use', id: block.id, name: block.name, input: turn.inputs.get(index) };
+  const lastFallback = content.map((block) => block.type).lastIndexOf('fallback');
+  const replay = content.flatMap((block, index): BetaContentBlockParam[] => {
+    if (index < lastFallback && DROPPED_BEFORE_FALLBACK.has(block.type)) return [];
+    if (block.type !== 'tool_use') return [block];
+    return [{ type: 'tool_use', id: block.id, name: block.name, input: turn.inputs.get(index) }];
   });
   const acks = content.flatMap((block): BetaToolResultBlockParam[] =>
     block.type === 'tool_use'
@@ -129,22 +141,25 @@ function acknowledged(content: readonly BetaContentBlock[], turn: TurnInputs): B
 
 // Streams one request. The stream is iterated as soon as it is created, so the SDK always has an
 // error listener; a consumer stop at a yield closes the iterator, which aborts the request. The
-// final message rethrows errors the event iterator swallows. SDK errors become a fixed-message
-// transport error because their messages quote response bodies and model output.
+// final message rethrows errors the event iterator swallows. Every error aborts the request first:
+// an error the SDK reports itself (such as malformed tool input at block stop) rejects the
+// iterator without closing it, and the body would keep streaming. SDK errors become a
+// fixed-message transport error because their messages quote response bodies and model output.
 async function* streamTurn(
   client: Anthropic,
   body: BetaMessageStreamParams,
   signal: AbortSignal,
   turn: TurnInputs,
 ): AsyncGenerator<TurnItem, BetaMessage, undefined> {
+  const stream = client.beta.messages.stream(body, { signal });
   try {
-    const stream = client.beta.messages.stream(body, { signal });
     for await (const event of stream) {
       const item = acceptEvent(event, turn);
       if (item !== undefined) yield item;
     }
     return await stream.finalMessage();
   } catch (error) {
+    stream.abort();
     if (error instanceof ProviderOutputError || error instanceof ProviderTransportError)
       throw error;
     throw new ProviderTransportError('Claude request failed');
@@ -174,10 +189,12 @@ export function createAnthropicProvider({
   fetch,
 }: AnthropicProviderOptions): Provider {
   const client = new Anthropic({
-    // Passed so the SDK never reads ANTHROPIC_* or the on-disk credential chain for a key.
+    // Passed so the SDK never reads ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN or the on-disk
+    // credential chain for a key.
     apiKey,
     // SDK 1.13 sends `apiKey` as `Authorization: Bearer`; the key travels only as x-api-key
-    // (defaultHeaders merge after the SDK's auth headers, and null removes one).
+    // (defaultHeaders merge after the SDK's auth headers and ANTHROPIC_CUSTOM_HEADERS, and null
+    // removes one). Other names in ANTHROPIC_CUSTOM_HEADERS are still sent.
     defaultHeaders: { 'x-api-key': apiKey, authorization: null },
     // null, not undefined: an unset baseURL is the SDK default host, never ANTHROPIC_BASE_URL.
     baseURL: baseURL ?? null,
@@ -185,6 +202,9 @@ export function createAnthropicProvider({
     maxRetries: 0,
     // The SDK's debug log prints request and response bodies, which carry the topic.
     logLevel: 'off',
+    // Given, so the SDK ignores ANTHROPIC_OPEN_TELEMETRY*: its spans can carry the topic and model
+    // output (content mode), and design D5 defers spans.
+    openTelemetry: false,
     fetch,
   });
   return {
