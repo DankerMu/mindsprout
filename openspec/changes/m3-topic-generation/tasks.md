@@ -75,9 +75,9 @@ Minimal mergeable slice: 2.1 - env validation is self-contained; 2.2 depends onl
 
 ## 3. Provider adapters
 
-- [ ] 3.1 Add the mock provider and the shared provider contract suite (design D11, Seams).
+- [x] 3.1 Add the mock provider and the shared provider contract suite (design D11, Seams).
   - The mock drives its turns through the 1.3 helper.
-  - `describeProviderContract(makeProvider, fixtures)` lives in test support. It covers op validity, fresh ids, the two-turn loop with the `complete` stop, the turn limit and abort.
+  - `describeProviderContract(name, makeHarness)` lives in `tests/support/provider-contract.ts` with canonical per-turn inputs for the scenarios `skeleton`, `endless` and `stalled`; each adapter's harness encodes them into its wire format and counts turn requests. It covers op validity, fresh ids, the two-turn loop with the `complete` stop, the turn limit and an abort while the transport waits (proving the adapter passes the signal to its transport).
   - Verify (unit): the suite passes for the mock, plus ai-provider "Deterministic skeleton" and "Scripted mid-stream error". `mock:invalid-first` gives invalid output on every attempt, and `mock:refused` refuses.
 - [ ] 3.2 Add the OpenAI-compatible adapter (design D3, D4), with `ai` and `@ai-sdk/openai-compatible` as dependencies.
   - Read the installed package docs before coding.
@@ -86,6 +86,7 @@ Minimal mergeable slice: 2.1 - env validation is self-contained; 2.2 depends onl
   - Verify (unit with hand-authored chat-completions SSE fixtures):
     - `describeProviderContract` passes (ai-provider "Same contract for every adapter");
     - ai-provider "Two-turn skeleton" and "Turn limit";
+    - a tool-calls turn is followed by a request that appends the assistant message and an `ok` tool message for every call id;
     - the request body carries `GENERATE_SYSTEM_PROMPT`, a tool that deep-equals `GENERATE_TOOL_DEFINITION` after the SDK field mapping (design D6), the topic only in the user turn and `max_tokens` 8000;
     - a 500 fixture is requested exactly once and surfaces as `ProviderTransportError` without its body;
     - a truncated tool-call argument is `ProviderOutputError`.
