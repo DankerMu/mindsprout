@@ -172,6 +172,7 @@ Minimal mergeable slice: atomic - the CSS, the drag suppression and the reduced-
 - [ ] 7.2 Add `e2e/ai-live.spec.ts`, its `testIgnore` unless `E2E_AI_LIVE=1`, and the `pnpm e2e:live` script.
   - Add the script to the AGENTS daily-commands table and to `constraints.yaml` verification.
   - Move decision 0039 to implemented, citing it in AGENTS Important Development Note 5, the AGENTS Critical Paths `providers/` row, the AGENTS "What agents may not do" bullet, the CONTEXT forbidden-logic row and decision 0002's Consequences.
+  - Update the AGENTS Runtime Lifecycle line to say that the verification servers (`pnpm dev:bg`, `pnpm e2e`) always use the mock provider (tasks 4.2 and 5.5).
   - All `AGENTS.md` edits of M3 land here, within the byte budget freed by 8.1; the owner approves the `AGENTS.md` write (the committed instruction-guard hook requires it).
   - Verify: ai-live-acceptance "Default e2e" (`pnpm e2e` lists no live test and reports zero skipped); a mock rehearsal `AI_PROVIDER=mock E2E_AI_LIVE=1 pnpm e2e:live` passes all four live assertions without a real key (decision 0039: a rehearsal is not a real-key run); `pnpm e2e:live` is listed in the AGENTS table and in `constraints.yaml` verification; `pnpm decisions:check`, `pnpm docs:check` and `pnpm test:guardrails` pass; the PR flags the `AGENTS.md` and `constraints.yaml` edits.
 - [ ] 7.3 Run the live acceptance with the owner's dmxapi key, three times:
@@ -187,7 +188,7 @@ Minimal mergeable slice: 7.1 - the CI refusal, the pass-through rules and their 
 
 ## 8. Instruction-file budget
 
-- [ ] 8.1 Free at least 400 bytes in `AGENTS.md` for M3 by moving the `## Enforcement Index` table verbatim into `docs/engineering/enforcement-index.md` (which already holds the applied settings), leaving the section heading, one sentence and a link in `AGENTS.md`. No rule is dropped or reworded; relocation only.
+- [ ] 8.1 Free at least 400 bytes in `AGENTS.md` for M3 by moving the `## Enforcement Index` table verbatim into `docs/engineering/enforcement-index.md` (which already holds the applied settings), leaving the section heading, one sentence and a link in `AGENTS.md`. The Strictness-profile line, the `constraints.yaml` paragraph and `### Known blind spots` stay in `AGENTS.md` unchanged. No rule is dropped or reworded; relocation only.
   - The owner approves the `AGENTS.md` write (the committed instruction-guard hook requires it).
   - Verify: `wc -c AGENTS.md` is at least 400 bytes below 32,768 and no line exceeds 307 bytes; every table row removed from `AGENTS.md` appears unchanged in `docs/engineering/enforcement-index.md` (diff evidence in the PR); `pnpm docs:check` passes.
 
