@@ -673,6 +673,55 @@ if [ "$(git rev-parse HEAD)" != "$diff_base" ] || [ -n "$(git status --porcelain
   fail=$((fail + 1))
 fi
 
+# 9b. Verification server forces the mock provider (decision 0039, design D7) — the repo root's
+# dev-bg.sh runs with stub pnpm and curl from $tmp/bin, each case in its own dir under $tmp so .run/
+# never lands in the worktree. The pnpm stub records the AI_PROVIDER its process sees, in its cwd.
+cat > "$tmp/bin/pnpm" <<'STUB'
+#!/bin/sh
+printf '%s\n' "${AI_PROVIDER-<unset>}" > provider-seen
+STUB
+cat > "$tmp/bin/curl" <<'STUB'
+#!/bin/sh
+exit 0
+STUB
+chmod +x "$tmp/bin/pnpm" "$tmp/bin/curl"
+# dev_bg_sees_mock <dir> <env args...> — exits 0 only if dev-bg.sh exits 0 and its child records
+# exactly mock within 5 s; a missing or empty record fails. Waits up to 5 s for the child to exit.
+dev_bg_sees_mock() {
+  dir="$1"
+  shift
+  in_dir "$dir" env "$@" PATH="$tmp/bin:$PATH" bash "$repo_root/scripts/dev-bg.sh" || {
+    echo "dev-bg.sh exited $?"
+    return 1
+  }
+  i=0
+  while [ ! -s "$dir/provider-seen" ] && [ "$i" -lt 50 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  i=0
+  while kill -0 "$(cat "$dir/.run/dev.pid")" 2>/dev/null && [ "$i" -lt 50 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  if [ ! -s "$dir/provider-seen" ]; then
+    echo "the pnpm child left no AI_PROVIDER record within 5 s"
+    return 1
+  fi
+  seen=$(cat "$dir/provider-seen")
+  echo "the pnpm child saw AI_PROVIDER=$seen"
+  [ "$seen" = "mock" ]
+}
+mkdir -p "$tmp/dev-bg-m1" "$tmp/dev-bg-m2"
+printf 'AI_PROVIDER=anthropic\n' > "$tmp/dev-bg-m2/.env"
+expect_accept --what "a caller with AI_PROVIDER=anthropic" \
+  "dev-bg mock forcing (m1) caller AI_PROVIDER=anthropic" \
+  dev_bg_sees_mock "$tmp/dev-bg-m1" AI_PROVIDER=anthropic
+expect_accept --what "an unset AI_PROVIDER with .env AI_PROVIDER=anthropic" \
+  "dev-bg mock forcing (m2) unset AI_PROVIDER, .env AI_PROVIDER=anthropic" \
+  dev_bg_sees_mock "$tmp/dev-bg-m2" -u AI_PROVIDER
+rm -rf "$tmp/dev-bg-m1" "$tmp/dev-bg-m2"
+
 # 10. Residue — reap every recorded fixture group, then sweep for anything that still names the root.
 reap_fixtures
 strays=$(fixture_strays)
