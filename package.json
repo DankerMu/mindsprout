@@ -68,9 +68,11 @@
     ]
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "3.0.94",
     "@anthropic-ai/sdk": "1.13.0",
     "@vercel/otel": "^2.2.1",
     "@xyflow/react": "^12.12.1",
+    "ai": "7.0.181",
     "d3-hierarchy": "^3.1.2",
     "nanoid": "^5.1.16",
     "next": "^16.4.5",

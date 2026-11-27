@@ -79,7 +79,7 @@ Minimal mergeable slice: 2.1 - env validation is self-contained; 2.2 depends onl
   - The mock drives its turns through the 1.3 helper.
   - `describeProviderContract(name, makeHarness)` lives in `tests/support/provider-contract.ts` with canonical per-turn inputs for the scenarios `skeleton`, `endless` and `stalled`; each adapter's harness encodes them into its wire format and counts turn requests. It covers op validity, fresh ids, the two-turn loop with the `complete` stop, the turn limit and an abort while the transport waits (proving the adapter passes the signal to its transport).
   - Verify (unit): the suite passes for the mock, plus ai-provider "Deterministic skeleton" and "Scripted mid-stream error". `mock:invalid-first` gives invalid output on every attempt, and `mock:refused` refuses.
-- [ ] 3.2 Add the OpenAI-compatible adapter (design D3, D4), with `ai` and `@ai-sdk/openai-compatible` as dependencies.
+- [x] 3.2 Add the OpenAI-compatible adapter (design D3, D4), with `ai` and `@ai-sdk/openai-compatible` as dependencies.
   - Read the installed package docs before coding.
   - Inject `fetch`. Consume the 1.3 turn-loop helper; do not re-implement turn counting or stopping.
   - Update TECH §5.1 and §5.3 to the shipped protocol (design D12).
