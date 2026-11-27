@@ -67,7 +67,7 @@ Minimal mergeable slice: 1.1 - the domain, acl and assembler are green alone; 1.
     - put the platform default in comments: `anthropic`, `https://www.dmxapi.cn`, `deepseek-v4.1-flash-1017`, plus the OpenAI-compatible alternative;
     - drop `OLLAMA_BASE_URL`.
   - Verify (unit): ai-provider "AI not configured", "Example environment loads" (parses the real `.env.example` file), "Partially configured provider fails at load" (each missing or empty variable is named), "Claude provider configuration" and "Mock refused in production". Existing env tests pass.
-- [ ] 2.2 Add `generate(provider, request, { timeoutMs })` in `ai/application/` with the `ai.generate` log event (design D5).
+- [x] 2.2 Add `generate(provider, request, { timeoutMs })` in `ai/application/` with the `ai.generate` log event (design D5).
   - Verify (unit, fake providers, Vitest fake timers): ai-provider "Retry succeeds", "Retry exhausted", "Failure after first op", "Refusal", "No tool call is invalid output" (the `ProviderOutputError` raised by the 1.3 helper is retried like any invalid output; `generate` does not detect zero ops itself) and "Slow provider". A client abort ends silently without retry. A spy logger proves the logging half of "Provider HTTP error body withheld": no topic, body or key in any entry.
 
 Suggested fixture level: expanded - production configuration loaded on every account request, and the retry/timeout rules are billing guards (a wrong retry doubles spend).
