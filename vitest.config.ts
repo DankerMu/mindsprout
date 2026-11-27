@@ -1,6 +1,13 @@
 import { defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
+// Pin the process timezone before any test worker starts. Inside a `threads`-pool worker,
+// process.env is a thread-local copy, so a runtime TZ write leaves ICU's default zone and
+// Date's cached offset unchanged; Stryker's vitest runner uses `threads`, and runtime writes
+// made its initial test run fail in every host timezone (#324). A test that needs another
+// zone supplies it without touching process.env.TZ (see src/shared/format-timestamp.test.ts).
+process.env.TZ = 'UTC';
+
 // Unit tier. Coverage is per-file (L4): a well-covered big file cannot subsidize a bare one.
 // Threshold source: constraints.yaml testing.min_line_coverage. Every exclude entry below
 // has a matching reason + exit_condition in constraints.yaml `exemptions`.

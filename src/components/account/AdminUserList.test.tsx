@@ -8,14 +8,11 @@ import {
 } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
-import { afterAll, afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { heldResult } from '../../../tests/support/map-library';
 import { AdminUserList } from './AdminUserList';
 import { SessionNavigationScope } from './session-navigation';
-
-vi.hoisted(() => vi.stubEnv('TZ', 'UTC'));
-afterAll(() => vi.unstubAllEnvs());
 
 failOnConsoleNoise();
 afterEach(() => vi.unstubAllGlobals());
