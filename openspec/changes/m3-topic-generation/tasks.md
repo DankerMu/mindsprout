@@ -86,7 +86,7 @@ Minimal mergeable slice: 2.1 - env validation is self-contained; 2.2 depends onl
   - Verify (unit with hand-authored chat-completions SSE fixtures):
     - `describeProviderContract` passes (ai-provider "Same contract for every adapter");
     - ai-provider "Two-turn skeleton" and "Turn limit";
-    - the request body carries the prompt constant, the tool schema, the topic only in the user turn and `max_tokens` 8000;
+    - the request body carries `GENERATE_SYSTEM_PROMPT`, a tool that deep-equals `GENERATE_TOOL_DEFINITION` after the SDK field mapping (design D6), the topic only in the user turn and `max_tokens` 8000;
     - a 500 fixture is requested exactly once and surfaces as `ProviderTransportError` without its body;
     - a truncated tool-call argument is `ProviderOutputError`.
   - Verify (gates): `pnpm licenses:check`, `pnpm dead-code` and `pnpm install --frozen-lockfile` pass.
@@ -96,7 +96,7 @@ Minimal mergeable slice: 2.1 - env validation is self-contained; 2.2 depends onl
   - Verify (unit with hand-authored Messages SSE fixtures):
     - `describeProviderContract` passes (ai-provider "Same contract for every adapter");
     - "Two-turn skeleton" and "Turn limit";
-    - the request body asserts every setting above, no forced `tool_choice`, and the same prompt and tool as 3.2 ("Same instruction for real adapters");
+    - the request body asserts every setting above, no forced `tool_choice`, and `GENERATE_SYSTEM_PROMPT` plus a tool that deep-equals `GENERATE_TOOL_DEFINITION` after the `input_schema` mapping and the D4 flags, compared against the imported constants ("Same instruction for real adapters");
     - a `tool_use` turn is followed by `tool_result` `ok` blocks.
   - Verify (gates): `pnpm licenses:check`, `pnpm dead-code` and `pnpm install --frozen-lockfile` pass.
 - [ ] 3.4 Add the Claude adapter's failure paths.
