@@ -75,7 +75,7 @@ Minimal mergeable slice: 2.1 - env validation is self-contained; 2.2 depends onl
 
 ## 3. Provider adapters
 
-- [ ] 3.1 Add the mock provider and the shared provider contract suite (design D11, Seams).
+- [x] 3.1 Add the mock provider and the shared provider contract suite (design D11, Seams).
   - The mock drives its turns through the 1.3 helper.
   - `describeProviderContract(name, makeHarness)` lives in `tests/support/provider-contract.ts` with canonical per-turn inputs for the scenarios `skeleton`, `endless` and `stalled`; each adapter's harness encodes them into its wire format and counts turn requests. It covers op validity, fresh ids, the two-turn loop with the `complete` stop, the turn limit and an abort while the transport waits (proving the adapter passes the signal to its transport).
   - Verify (unit): the suite passes for the mock, plus ai-provider "Deterministic skeleton" and "Scripted mid-stream error". `mock:invalid-first` gives invalid output on every attempt, and `mock:refused` refuses.
