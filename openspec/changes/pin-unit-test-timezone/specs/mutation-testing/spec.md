@@ -11,7 +11,7 @@ Every unit test SHALL pass in any host timezone, under both the `forks` pool and
 - **WHEN** `pnpm exec stryker run --mutate src/shared/format-timestamp.ts --dryRunOnly` runs with `TZ=America/New_York`
 - **THEN** the initial test run passes and the command exits 0
 
-#### Scenario: Timestamp tests under the threads pool
+#### Scenario: Full unit suite under the threads pool
 
 - **WHEN** the full unit suite runs with `--pool=threads` in the non-UTC host timezone `America/New_York`
 - **THEN** it passes with the same results as under `--pool=forks`, and no test file writes `process.env.TZ`

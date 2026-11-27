@@ -16,7 +16,8 @@ Stryker's Vitest runner uses the `threads` pool, and plain Vitest uses `forks`. 
 
 ## Risks / Trade-offs
 
-- Forcing UTC hides any future test that silently depends on the host timezone. The grep guard and the spec requirement make "no runtime TZ write" the rule. A test that needs another zone uses the spy pattern.
+- Forcing UTC hides any future test that silently depends on the host timezone.
+- The grep check (`process\.env\.TZ|stubEnv\('TZ'`) is a one-time check at merge, not a gate. A later runtime TZ write would pass PR CI under `forks` and resurface only in the advisory mutation run under `threads`, which is a declared blind spot. Revival trigger for a lint rule (`no-restricted-syntax` on TZ writes in tests): a second occurrence.
 
 ## Not yet specified
 
