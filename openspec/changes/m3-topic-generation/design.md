@@ -292,7 +292,7 @@ TECH is an oracle during planning: this change did not edit it to fit (grill F2)
 ### Sketch seams under test
 
 - **The op assembler and `generate()` in `ai/application`, with injected ids, caps, clock and fake providers.** They are the single implementation of validation, remapping, caps, stopping, retry and timeout. All are deterministic here, including the unreachable-in-production total cap.
-- **`Provider.streamOps` via a shared contract suite (`describeProviderContract(name, makeHarness)` over canonical per-turn inputs), run against all three adapters with injected hand-authored wire fixtures.** It proves op validity, fresh ids, the ack loop, the turn limit and abort while the transport waits for every transport. It mirrors the `describeMapRepositoryContract` precedent.
+- **`Provider.streamOps` via a shared contract suite (`describeProviderContract(name, makeHarness)` over canonical per-turn inputs), run against all three adapters with injected hand-authored wire fixtures.** It proves op validity, fresh ids, multi-turn continuation across temporary ids, the turn limit and abort while the transport waits for every transport. Acknowledgements are request-body details, proven by each real adapter's own tests (3.2, 3.3). It mirrors the `describeMapRepositoryContract` precedent.
 - **The route handler `POST(request)` over the mock composition, plus `smoke/api.hurl`.** This is the public HTTP contract; the handler is composition only.
 - **The editor store `generate` action over a fake `GenerateSource`.** It covers grouping, deferral, lock, Stop, errors, title and the empty-map rule without a browser. The real HTTP adapter and UI are proven once by the mock Playwright walk.
 

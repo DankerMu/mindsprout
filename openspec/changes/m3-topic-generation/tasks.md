@@ -86,6 +86,7 @@ Minimal mergeable slice: 2.1 - env validation is self-contained; 2.2 depends onl
   - Verify (unit with hand-authored chat-completions SSE fixtures):
     - `describeProviderContract` passes (ai-provider "Same contract for every adapter");
     - ai-provider "Two-turn skeleton" and "Turn limit";
+    - a tool-calls turn is followed by a request that appends the assistant message and an `ok` tool message for every call id;
     - the request body carries `GENERATE_SYSTEM_PROMPT`, a tool that deep-equals `GENERATE_TOOL_DEFINITION` after the SDK field mapping (design D6), the topic only in the user turn and `max_tokens` 8000;
     - a 500 fixture is requested exactly once and surfaces as `ProviderTransportError` without its body;
     - a truncated tool-call argument is `ProviderOutputError`.
