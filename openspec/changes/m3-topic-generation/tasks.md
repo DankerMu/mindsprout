@@ -67,7 +67,7 @@ Minimal mergeable slice: 1.1 - the domain, acl and assembler are green alone; 1.
     - put the platform default in comments: `anthropic`, `https://www.dmxapi.cn`, `deepseek-v4.1-flash-1017`, plus the OpenAI-compatible alternative;
     - drop `OLLAMA_BASE_URL`.
   - Verify (unit): ai-provider "AI not configured", "Example environment loads" (parses the real `.env.example` file), "Partially configured provider fails at load" (each missing or empty variable is named), "Claude provider configuration" and "Mock refused in production". Existing env tests pass.
-- [ ] 2.2 Add `generate(provider, request, { timeoutMs })` in `ai/application/` with the `ai.generate` log event (design D5).
+- [x] 2.2 Add `generate(provider, request, { timeoutMs })` in `ai/application/` with the `ai.generate` log event (design D5).
   - Verify (unit, fake providers, Vitest fake timers): ai-provider "Retry succeeds", "Retry exhausted", "Failure after first op", "Refusal", "No tool call is invalid output" (the `ProviderOutputError` raised by the 1.3 helper is retried like any invalid output; `generate` does not detect zero ops itself) and "Slow provider". A client abort ends silently without retry. A spy logger proves the logging half of "Provider HTTP error body withheld": no topic, body or key in any entry.
 
 Suggested fixture level: expanded - production configuration loaded on every account request, and the retry/timeout rules are billing guards (a wrong retry doubles spend).
@@ -109,7 +109,7 @@ Minimal mergeable slice: 3.1 - the mock and the contract suite are green alone a
 
 ## 4. Generate route
 
-- [ ] 4.1 Add `src/app/server/ai-services.ts` (env → one provider or `undefined`; mock pacing 150 ms).
+- [ ] 4.1 Add `src/app/server/ai-services.ts` (env → one provider or `undefined`, plus the `providerId` and `model` that `generate` logs; mock pacing 150 ms).
   - Verify (unit): each `AI_PROVIDER` value yields the matching adapter, configured from env. Unset yields `undefined`. The mock is paced at 150 ms per op.
 - [ ] 4.2 Make the verification server force the mock provider: `scripts/dev-bg.sh` exports `AI_PROVIDER=mock` before `pnpm dev`, with a comment citing decision 0039. No `AGENTS.md` edit.
   - Add a fixture to `scripts/test-guardrails.sh`: with `pnpm` and `curl` stubbed on `PATH` and `AI_PROVIDER=anthropic` in the calling environment, the started child process sees `AI_PROVIDER=mock`.

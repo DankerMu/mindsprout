@@ -164,7 +164,7 @@ Each adapter runs at most **4 model turns per attempt**.
   - `invalid-output` (validation failure or zero ops, after the retry);
   - `refused`.
 - **What the server sends.** Each terminal error carries a fixed English diagnostic `message` (for API consumers and logs). Provider bodies, keys and the topic are never forwarded or logged; `src/shared/logger.ts` redaction stays in force.
-- **Logging.** One `info` log event, `ai.generate`, records provider id, model, attempts, op count, duration and outcome code.
+- **Logging.** One `info` log event, `ai.generate`, records provider id, model, attempts, op count, duration and outcome code. The shipped options are `{ providerId, model, log, timeoutMs? }`, with `log` a `GenerationLog` (`info(fields)`). A normal return while `request.signal.aborted` is a client abort, and the caller then writes nothing. See the #299 fixture in proposal.md.
 
 ### D6. Prompt
 

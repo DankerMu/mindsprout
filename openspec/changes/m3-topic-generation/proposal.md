@@ -298,6 +298,71 @@ Blast radius: production configuration. The schema has four failure modes:
 - No echo: an invalid `AI_PROVIDER` value and an invalid base URL throw messages that contain neither input. A missing-model error contains no key value present in the input.
 - The existing three tests pass. Coverage of `env.ts` is at least 90%. `pnpm typecheck` and `pnpm lint` pass.
 
+## Issue #299 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded. Agree: the retry and timeout rules are billing guards, because a wrong retry doubles spend and a missing timeout keeps billing.
+Blast radius: every generation. The possible failures:
+
+- a refusal or a post-op failure retried, which is a second billed request with partial ops duplicated;
+- a client abort retried or reported as an error;
+- a timeout that does not abort the provider;
+- a leaked timer or listener;
+- a log entry carrying the topic, a key or a provider body.
+  Selected risk packs:
+- Error handling: the retry rule, terminal codes and fixed messages.
+- Concurrency/ordering: one linked `AbortController`, the timer, consumer `return()`.
+- Resource limits: the 30 s total limit spans both attempts, and the timer and listener are released on every exit.
+- Auth/secrets: the log and errors carry no topic, body or key.
+  Not selected: Public API (the HTTP shape is 4.3), Schema, Config, File IO, Legacy, Release, Docs (TECH lands with 4.x).
+  Interface: `src/contexts/ai/application/generate.ts` exports `generate(provider, request, options)` and `GenerationError`.
+- `options` is `{ providerId: string; model: string; log: GenerationLog; timeoutMs?: number }`, with `timeoutMs` defaulting to `30_000`. These are D5's `{ timeoutMs }` plus the logging identity. The `Provider` port has no id or model, and 4.1 composition knows both from env.
+- `GenerationLog` is `{ info(fields: object): void }`. That is structurally the shared pino logger, and it follows the repo's `logger.error({ event })` convention with no message string. The application layer stays framework-free, and 4.1 passes `logger`.
+- `generate` returns `AsyncGenerator<TreeOp, void>`. It yields every op of the attempt that counts. It returns normally on success and on client abort. It throws `GenerationError` on every other terminal failure.
+- `GenerationError` has `code: ProviderErrorCode`, imported from `domain/errors.ts`, and one fixed English message per code: `The generation exceeded its time limit`, `The AI provider request failed`, `The AI provider returned unusable output`, `The AI provider refused the topic`. It has no `cause`.
+  Rules (D5):
+- Port precondition: every provider rejects promptly after its signal aborts. The D3 turn loop guarantees this, and the shared contract suite proves it. `generate` does not race the timer itself.
+- If `request.signal` is already aborted at the call, `generate` returns silently without calling `streamOps` and logs `attempts: 0` with `outcome: 'aborted'`. An abort listener added to an already-aborted signal never fires.
+- One `AbortController` per generation. Its signal is passed to every attempt as `GenerateRequest.signal`. It is aborted by `request.signal`, through a listener removed on exit, and by a `timeoutMs` timer started once and cleared on exit. The time limit therefore spans both attempts.
+- An attempt is one `provider.streamOps({ ...request, signal })` iteration. Ops are yielded as they arrive and counted per attempt.
+- When an attempt throws, classification runs in order:
+  1. The caller aborted, so the generation returns silently with no retry.
+  2. The timer fired, which gives `timeout`.
+  3. A `ProviderTransportError` or `ProviderOutputError` with zero ops yielded in this attempt, and this is the first attempt: exactly one fresh attempt runs.
+  4. Otherwise the error's code is used: `ProviderTransportError` gives `provider-error`, `ProviderOutputError` gives `invalid-output`, and `ProviderRefusedError` gives `refused`.
+  5. An unknown error gives `provider-error` with no retry.
+- `generate` never detects zero ops itself. A zero-op natural end arrives as the turn loop's `ProviderOutputError` and follows rule 3.
+- When the consumer stops early (`return()` from 4.3 on disconnect), the `finally` aborts the controller, which cancels the provider, and logs outcome `aborted`.
+  Logging: exactly one `log.info({ event: 'ai.generate', provider, model, attempts, ops, durationMs, outcome })` on every exit.
+- `outcome` is `done`, `aborted`, or the terminal code.
+- `durationMs` comes from `Date.now()`.
+- No field contains the topic, a provider error message, a body or a key.
+  Caller contract (4.3): a normal return while `request.signal.aborted` is a client abort, and the caller writes nothing after it. Any other normal return is success, and the caller writes `done`.
+  Must preserve: the port, the turn loop, the adapters and `domain/errors.ts`, all unchanged.
+  Evidence floor (Vitest, fake providers that are async generators honouring their signal, fake timers, spy `log`):
+- "Retry succeeds" emits the second attempt's ops, with `attempts` 2 and `outcome` `done`.
+- "Retry exhausted": two `ProviderOutputError`s before any op give `invalid-output` after exactly two `streamOps` calls. The same holds for two `ProviderTransportError`s, which give `provider-error`.
+- "Failure after first op", as `it.each` over two cases: a `ProviderTransportError` after two ops gives `provider-error`, and a `ProviderOutputError` after one op gives `invalid-output`. In both cases the ops stand and `streamOps` was called once.
+- "Refusal" before any op gives `refused` after one call.
+- "No tool call is invalid output": a provider that throws the turn loop's zero-op `ProviderOutputError` is retried once, and the second attempt's ops are emitted.
+- "Slow provider" runs on fake timers with no `timeoutMs`, so the default applies. The provider waits on its signal:
+  - at 29 999 ms the signal is not aborted;
+  - at 30 000 ms the signal is aborted and the result is `timeout`, with no retry and `durationMs` 30 000.
+- The time limit spans both attempts. Attempt 1 waits 20 s on a fake timer, then throws `ProviderTransportError` with zero ops. Attempt 2 waits on its signal:
+  - at a total of 29 999 ms the signal is not aborted;
+  - at 30 000 ms the result is `timeout`, with `attempts` 2 and `durationMs` 30 000.
+- A `request.signal` already aborted at the call means `streamOps` is called 0 times. Nothing is yielded, nothing is thrown, and the log has `attempts` 0 and `outcome` `aborted`.
+- A client abort ends silently. The fake provider throws a `ProviderTransportError` once aborted, which proves rule 1 runs before rule 3:
+  - before any op, with no retry and `outcome` `aborted`;
+  - after one op, with the op kept.
+- Early `return()` by the consumer aborts the provider's signal.
+- After every scenario, `vi.getTimerCount()` is 0 and `getEventListeners(request.signal, 'abort')` from `node:events` has length 0.
+- After every scenario, `log.info` was called exactly once. Its fields `{ provider, model, attempts, ops, outcome }` match a per-scenario table that covers `done`, `aborted` (including consumer `return()`), `timeout`, `refused`, `invalid-output` and `provider-error`.
+- "Provider HTTP error body withheld", logging half. A fake provider throws `ProviderTransportError` on both attempts, with a message that contains a key, a body and the topic. The thrown error has `code` `provider-error`, the exact fixed message, and `cause === undefined`. Neither `util.inspect(error, { depth: null })` nor `JSON.stringify(log.info.mock.calls)` contains any of the three strings. The log entry has exactly the seven fields.
+- An unknown error (`TypeError`) gives `provider-error` with no retry.
+- Per-file coverage is at least 90%. `pnpm boundaries` and `pnpm lint` pass, with complexity at most 10.
+
 ## Impact
 
 - **Code:**
