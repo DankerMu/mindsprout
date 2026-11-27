@@ -202,6 +202,12 @@ dependencies:
         license: "LGPL-3.0-or-later"
         reason: "Retain the existing optional Next.js/sharp image stack at the owner-approved locked version."
         exit_condition: "Remove when these dependencies disappear; reapprove any package, version or declared-license change."
+      - packages:
+          - "json-schema"
+        version: "0.4.0"
+        license: "(AFL-2.1 OR BSD-3-Clause)"
+        reason: "Dual-licensed dependency of @ai-sdk/provider (decision 0040); used under the BSD-3-Clause branch, which is on the allowlist."
+        exit_condition: "Remove when @ai-sdk/provider no longer depends on this package; reapprove any package, version or declared-license change."
     severity: "block"
     enforced_by: "pnpm licenses:check and CI layer4 license audit"
 

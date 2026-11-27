@@ -148,28 +148,34 @@ type TreeOp =
 
 ### 5.1 多提供方架构
 
-AI 层对上只暴露一个接口：给定上下文和意图，流式返回 `TreeOp`。对下接三类提供方：
+AI 层对上只暴露一个端口：给定主题和主根 id，流式返回已校验的 `TreeOp`。M3 交付两个真实提供方和一个 mock，服务端配置其中一个：
 
-| 提供方            | 接入方式                                                     | 典型模型                                      | 说明                                                              |
-| ----------------- | ------------------------------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------- |
-| Claude            | `@anthropic-ai/sdk` 直连                                     | `claude-opus-5-5`（默认）、`claude-haiku-5-5` | 用工具调用 + `strict: true`，`eager_input_streaming` 边生成边到达 |
-| OpenAI 及兼容接口 | Vercel AI SDK `@ai-sdk/openai` / `@ai-sdk/openai-compatible` | GPT 系列、DeepSeek、Qwen、Moonshot 等         | 只要是 `/v1/chat/completions` 协议都能接，base URL 可配           |
-| 本地开源模型      | Ollama / vLLM / LM Studio 的 OpenAI 兼容端点                 | Llama、Qwen、Gemma 等                         | 走同一个 openai-compatible 适配器，base URL 指向本地或自托管      |
+| 提供方                  | 接入方式                                         | 典型模型                                      | 说明                                                              |
+| ----------------------- | ------------------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------- |
+| Claude                  | `@anthropic-ai/sdk` 直连                         | `claude-opus-5-5`（默认）、`claude-haiku-5-5` | 用工具调用 + `strict: true`，`eager_input_streaming` 边生成边到达 |
+| OpenAI 兼容接口         | Vercel AI SDK `ai` + `@ai-sdk/openai-compatible` | DeepSeek、Qwen、Moonshot、GPT 系列等          | 只要是 `/chat/completions` 协议都能接，base URL 必填              |
+| 本地开源模型（M3.5 后） | Ollama / vLLM / LM Studio 的 OpenAI 兼容端点     | Llama、Qwen、Gemma 等                         | 计划走同一个 openai-compatible 适配器，base URL 指向本地或自托管  |
 
 ```ts
-interface AIProvider {
-  id: string; // 'anthropic' | 'openai' | 'openai-compatible' | 'ollama'
-  listModels(): Promise<string[]>;
-  streamOps(req: AIRequest): AsyncIterable<TreeOp>;
+// src/contexts/ai/application/provider.ts（决策 0002）
+interface GenerateRequest {
+  topic: string;
+  rootId: NodeId; // 导图主根：模型的 `root` 映射到它
+  signal: AbortSignal;
+}
+interface Provider {
+  streamOps(request: GenerateRequest): AsyncIterable<TreeOp>; // 一次尝试，op 按产出顺序
 }
 ```
 
 关键设计：
 
 - **输出协议统一**：所有提供方都必须产出 `TreeOp`，画布不关心背后是谁
-- **两条输出通道**：支持工具调用的模型走工具调用（结构最稳）；不支持或工具调用不可靠的开源模型走"JSON 模式"，要求模型按固定 schema 输出，服务端用 Zod 校验，失败自动重试一次
-- **能力探测**：每个提供方声明 `supportsToolCalling`、`supportsStreaming`、`supportsJsonMode`，路由层据此选通道
-- **配置来源**：服务端默认配置一组内置提供方（平台 Key）；用户可在设置里添加自己的提供方（Key 和 base URL），用户 Key 加密存库，只在服务端解密使用
+- **扁平的按父调用**：模型只看到一个工具 `add_children`，每次调用给一个父节点挂一组扁平的子节点，不嵌套；先为 `root` 调用，再在同一轮里为每个一级节点各调用一次
+- **临时 id 重映射**：模型给每个子节点起临时 id，`root` 指主根。装配器按 Zod 严格校验每个输入（失败为 `ProviderOutputError`，从不修复），把父节点解析为主根或已产出节点的服务端 id，再给子节点换上服务端新生成的 id；未知父节点、重复临时 id 同样拒绝。超出层数 2、每父 7 个或总数 60 的子节点截断丢弃，挂在被丢弃节点下的调用静默丢弃
+- **确认循环**：轮次以工具调用结束时，适配器回放本轮 assistant 消息，并对每次调用回一个内容为 `ok` 的工具结果，再请求下一轮。每次尝试最多 4 轮；模型自然结束，或装配器在轮末报告 `complete`（每个一级节点都已有子节点）时停止。轮次计数和停止判断只在共享的 `runTurnLoop` 里实现，适配器只提供每轮的 `runTurn`
+- **配置来源**：平台提供方由服务端配置，Key 和 base URL 只在服务端使用；用户自带 Key（加密存库）留到 M3.5
+- **M3.5 前不做**：`listModels`、能力标记（`supportsToolCalling` 等）、不支持工具调用时的 JSON 模式通道，以及按能力选通道的路由
 - **按任务选模型**：骨架生成、节点展开、文本提炼各自可以指定不同模型，默认配置给出推荐组合
 
 ### 5.2 Claude 直连要点
@@ -186,10 +192,14 @@ interface AIProvider {
 
 ### 5.3 OpenAI 兼容与开源模型要点
 
-- 统一用 `@ai-sdk/openai-compatible`，差异只在 base URL、Key 和模型名
-- 优先尝试 `tools` 字段的函数调用；对不支持的模型退回 `response_format: json_object` 或纯提示词约束
-- 开源小模型容易多生成或格式漂移，服务端做三道防线：Zod 校验、超出层数或节点数截断、失败重试一次后向用户报错
-- Ollama 默认地址 `http://localhost:11434/v1`，本地开发时服务端直连；线上部署若要用本地模型，需用户在浏览器侧配置并经由服务端代理，或者走"自托管模式"整套部署在用户机器上
+- 统一用 `@ai-sdk/openai-compatible`，差异只在 base URL、Key 和模型名。适配器用 `createOpenAICompatible({ name, baseURL, apiKey, fetch })` 建一个提供方，再用 `.chatModel(model)` 建模型对象；从不传字符串模型 id，因为字符串会经 AI Gateway 解析
+- 每轮一次单步 `streamText`（不设 `stopWhen`，默认只走一步）：`instructions` 为统一系统提示，`messages` 从只含主题的 user 消息开始；工具 `add_children` 用 `jsonSchema(...)` 包装共享定义，不带 `execute`、`validate` 和 `strict`，校验只在装配器里做
+- 请求设置：每轮 `maxOutputTokens: 8000`；`maxRetries: 0`，HTTP 错误只请求一次，唯一一次重试由 `generate()` 负责；`abortSignal` 为请求的 signal；`onError` 为空函数，替换 SDK 默认的 `console.error`（它会打印带主题和响应体的错误对象），错误一律从流里读；`telemetry: { isEnabled: false }`
+- 整轮缓冲：SDK 只在流结束时发出工具调用（紧挨 `finish` 之前），所以适配器读完整轮再判定，不增加延迟。失败的一轮不产出 op，`generate()` 仍可在首个 op 前重试。代价是同一轮内节点不逐个出现，首个节点要等第 1 轮的流结束
+- 轮末判定，按以下顺序：`error` 或 `abort` 片段、迭代时抛错（如响应体中途读取失败）、缺少 `finish` 片段，以及 `finishReason` 为 `error`、`interrupted`、`other`（未知的 `finish_reason`；缺少 `finish_reason` 时 SDK 报 `error`）为 `ProviderTransportError`；`content-filter`（SDK 把带 refusal 的 `stop` 也映射为它）为 `ProviderRefusedError`，即使本轮有无效调用；任一 `invalid` 工具调用（参数截断或不是合法 JSON、工具名未知）为 `ProviderOutputError`；否则按序交出缓冲的工具输入，`tool-calls` 进入下一轮，`stop` 和 `length` 为自然结束。错误消息固定，不带 `cause`，从不包含响应体、Key、请求 id 或主题
+- 确认循环的历史：`tool-calls` 一轮之后，先追加 SDK 返回的 assistant 消息（保留 reasoning 部分，DeepSeek 思考模式的 `reasoning_content` 因此能回传），再追加一条 `role: 'tool'` 消息，按顺序给每次调用一个内容为 `ok` 的结果
+- 开源小模型容易多生成或格式漂移，服务端做三道防线：Zod 校验、超出层数或节点数截断、失败重试一次后向用户报错。不支持工具调用的模型要等 M3.5 的 JSON 模式通道
+- Ollama 是后续选项。默认地址 `http://localhost:11434/v1`，本地开发时服务端直连；线上部署若要用本地模型，需用户在浏览器侧配置并经由服务端代理，或者走"自托管模式"整套部署在用户机器上
 
 ### 5.4 上下文策略
 
