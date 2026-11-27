@@ -162,6 +162,89 @@ Turn-end mapping (D3 and D4, in order):
 - A body that closes after `message_start` and one complete call, with no `message_delta` or `message_stop`, gives one op, then `ProviderTransportError`. This is the SDK's non-`APIError` "stream ended" error, the negative row for the message-prefix check.
 - Per-file coverage is at least 90%. `pnpm docs:check` passes.
 
+## Issue #301 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded (agree: Critical Path `providers/`, two new runtime dependencies, billing and key handling)
+Blast radius: the second real adapter, selected with `AI_PROVIDER=openai-compatible`. The risks are four:
+
+- A wrong option multiplies spend, through SDK retries, a multi-step loop or extra turns.
+- The SDK default `onError` prints `APICallError` objects to the console. Their `requestBodyValues` hold the topic and their `responseBody` may hold the key, so this is a leak.
+- A missed `invalid` tool call applies nothing but hides a validation failure.
+- A wrong history breaks every second turn.
+  Selected risk packs:
+- Public API: the `Provider` contract, via the shared suite.
+- Auth/secrets: `OPENAI_API_KEY` goes only in `Authorization: Bearer`. No SDK error object reaches the console, a message or a `cause`.
+- Config: `baseURL` is required, `maxRetries: 0`, `maxOutputTokens: 8000`, and the model object is never a string id, so the AI gateway is never used.
+- Concurrency/ordering: `abortSignal` is `request.signal`.
+- Resource limits: the turn loop from 1.3 and a single step per call.
+- Error handling: `invalid` tool calls, `error` parts, finish reasons and mid-body failures.
+- Release/dependency: `ai` 7.0.181 (2026-11-23) and `@ai-sdk/openai-compatible` 3.0.94 (2026-11-20). Both are exact pins, Apache-2.0, at least 3 days old, and share `@ai-sdk/provider` 4.0.39 and `@ai-sdk/provider-utils` 5.0.83. The new closure is:
+  - `@ai-sdk/gateway` 4.0.154, which brings `@vercel/oidc` 3.2.0;
+  - `@ai-sdk/provider-utils`, which brings `@workflow/serde`, `@standard-schema/spec` and `eventsource-parser`;
+  - `@ai-sdk/provider`, which brings `json-schema` 0.4.0 `(AFL-2.1 OR BSD-3-Clause)`.
+    `pnpm licenses:check` is the arbiter. `json-schema` gets the owner-approved exact exception of decision 0040, which the orchestrator added to this branch. The implementer adds the matching `constraints.yaml` exception entry. That is a Critical Path gate file, so the PR flags it and runs `pnpm test:guardrails`.
+- Docs: TECH §5.1 and §5.3.
+  Not selected: Schema (1.2 owns the tool definition), File IO, Legacy.
+  Interface: `src/contexts/ai/infrastructure/providers/openai-compatible.ts` exports `createOpenAICompatibleProvider({ apiKey, model, baseURL, idFactory, fetch? })`, where `baseURL` is required (D7). It builds one provider with `createOpenAICompatible({ name: 'openai-compatible', baseURL, apiKey, fetch })` and one chat model with `.chatModel(model)`. It never passes a string model id, because a string resolves to the AI gateway. Its `runTurn` makes one `streamText` call per turn with these options:
+- `model`;
+- `instructions: GENERATE_SYSTEM_PROMPT` (`system` is deprecated in v7);
+- `messages`, which holds the history and starts from `[{ role: 'user', content: topic }]`;
+- `tools: { [GENERATE_TOOL_NAME]: { description, inputSchema: jsonSchema(schema) } }`, with no `execute`, no `validate` and no `strict`. The 1.1 assembler validates. `schema` spreads the top level and copies the two readonly `required` arrays, the top-level one and the one in `children.items`. That is D6's "copy a readonly array where needed", and every other part is referenced unchanged.
+- `maxOutputTokens: 8000`, `maxRetries: 0` and `abortSignal: request.signal`;
+- `onError` set to a no-op. This replaces the default `console.error`, and the adapter reads errors from the stream.
+- `telemetry: { isEnabled: false }`. `experimental_telemetry` is deprecated in v7, and `false` returns an empty dispatcher, which also turns off the tracing channel.
+- no `stopWhen`, because the default is a single step.
+  Stream reading, from `result.fullStream`. The adapter buffers the turn's parts and gives one verdict at the turn end. The SDK emits every tool call in the provider's `flush`, immediately before `finish`, so buffering adds no latency.
+- A `tool-call` part is buffered. Its `input` is already parsed, and `invalid: true` marks unparseable or truncated JSON or an unknown tool name. An empty-string `arguments` value arrives as a valid call with `input: {}`, and the assembler rejects it.
+- A `tool-error` part is ignored. It always follows an invalid call.
+- An `error` or `abort` part, or a throw from iteration such as a mid-body read failure, is recorded as a transport failure.
+- The verdict at the end of the stream, in order:
+  1. A transport failure gives `ProviderTransportError`. `runTurnLoop` normalises an abort to `signal.reason`.
+  2. A `finish` part with `finishReason` `content-filter` gives `ProviderRefusedError`, even when a call is invalid. The SDK maps `stop` with a refusal delta to `content-filter`.
+  3. Any invalid call gives `ProviderOutputError`.
+  4. Otherwise the buffered inputs are yielded in order as `tool-input` items, and the turn end follows the mapping below.
+- Every error message is fixed and has no `cause`.
+  Turn-end mapping (D3):
+- `stop` gives natural. The SDK maps `stop` with a refusal delta to `content-filter`.
+- `length` gives natural, because an invalid call has already decided the turn, so every input is complete.
+- `tool-calls` gives tool-use.
+- `content-filter` gives `ProviderRefusedError`.
+- `error`, `interrupted`, `other` and a missing finish part give `ProviderTransportError`. The provider maps a stream with no `finish_reason` to `error`.
+  History and acks: after a tool-use turn, the adapter appends `(await result.response).messages`. That is the SDK's assistant message, which keeps any reasoning parts and so preserves `reasoning_content` for DeepSeek thinking mode. It then appends one `{ role: 'tool', content: [...] }` message with `{ type: 'tool-result', toolCallId, toolName, output: { type: 'text', value: 'ok' } }` per yielded call, in order. The SDK adds no tool message of its own for valid calls without `execute`. An invalid call always rejects the turn, so the SDK's `error-text` results are never replayed.
+  Residual: the SDK emits tool calls only at stream end (`streaming-tool-call-tracker.ts` deliberately finalises nothing early), so ops do not appear progressively within one turn, against the PRD §45 principle. The first node is visible after turn 1's stream closes. The 7.3 live run measures first-node latency on this endpoint, and the owner already has the 12.7 s total probe (design Context).
+  Contract: `describeProviderContract('openai-compatible', …)` runs every scenario, including `natural`. The harness encodes the canonical inputs as hand-authored chat-completions SSE over the injected `fetch`:
+- `data:` chunks carry `choices[0].delta.tool_calls` with `index`, `id`, `function.name` and `arguments` fragments.
+- `finish_reason` is `tool_calls` or `stop`.
+- The stream ends with `data: [DONE]`.
+- The harness counts `fetch` calls as turns.
+- For `stalled`, it returns a body that settles only when the request's own `init.signal` aborts.
+  TECH §5.1 and §5.3 describe the shipped protocol: flat per-parent `add_children` calls, the temporary-id remap, and the ack loop that stops at a natural end or at `complete`, with at most 4 turns. §5.1's `AIProvider` sketch becomes the shipped `Provider.streamOps(request)` port. `listModels`, capability flags, the JSON-mode channel and the router are deferred to M3.5. Ollama stays a later option. §5.2 is unchanged.
+  Must preserve: 1.1–1.3, the mock, the Claude adapter and the shared suite. The suite gains nothing. The new dependencies and the closure listed above are the only lockfile change. The diff likely exceeds 400 lines excluding the lockfile, so the PR carries `diff-limit-exempt` with a justification: one adapter, its fixture tests and the docs, with no split value.
+  Evidence floor (Vitest over the injected `fetch`, no real key):
+- The shared suite passes, including `natural`.
+- ai-provider "Two-turn skeleton" and "Turn limit" pass.
+- The turn-1 body asserts:
+  - `model`;
+  - `messages` equal to `[{ role: 'system', content: GENERATE_SYSTEM_PROMPT }, { role: 'user', content: topic }]`, so the topic appears only in the user message;
+  - `tools` equal to `[{ type: 'function', function: { name, description, parameters } }]`, with `parameters` deep-equal to `GENERATE_TOOL_DEFINITION.inputSchema` and no `strict` key;
+  - `tool_choice: 'auto'`, `max_tokens: 8000`, `stream: true`, and no `stream_options`. The whole body is asserted with `toStrictEqual`.
+- The URL is `<baseURL>/chat/completions`. The key appears only in `Authorization: Bearer`.
+- The turn-2 body ends with the assistant message, carrying `tool_calls` with JSON-string `arguments`, then one `role: 'tool'` message with `content: 'ok'` per `tool_call_id`.
+- A truncated `arguments` string at `finish_reason: length` gives `ProviderOutputError` and zero ops from that call.
+- Malformed `arguments` at `tool_calls` gives `ProviderOutputError`.
+- `finish_reason: content_filter` gives `ProviderRefusedError`.
+- A stream without `finish_reason` and an unknown finish reason each give `ProviderTransportError`.
+- `length` with complete inputs gives natural, 1 turn.
+- A 500 whose body contains the key and a request id is requested exactly once. It gives `ProviderTransportError` with a fixed message, and the body, key, request id and topic are absent from the message, the stack, the `cause` and the console. A console spy covers `error`, `warn` and `log`.
+- `content_filter` after a truncated `arguments` string (`{"parentId":"root","chil`) gives `ProviderRefusedError`, zero ops and one request.
+- `finish_reason: stop` with a `delta.refusal` gives `ProviderRefusedError`.
+- A truncated `arguments` string with no `finish_reason` gives `ProviderTransportError`.
+- A body that errors after one complete call and before `[DONE]` gives `ProviderTransportError` with a fixed message, no `cause` and zero ops.
+- No call reaches the gateway: `globalThis.fetch` is stubbed to throw during the tests and is called 0 times, and the injected `fetch` is called once per turn.
+- `pnpm licenses:check`, `pnpm install --frozen-lockfile`, `pnpm dead-code`, `pnpm boundaries`, `pnpm docs:check`, `pnpm decisions:check` and `pnpm test:guardrails` pass, and coverage is at least 90%.
+
 ## Impact
 
 - **Code:**

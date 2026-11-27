@@ -71,3 +71,4 @@ This blocking license gate extends [decision 0001](0001-l4-profile-and-agent-rev
 - Approval and exceptions do not waive attribution, notice, source, distribution or other license obligations. Those obligations remain separate from this engineering gate.
 - Unknown or composite declarations require explicit policy review rather than automatic interpretation. Exact exceptions intentionally block unapproved upgrades and license changes.
 - Gate changes retain full-depth cross-review and owner functional acceptance. Rollback is a reviewed revert, not a deleted test, relaxed threshold or ad hoc exemption.
+- [Decision 0040](0040-json-schema-license-exception.md) adds one more exact exception under this policy: `json-schema` 0.4.0, `(AFL-2.1 OR BSD-3-Clause)`.
