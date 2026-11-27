@@ -34,7 +34,7 @@ Canonical terms and their prohibited aliases live in `openspec/glossary.md`. Rea
 - Map reads and writes go through Postgres RLS as the signed-in user (`app.user_id` set inside each transaction); the application never accesses user data as a table owner or a `BYPASSRLS` role (decision 0023).
 - Every page and API route requires a signed-in session, except the sign-in and registration pages, `/api/auth/*` and `/api/healthz`; each route handler verifies the session itself, the proxy only redirects.
 - First-party deferred map operations carry a Session binding captured from the invoking account; the server rejects a present binding that differs from the authenticated exact username before map access. Same-account re-login preserves the binding, while cross-account queued writes fail closed (decision 0028).
-- Each user's AI usage is accounted per day; a request over quota is refused with 429 before any provider call.
+- Each user's AI usage is accounted per day; a request over quota is refused with 429 before any provider call. (Lands in M4 and is required before the first deployment; M3 is local-only with per-request caps — change `m3-topic-generation`.)
 - Exports are pure: the same MindMap snapshot yields byte-identical Markdown/OPML output.
 
 ## Public Interfaces and Contracts
@@ -59,7 +59,7 @@ Captured verbatim from grilling; agents must check this section before writing c
 
 ## Open Terminology Questions
 
-| Question                                                  | Why it matters                                                | Candidate terms                    | Owner            |
-| --------------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------- | ---------------- |
-| What is the name for the three AI entry modes as a group? | PRD calls them "模式"; code will need an enum                 | InteractionMode, AiMode, EntryMode | owner, before M3 |
-| Is "文本导入" a fourth mode or a Provider request type?   | decides whether it lives in ai/application or map/application | Import, Distill                    | owner, before M5 |
+| Question                                                  | Why it matters                                                                                   | Candidate terms                    | Owner            |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------- | ---------------- |
+| What is the name for the three AI entry modes as a group? | PRD calls them "模式"; code will need an enum once a second mode exists (M3 ships only Generate) | InteractionMode, AiMode, EntryMode | owner, before M4 |
+| Is "文本导入" a fourth mode or a Provider request type?   | decides whether it lives in ai/application or map/application                                    | Import, Distill                    | owner, before M5 |
