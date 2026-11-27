@@ -174,12 +174,15 @@ interface AIProvider {
 
 ### 5.2 Claude 直连要点
 
-- `client.messages.stream()`，通过 SSE 把 op 推给前端
+- 每轮一次 `client.beta.messages.stream()`（`fallbacks: "default"` 只在 beta 端点可用，请求带 `anthropic-beta: server-side-fallback-2026-07-01` 头），通过 SSE 把 op 推给前端
+- 工具结果循环：轮次以 `tool_use` 结束时，下一轮先回放本轮的 assistant 内容，其中每个工具输入换成严格 `JSON.parse` 的结果，并按回退回放规则处理（`fallback` 块留在原位，最后一个 `fallback` 块之前的 `thinking`、`redacted_thinking`、`connector_text` 块丢弃）；再对每次调用回一个内容为 `ok` 的 `tool_result`。每次尝试最多 4 轮；模型自然结束，或装配器在轮末报告 `complete` 时停止
 - 自适应思考（省略 `thinking` 参数即可），`output_config.effort` 按模式调：生成骨架 `medium`，节点展开 `low`，对话式 `medium`
 - `add_children` 等 op 定义为工具，`strict: true` 保证参数结构合法
 - 当前模型不支持强制 `tool_choice`，用 `auto` 加系统提示明确要求"只通过工具修改导图"
-- 开启服务端 `fallbacks: "default"`，避免偶发拒答导致整次失败
+- 开启服务端 `fallbacks: "default"`，避免偶发拒答导致整次失败；工具调用块尚未关闭时的拒答不会回退，直接作为拒答返回
 - 系统提示打 `cache_control` 断点，稳定前缀吃缓存
+- 失败映射，按以下顺序判定：`stop_reason: refusal` 为 `ProviderRefusedError`（即使本轮有未完成的工具输入，或已产出 op）；否则本轮有未完成的工具输入（严格解析失败，或块到消息结束都未关闭）为 `ProviderOutputError`；`tool_use` 进入下一轮；`end_turn`、`stop_sequence`，以及输入全部完整的 `max_tokens` 为自然结束；其他值或缺失（`pause_turn`、`model_context_window_exceeded` 等）为 `ProviderTransportError`。SDK 报告的工具输入 JSON 解析错误为 `ProviderOutputError`，其余 SDK 错误（HTTP 状态、连接等）为 `ProviderTransportError`，客户端中止由轮次循环归一为 `signal.reason`；错误消息固定，不带 `cause`，从不包含模型 JSON、响应体、Key 或请求 id
+- 客户端 `maxRetries: 0`：适配器从不重试，HTTP 错误只请求一次，唯一一次重试由 `generate()` 负责
 
 ### 5.3 OpenAI 兼容与开源模型要点
 

@@ -59,6 +59,11 @@ For a topic and the map's primary root id, a provider SHALL emit only `add_child
 - **WHEN** a tool input has an unknown field, an empty children list, empty text or unparseable JSON
 - **THEN** it is rejected as invalid output
 
+#### Scenario: Refusal that cuts a tool input
+
+- **WHEN** the model's turn ends with a refusal while a tool input is unfinished
+- **THEN** the attempt is a refusal, not invalid output, and is not retried
+
 #### Scenario: No tool call is invalid output
 
 - **WHEN** a model attempt ends normally without any tool call

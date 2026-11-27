@@ -100,7 +100,7 @@ Minimal mergeable slice: 2.1 - env validation is self-contained; 2.2 depends onl
     - the request body asserts every setting above, no forced `tool_choice`, and `GENERATE_SYSTEM_PROMPT` plus a tool that deep-equals `GENERATE_TOOL_DEFINITION` after the `input_schema` mapping and the D4 flags, compared against the imported constants ("Same instruction for real adapters");
     - a `tool_use` turn is followed by `tool_result` `ok` blocks.
   - Verify (gates): `pnpm licenses:check`, `pnpm dead-code` and `pnpm install --frozen-lockfile` pass.
-- [ ] 3.4 Add the Claude adapter's failure paths.
+- [x] 3.4 Add the Claude adapter's failure paths.
   - Update TECH §5.2 with the beta endpoint for `fallbacks` and the ack loop.
   - Verify (unit, fixtures): `stop_reason: refusal` gives `ProviderRefusedError`. An unfinished tool input at `max_tokens` and malformed input JSON each give `ProviderOutputError`. A 500 fixture is requested exactly once and gives `ProviderTransportError` without its body ("Provider HTTP error body withheld").
 
