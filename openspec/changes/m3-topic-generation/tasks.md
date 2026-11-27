@@ -111,7 +111,7 @@ Minimal mergeable slice: 3.1 - the mock and the contract suite are green alone a
 
 - [x] 4.1 Add `src/app/server/ai-services.ts` (env → one provider or `undefined`, plus the `providerId` and `model` that `generate` logs; mock pacing 150 ms).
   - Verify (unit): each `AI_PROVIDER` value yields the matching adapter, configured from env. Unset yields `undefined`. The mock is paced at 150 ms per op.
-- [ ] 4.2 Make the verification server force the mock provider: `scripts/dev-bg.sh` exports `AI_PROVIDER=mock` before `pnpm dev`, with a comment citing decision 0039. No `AGENTS.md` edit.
+- [x] 4.2 Make the verification server force the mock provider: `scripts/dev-bg.sh` exports `AI_PROVIDER=mock` before `pnpm dev`, with a comment citing decision 0039. No `AGENTS.md` edit.
   - Add a fixture to `scripts/test-guardrails.sh`: with `pnpm` and `curl` stubbed on `PATH` and `AI_PROVIDER=anthropic` in the calling environment, the started child process sees `AI_PROVIDER=mock`.
   - Verify: ai-live-acceptance "Verification server ignores the configured provider" via `pnpm test:guardrails`. The PR flags the guardrail script edit.
 - [ ] 4.3 Add `src/app/api/ai/generate/route.ts` (design D8) with its whole contract surface: `schemas/openapi.yaml` and its snapshot, the three `smoke/api.hurl` entries (401, 400, mock 200 ending in `done`), the `/api/ai/generate` flip in `constraints.yaml`, and TECH §7 and §8 (design D12). AGENTS.md "Where new behavior goes" and the Critical Paths row require route, OpenAPI entry and smoke entry in one PR.

@@ -437,6 +437,52 @@ Blast radius: every generation once 4.3 lands. A wrong mapping sends:
   - At 149 ms no op has settled, and at 150 ms the first op is present.
 - Per-file coverage is at least 90%. `pnpm boundaries`, `lint` and `typecheck` pass.
 
+## Issue #306 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded. Agree: `scripts/test-guardrails.sh` is a Critical Path (gate integrity), and the export is the only thing standing between `pnpm smoke` (local and CI layer3) and the owner's real key.
+Blast radius: every `pnpm dev:bg` run, which covers `pnpm smoke`, the Verification Matrix and CI layer3. A missing or misplaced export makes smoke bill the provider that `.env` configures. A fixture that does not bite would keep passing after the export is removed.
+Selected risk packs:
+
+- Config: process env overrides `.env`, as listed in Next's "Environment Variable Load Order" (`process.env` first).
+- Auth/secrets: no real provider is reachable from verification.
+- Resource limits: the fixture's stub processes are reaped, and no stray process outlives the run.
+  Not selected:
+- Public API
+- Schema
+- Concurrency
+- File IO beyond the fixture's temp directory
+- Legacy
+- Release
+- Docs: there is no AGENTS edit. Task 7.2 owns that.
+  Interface:
+- `scripts/dev-bg.sh` gains `export AI_PROVIDER=mock` before `pnpm dev`. Its comment cites decision 0039 and D7: process env wins over `.env`, so the verification server never calls a real provider.
+- Nothing else in the script changes. The owner's foreground `pnpm dev` and `package.json` are untouched.
+- Other AI variables from `.env` still load and are still validated (D7). A malformed value fails loud at load and never reaches a provider; forcing the mock only drops the required-field checks.
+  Guardrail fixture: new section 9b in `scripts/test-guardrails.sh`, before section 10, using the same harness.
+- Stubs go in `$tmp/bin`, written with quoted heredocs so `${AI_PROVIDER-<unset>}` expands at run time:
+  - `pnpm` writes `${AI_PROVIDER-<unset>}` plus a newline to a file under `$tmp` and exits 0.
+  - `curl` exits 0.
+- Each case runs in its own fresh directory under `$tmp`, through `in_dir`, so `.run/` never lands in the worktree. The call is `env PATH="$tmp/bin:$PATH" … bash "$repo_root/scripts/dev-bg.sh"`, which uses the repo root's script, as sections 2a, 7, 9 and 9a do.
+- Case 1, override: the caller has `AI_PROVIDER=anthropic`.
+- Case 2, the spec's WHEN: `env -u AI_PROVIDER`, with a `.env` in the case directory setting `AI_PROVIDER=anthropic`. This proves that `export`, and not merely an assignment, reaches the child.
+- Asserts in each case:
+  - `dev-bg.sh` exits 0.
+  - The fixture polls up to 5 s until the record file is non-empty (`-s`), because `pnpm` starts in the background.
+  - The recorded value is exactly `mock`.
+  - A record file that is missing or empty is a FAIL, not a skip.
+- Cleanup: the stub exits on its own. Section 10's stray sweep, which matches the `$tmp` path, proves that nothing outlives the run.
+  Pre-existing, not in this slice: dev-bg reports ready whenever anything answers `:3000`, including an owner's foreground real-provider `pnpm dev`. It also reuses a live pidfile server. This is filed as a follow-up, and 4.3 must resolve it before smoke gains generation entries.
+  Must preserve: every existing guardrail section and its count of passes, and `scripts/dev-stop.sh`.
+  Evidence floor:
+- `pnpm test:guardrails` exits 0, with both new PASS lines and `0 failed`.
+- Mutation A: with the whole export line removed, case 1 FAILs naming `anthropic` and case 2 FAILs naming `<unset>`.
+- Mutation B: with only the `export` keyword removed, leaving `AI_PROVIDER=mock`, case 2 FAILs naming `<unset>`.
+- After either mutation `pnpm test:guardrails` exits non-zero, and the script is then restored.
+- `bash -n` and `shellcheck` (if installed) pass on both scripts.
+- `pnpm dev:bg`, `pnpm dev:status` and `pnpm dev:stop` still work. The health probe returns HTTP 200 with `$.status == "ok"`.
+
 ## Impact
 
 - **Code:**

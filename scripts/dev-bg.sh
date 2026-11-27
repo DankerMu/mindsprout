@@ -10,6 +10,9 @@ if [ -f .run/dev.pid ] && kill -0 "$(cat .run/dev.pid)" 2>/dev/null; then
   echo "dev server already running (pid $(cat .run/dev.pid))"
   exit 0
 fi
+# Verification server: force the mock provider (decision 0039, design D7). Process env wins over
+# .env, so pnpm smoke and CI layer3 never call a real provider; foreground `pnpm dev` reads .env.
+export AI_PROVIDER=mock
 pnpm dev > .run/dev.log 2>&1 &
 echo $! > .run/dev.pid
 for _ in $(seq 1 "$TIMEOUT_SECONDS"); do
