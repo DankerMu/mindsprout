@@ -28,11 +28,13 @@ interface TurnResult {
 }
 
 // Drains one turn, yielding each op as soon as its input is assembled. `open` is true only while
-// the turn is suspended on an item being processed: an assembler error or a consumer stop then
-// closes it, while a turn that finished or whose next() rejected is left alone (as for await does).
+// the turn is suspended on an item being processed: an assembler error, an abort or a consumer
+// stop then closes it, while a turn that finished or whose next() rejected is left alone (as for
+// await does). The abort check runs on each handed-over item and again when the consumer resumes.
 async function* drainTurn(
   turn: AsyncIterator<TurnItem, TurnEnd>,
   assembler: OpAssembler,
+  signal: AbortSignal,
 ): AsyncGenerator<TreeOp, TurnResult, undefined> {
   let ops = 0;
   let open = false;
@@ -42,19 +44,30 @@ async function* drainTurn(
       const step = await turn.next();
       if (step.done === true) return { end: step.value, ops };
       open = true;
+      signal.throwIfAborted();
       const op = assembler.assemble(step.value.input);
       if (op !== undefined) {
         ops += 1;
         yield op;
+        signal.throwIfAborted();
       }
     }
   } finally {
-    if (open) await turn.return?.();
+    if (open) await closeTurn(turn);
+  }
+}
+
+async function closeTurn(turn: AsyncIterator<TurnItem, TurnEnd>): Promise<void> {
+  try {
+    await turn.return?.();
+  } catch {
+    // Swallows the adapter's cleanup rejection so it never replaces the error or stop in flight.
   }
 }
 
 // The only code that counts model turns and decides to stop (design D3 "One loop"). Every
-// adapter supplies just `runTurn`.
+// adapter supplies just `runTurn`. Once the signal is aborted the attempt always rejects with
+// signal.reason: never a normal end, never another error (D3, D5).
 export async function* runTurnLoop({
   request,
   idFactory,
@@ -62,18 +75,22 @@ export async function* runTurnLoop({
   runTurn,
   maxTurns = 4,
 }: TurnLoopOptions): AsyncGenerator<TreeOp, void, undefined> {
+  const { signal } = request;
   const assembler = createOpAssembler({ rootId: request.rootId, idFactory, caps });
   let ops = 0;
-  for (let turn = 1; turn <= maxTurns; turn += 1) {
-    // Rejects with signal.reason; an abort is never turned into ProviderOutputError (D5).
-    request.signal.throwIfAborted();
-    const result = yield* drainTurn(runTurn(turn), assembler);
-    ops += result.ops;
-    if (result.end !== 'tool-use' || assembler.complete) break;
+  try {
+    for (let turn = 1; turn <= maxTurns; turn += 1) {
+      signal.throwIfAborted();
+      const result = yield* drainTurn(runTurn(turn), assembler, signal);
+      ops += result.ops;
+      if (result.end !== 'tool-use' || assembler.complete) break;
+    }
+  } catch (error) {
+    // An abort-induced transport or assembler error surfaces as signal.reason, never retryable.
+    signal.throwIfAborted();
+    throw error;
   }
-  if (ops === 0) {
-    // An abort that landed during the last turn still wins over the zero-op verdict.
-    request.signal.throwIfAborted();
-    throw new ProviderOutputError('attempt ended without emitting any op');
-  }
+  // An abort that landed during the last turn wins over a normal end and the zero-op verdict.
+  signal.throwIfAborted();
+  if (ops === 0) throw new ProviderOutputError('attempt ended without emitting any op');
 }

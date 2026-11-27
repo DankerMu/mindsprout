@@ -322,6 +322,113 @@ describe('turn loop: abort', () => {
     await expect(collect(loop(fake.runTurn, { signal: controller.signal }))).rejects.toBe(reason);
     expect(fake.calls).toStrictEqual([1]);
   });
+  it('a next() rejection after abort rejects with signal.reason, not the transport error', async () => {
+    const controller = new AbortController();
+    const reason = new Error('client abort');
+    const runTurn: RunTurn = () => ({
+      next: () => {
+        controller.abort(reason);
+        return Promise.reject(new ProviderTransportError('x'));
+      },
+    });
+
+    await expect(collect(loop(runTurn, { signal: controller.signal }))).rejects.toBe(reason);
+  });
+
+  it('an abort while the consumer holds an op closes the turn before the next item is pulled', async () => {
+    const controller = new AbortController();
+    const reason = new Error('client abort');
+    let pulled = false;
+    const fake = script([
+      {
+        inputs: [call('root', 'a'), call('a', 'b')],
+        end: 'natural',
+        hook: {
+          at: 1,
+          run: () => {
+            pulled = true;
+          },
+        },
+      },
+    ]);
+    const received: TreeOp[] = [];
+
+    const drained = (async () => {
+      for await (const op of loop(fake.runTurn, { signal: controller.signal })) {
+        received.push(op);
+        controller.abort(reason);
+      }
+    })();
+
+    await expect(drained).rejects.toBe(reason);
+    expect(received).toStrictEqual([addChildren(ROOT_ID, ['s1', 'a'])]);
+    expect(pulled).toBe(false);
+    expect(fake.returned).toStrictEqual([1]);
+  });
+
+  it('an abort mid-turn stops a signal-unaware turn at its next handed-over item', async () => {
+    const controller = new AbortController();
+    const reason = new Error('client abort');
+    const fake = script([
+      {
+        inputs: [call('root', 'a'), call('a', 'b')],
+        end: 'natural',
+        hook: {
+          at: 1,
+          run: () => {
+            controller.abort(reason);
+          },
+        },
+      },
+    ]);
+    const received: TreeOp[] = [];
+
+    const drained = (async () => {
+      for await (const op of loop(fake.runTurn, { signal: controller.signal })) received.push(op);
+    })();
+
+    await expect(drained).rejects.toBe(reason);
+    expect(received).toStrictEqual([addChildren(ROOT_ID, ['s1', 'a'])]);
+    expect(fake.returned).toStrictEqual([1]);
+  });
+
+  it('an abort during the last turn after ops rejects with signal.reason on a natural end', async () => {
+    const controller = new AbortController();
+    const reason = new Error('client abort');
+    const fake = script([
+      {
+        inputs: [call('root', 'a')],
+        end: 'natural',
+        hook: {
+          at: 1,
+          run: () => {
+            controller.abort(reason);
+          },
+        },
+      },
+    ]);
+
+    await expect(collect(loop(fake.runTurn, { signal: controller.signal }))).rejects.toBe(reason);
+    expect(fake.calls).toStrictEqual([1]);
+    expect(fake.returned).toStrictEqual([]);
+  });
+
+  it('an assembler error raised while aborted rejects with signal.reason', async () => {
+    const controller = new AbortController();
+    const reason = new Error('client abort');
+    // Reading parentId aborts mid-assemble, then the unknown parent fails validation.
+    const input = {
+      get parentId() {
+        controller.abort(reason);
+        return 'never-introduced';
+      },
+      children: [{ id: 'x', text: 'text x' }],
+    };
+    const fake = script([{ inputs: [call('root', 'a'), input], end: 'natural' }]);
+
+    await expect(collect(loop(fake.runTurn, { signal: controller.signal }))).rejects.toBe(reason);
+    expect(fake.returned).toStrictEqual([1]);
+  });
 });
 
 describe('turn loop: closing the turn', () => {
@@ -386,6 +493,17 @@ describe('turn loop: closing the turn', () => {
             : { done: false, value: { type: 'tool-input', input } },
         );
       },
+    });
+
+    await expect(collect(loop(runTurn))).rejects.toBeInstanceOf(ProviderOutputError);
+  });
+
+  it('a rejecting return() does not replace the assembler error that stopped the turn', async () => {
+    const inputs: unknown[] = [{ parentId: 'root' }];
+    const runTurn: RunTurn = () => ({
+      next: () =>
+        Promise.resolve({ done: false, value: { type: 'tool-input', input: inputs.shift() } }),
+      return: () => Promise.reject(new Error('cleanup failed')),
     });
 
     await expect(collect(loop(runTurn))).rejects.toBeInstanceOf(ProviderOutputError);
