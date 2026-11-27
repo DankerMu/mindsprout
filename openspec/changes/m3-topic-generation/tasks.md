@@ -91,7 +91,7 @@ Minimal mergeable slice: 2.1 - env validation is self-contained; 2.2 depends onl
     - a 500 fixture is requested exactly once and surfaces as `ProviderTransportError` without its body;
     - a truncated tool-call argument is `ProviderOutputError`.
   - Verify (gates): `pnpm licenses:check`, `pnpm dead-code` and `pnpm install --frozen-lockfile` pass.
-- [ ] 3.3 Add the Claude adapter's request and turn loop (design D3, D4), with `@anthropic-ai/sdk` as a dependency.
+- [x] 3.3 Add the Claude adapter's request and turn loop (design D3, D4), with `@anthropic-ai/sdk` as a dependency.
   - Inject the client transport. Consume the 1.3 turn-loop helper; do not re-implement turn counting or stopping.
   - Use `client.beta.messages.stream` with the fallback beta, a `strict` + `eager_input_streaming` tool with `tool_choice: auto`, effort `medium`, a cached system block, `max_tokens` 8000, `maxRetries` 0 and an optional `baseURL`.
   - Verify (unit with hand-authored Messages SSE fixtures):

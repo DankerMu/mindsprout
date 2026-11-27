@@ -18,7 +18,7 @@ interface ToolCall {
 // turn whose request never answers until its own signal aborts.
 type CanonicalTurn = { calls: ToolCall[]; end: TurnEnd } | 'stall';
 
-export type ProviderScenarioName = 'skeleton' | 'endless' | 'stalled';
+export type ProviderScenarioName = 'skeleton' | 'endless' | 'natural' | 'stalled';
 
 export interface ProviderHarness {
   provider: Provider;
@@ -61,6 +61,11 @@ export const PROVIDER_SCENARIOS: Readonly<Record<ProviderScenarioName, readonly 
       { calls: [call('a', 'a2')], end: 'tool-use' },
       { calls: [call('a', 'a3')], end: 'tool-use' },
       { calls: [call('b', 'b1')], end: 'tool-use' },
+    ],
+    // Turn 1 ends naturally with the skeleton incomplete: only the natural end prevents turn 2.
+    natural: [
+      { calls: [call('root', 'a', 'b')], end: 'natural' },
+      { calls: [call('a', 'a1')], end: 'tool-use' },
     ],
     stalled: [SKELETON_ROOT_TURN, 'stall'],
   };
@@ -138,6 +143,15 @@ export function describeProviderContract(
 
       expect(ops).toHaveLength(4);
       expect(harness.turnsRequested()).toBe(4);
+    });
+
+    it('natural: a natural end stops after 1 turn and keeps its op', async () => {
+      const harness = makeHarness('natural');
+
+      const ops = await collect(harness.provider.streamOps(request()));
+
+      expect(ops).toHaveLength(1);
+      expect(harness.turnsRequested()).toBe(1);
     });
 
     it('stalled: an abort while the transport waits rejects with signal.reason', async () => {
