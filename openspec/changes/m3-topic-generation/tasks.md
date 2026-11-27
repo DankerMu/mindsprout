@@ -109,7 +109,7 @@ Minimal mergeable slice: 3.1 - the mock and the contract suite are green alone a
 
 ## 4. Generate route
 
-- [ ] 4.1 Add `src/app/server/ai-services.ts` (env → one provider or `undefined`; mock pacing 150 ms).
+- [ ] 4.1 Add `src/app/server/ai-services.ts` (env → one provider or `undefined`, plus the `providerId` and `model` that `generate` logs; mock pacing 150 ms).
   - Verify (unit): each `AI_PROVIDER` value yields the matching adapter, configured from env. Unset yields `undefined`. The mock is paced at 150 ms per op.
 - [ ] 4.2 Make the verification server force the mock provider: `scripts/dev-bg.sh` exports `AI_PROVIDER=mock` before `pnpm dev`, with a comment citing decision 0039. No `AGENTS.md` edit.
   - Add a fixture to `scripts/test-guardrails.sh`: with `pnpm` and `curl` stubbed on `PATH` and `AI_PROVIDER=anthropic` in the calling environment, the started child process sees `AI_PROVIDER=mock`.
