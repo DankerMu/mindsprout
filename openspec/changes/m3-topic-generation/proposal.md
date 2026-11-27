@@ -84,6 +84,17 @@ Interface: `runTurnLoop({ request, idFactory, caps, runTurn, maxTurns = 4 })` yi
 Must preserve: the 1.1 assembler and errors unchanged. Downstream consumers: 3.1 mock, 3.2 OpenAI-compatible, 3.3 Claude (each supplies only `runTurn`); 2.2 retries the helper's `ProviderOutputError` and never an abort.
 Evidence floor (Vitest, scripted fake turns): "Two-turn skeleton" → two `runTurn` calls, ops of both turns, no third call; "Turn limit" → exactly 4 calls, all ops kept, normal end; "No tool call is invalid output" → natural end with zero ops rejects `ProviderOutputError`; natural end after ops → no further call; immediacy → a turn that yields input 1 then blocks delivers op 1 before the turn ends; ops after `complete` within one turn are yielded; abort before turn n → `runTurn(n)` never called, rejects with `signal.reason`, zero-op abort is not `ProviderOutputError`; assembler error mid-turn and consumer early stop → the fake turn's `return()` is recorded; `pnpm boundaries`; coverage ≥ 90%.
 
+## Issue #297 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (override: the issue also ships the shared wire tool schema that 3.2 and 3.3 send, a format surface; extension recorded in tasks.md 1.2 and design D6)
+Blast radius: every real adapter's request. A drifting prompt or tool definition breaks the Claude cache prefix (tools, then system) or lets the model ignore the protocol; a wire schema with a keyword Claude strict tools reject (`minLength`) fails every Claude request with 400.
+Selected risk packs: Schema/field names (the wire tool definition `{ name, description, inputSchema }`: a byte-stable literal JSON Schema with `additionalProperties: false` and `required` at both object levels, `minItems: 1`, no `minLength`, no `$schema`; 1.1's zod schema stays the enforcement point in the assembler); Legacy compatibility (cache-prefix stability: module constants, no per-request text). Not selected: Error handling (no failure path), Resource limits (caps enforced in 1.1; the prompt only states them), Public API, Config, Auth, File IO, Concurrency, Release, Docs (TECH §5 lands with 3.2/3.4).
+Interface: `ai/application/generate-prompt.ts` exports the system prompt constant, the shared tool definition and `buildGenerateRequest(topic) → { system, messages: [{ role: 'user', content }] }`.
+Must preserve: 1.1's `GENERATE_TOOL_NAME` and `generateToolInputSchema` unchanged. Consumers: 3.2 and 3.3 ("Same instruction for real adapters"); 3.1 mock ignores the prompt.
+Evidence floor: Vitest "Instruction content": the constant contains each anchor — `add_children` (changes only through the tool), one parent per call with a flat children list, `root` for the primary root with short temporary ids, root call first then every first-level call in one turn, two levels, `3–7`, `40` characters with no paragraphs, mutually exclusive siblings, language follows the topic. Builder: for two different topics, `system` equals the constant and the topic appears only in the user message. Tool definition: deep-equals a literal (name `GENERATE_TOOL_NAME`, both-level `additionalProperties: false` and `required`, `minItems: 1`, no `minLength`, no `$schema`), and equals `z.toJSONSchema(generateToolInputSchema)` once `$schema` and `minLength` are removed, so a zod drift is caught. `pnpm boundaries`; coverage ≥ 90%.
+
 ## Impact
 
 - **Code:**

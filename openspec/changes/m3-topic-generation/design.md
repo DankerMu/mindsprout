@@ -84,7 +84,7 @@ Each item is ablated or out of scope; its revival trigger is in parentheses.
   - the turn-loop helper (D3), the single implementation of turn counting and stopping;
   - the Generate prompt (D6);
   - `generate(provider, request, { timeoutMs })` (D5).
-- **`ai/infrastructure/providers/`** holds `anthropic.ts` (`@anthropic-ai/sdk`), `openai-compatible.ts` (Vercel AI SDK `@ai-sdk/openai-compatible`) and `mock.ts`. Each adapter receives its transport by injection (`fetch` or an SDK client), and each uses the application assembler, prompt and loop helper.
+- **`ai/infrastructure/providers/`** holds `anthropic.ts` (`@anthropic-ai/sdk`), `openai-compatible.ts` (Vercel AI SDK `@ai-sdk/openai-compatible`) and `mock.ts`. Each adapter receives its transport by injection (`fetch` or an SDK client), and each uses the application assembler (through the loop helper), prompt, tool definition and loop helper.
 - **`src/app/server/ai-services.ts`** is the composition root: env → one provider or `undefined`. Nothing else imports adapters.
 - **Alternatives rejected:**
   - Port and assembler in `domain/` (needs `TreeOp` → violates `domain-is-pure`).
@@ -173,7 +173,8 @@ Each adapter runs at most **4 model turns per attempt**.
 - **Protocol it states:** changes only through the tool; flat lists per parent; temporary ids with `root`; the root call first, then all first-level calls in parallel in one turn.
 - **Content constraints it states:** two levels below the root, 3–7 children per parent, each ≤ 40 characters with no paragraphs, MECE siblings, and output language following the topic (PRD §9 resolved: one unified prompt).
 - **Topic placement:** a builder places the topic only in the user turn.
-- Adapters add no instruction text of their own.
+- **Tool definition:** the same module exports the one wire tool definition `{ name, description, inputSchema }` that 3.2 and 3.3 send. `inputSchema` is a byte-stable literal matching 1.1's zod schema, without the keywords Claude strict tools reject (`minLength`) and without `$schema`; the assembler's zod parse remains the enforcement point.
+- Adapters add no instruction text or tool definition of their own. They send `GENERATE_TOOL_DEFINITION` unchanged in `name`, `description` and schema content; the only allowed adaptations are the field mapping each SDK needs (Claude `input_schema`; AI SDK `tools` record key and `jsonSchema(...)`), the D4 transport flags (`strict`, `eager_input_streaming`) and copying a readonly array where an SDK type demands a mutable one.
 
 ### D7. Configuration
 
