@@ -62,6 +62,17 @@ The owner's Stage 1 grill (2026-11-26) and the Stage 3 provider probes fixed the
 
 - `canvas-layout`: layout changes animate and new nodes fade in, with the drag preview and reduced motion excluded.
 
+## Issue #296 Fixture Triage
+
+Issue type: feature
+Fixture level: compact
+Upstream suggested level: compact (agree: pure zod schemas, error types and a deterministic assembler; no I/O, no route, no Critical Path)
+Blast radius: the assembler is the only gate between model output and the map reducer; a wrong id remap, depth or cap rule emits ops the reducer rejects (whole generation reverted) or lets a model exceed the billing-shaped caps.
+Selected risk packs: Schema/field names (strict tool input, error-code union); Resource limits (depth 2, 7 per parent, 60 total, injected caps); Error handling (unknown parent, duplicate or dropped temporary id, malformed input are ProviderOutputError, never repaired). Not selected: Public API (no route yet), Config (2.1), Auth, File IO, Concurrency (one assembler per attempt, synchronous), Release (no dependency), Docs (no doc goes stale; TECH lands with 3.2/3.4), Legacy compatibility (the ai context is empty; compatibility with map is proven by parseTreeOp on every emitted op and by `pnpm boundaries`).
+Must preserve: `src/contexts/map/domain/tree-op.ts`, `parseTreeOp`, the `domain-is-pure` rule and `src/contexts/account/acl/map.ts` stay unchanged. Downstream consumers: 1.2 (tool name `add_children`, input schema), 1.3 (`complete`, `ProviderOutputError`), 2.2 (the three error classes, code union), 3.1–3.4 (assembler `{ rootId, idFactory, caps }`, `Provider` port).
+Input contract: the assembler takes an already-parsed `unknown` tool input; JSON parsing belongs to the adapters, whose unparseable-input cases are proven in 3.2 and 3.4.
+Evidence floor: Vitest scenarios listed in task 1.1 including `complete` and parseTreeOp on every emitted op; `pnpm boundaries`; per-file coverage ≥ 90%; `pnpm typecheck`, `pnpm lint`. design.md D1/D2 are the design; no per-issue design section.
+
 ## Impact
 
 - **Code:**
