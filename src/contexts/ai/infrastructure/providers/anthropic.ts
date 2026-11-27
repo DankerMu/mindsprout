@@ -1,8 +1,7 @@
-import Anthropic, { type ClientOptions } from '@anthropic-ai/sdk';
+import Anthropic, { AnthropicError, APIError, type ClientOptions } from '@anthropic-ai/sdk';
 import type {
   BetaContentBlock,
   BetaContentBlockParam,
-  BetaMessage,
   BetaMessageParam,
   BetaMessageStreamParams,
   BetaRawMessageStreamEvent,
@@ -14,12 +13,16 @@ import type { NodeId } from '../../acl/map';
 import { buildGenerateRequest, GENERATE_TOOL_DEFINITION } from '../../application/generate-prompt';
 import type { GenerateRequest, Provider } from '../../application/provider';
 import { runTurnLoop, type TurnEnd, type TurnItem } from '../../application/turn-loop';
-import { ProviderOutputError, ProviderTransportError } from '../../domain/errors';
+import {
+  ProviderOutputError,
+  ProviderRefusedError,
+  ProviderTransportError,
+} from '../../domain/errors';
 import { PRODUCTION_CAPS } from '../../domain/generate-tool';
 
 // The Claude adapter (design D3, D4): one `client.beta.messages.stream` per turn, driven by the
-// shared turn loop. Failure classification beyond this slice (refusal, max_tokens, HTTP status,
-// malformed input JSON) is task 3.4.
+// shared turn loop. Every failure becomes a provider error with a fixed message and no cause
+// (proposal "Issue #303 Fixture Triage").
 
 interface AnthropicProviderOptions {
   apiKey: string;
@@ -62,49 +65,73 @@ function requestBody(
   };
 }
 
-// D3 turn-end mapping for this slice; 3.4 refines `refusal` and `max_tokens`.
-function turnEnd(reason: BetaStopReason | null): TurnEnd {
-  if (reason === 'tool_use') return 'tool-use';
-  if (reason === 'end_turn' || reason === 'stop_sequence') return 'natural';
-  throw new ProviderTransportError('Claude turn ended with an unsupported stop reason');
-}
+const UNFINISHED_INPUT = 'Claude tool input is unfinished or not valid JSON';
 
 // One turn's tool inputs by content index. `json` holds the `partial_json` text of each open
 // tool_use block; `inputs` the strict parse of each stopped one. The SDK's `block.input` is never
-// read: it is a partial-JSON parse that silently completes truncated input.
+// read: it is a partial-JSON parse that silently completes truncated input. `unfinished` marks a
+// stopped block whose input failed the strict parse; the verdict on it waits for the stop reason,
+// because a refusal cuts the block it interrupts.
 interface TurnInputs {
   json: Map<number, string>;
   inputs: Map<number, unknown>;
+  unfinished: boolean;
 }
 
-function parseStrict(json: string): unknown {
-  try {
-    return JSON.parse(json) as unknown;
-  } catch {
-    // Swallows the SyntaxError: its message quotes the model output.
-    throw new ProviderOutputError('Claude tool input is not valid JSON');
+// D3/D4 turn-end mapping, in order. A refusal wins over an unfinished input: a decline while a
+// tool_use block is open returns the refusal directly and cuts that block. An open block left at
+// the message end is unfinished too. Claude has no content-filter stop reason.
+function turnEnd(reason: BetaStopReason | null, turn: TurnInputs): TurnEnd {
+  if (reason === 'refusal') throw new ProviderRefusedError('Claude refused the request');
+  if (turn.unfinished || turn.json.size > 0) throw new ProviderOutputError(UNFINISHED_INPUT);
+  if (reason === 'tool_use') return 'tool-use';
+  if (reason === 'end_turn' || reason === 'stop_sequence' || reason === 'max_tokens') {
+    return 'natural';
   }
+  throw new ProviderTransportError('Claude turn ended with an unsupported stop reason');
+}
+
+function parseStrict(json: string): { input: unknown } | undefined {
+  try {
+    return { input: JSON.parse(json) as unknown };
+  } catch {
+    // Swallows the SyntaxError: its message quotes the model output. turnEnd gives the verdict.
+    return undefined;
+  }
+}
+
+function startBlock(index: number, type: string, turn: TurnInputs): void {
+  // Only a refusal may end a turn with an unfinished input, and nothing follows it on the stream.
+  if (turn.unfinished) throw new ProviderOutputError(UNFINISHED_INPUT);
+  if (type === 'tool_use') turn.json.set(index, '');
+  // An emitted op cannot be withdrawn, so a fallback hop after one ends the attempt.
+  if (type === 'fallback' && turn.inputs.size > 0) {
+    throw new ProviderTransportError('Claude fell back after a tool input was yielded');
+  }
+}
+
+function stopBlock(index: number, turn: TurnInputs): TurnItem | undefined {
+  const json = turn.json.get(index);
+  if (json === undefined) return undefined;
+  turn.json.delete(index);
+  const parsed = parseStrict(json);
+  if (parsed === undefined) {
+    turn.unfinished = true;
+    return undefined;
+  }
+  turn.inputs.set(index, parsed.input);
+  return { type: 'tool-input', input: parsed.input };
 }
 
 // Returns the tool input completed by `event`, if any.
 function acceptEvent(event: BetaRawMessageStreamEvent, turn: TurnInputs): TurnItem | undefined {
   if (event.type === 'content_block_start') {
-    const { type } = event.content_block;
-    if (type === 'tool_use') turn.json.set(event.index, '');
-    // An emitted op cannot be withdrawn, so a fallback hop after one ends the attempt.
-    if (type === 'fallback' && turn.inputs.size > 0) {
-      throw new ProviderTransportError('Claude fell back after a tool input was yielded');
-    }
+    startBlock(event.index, event.content_block.type, turn);
   } else if (event.type === 'content_block_delta' && event.delta.type === 'input_json_delta') {
     const json = turn.json.get(event.index);
     if (json !== undefined) turn.json.set(event.index, json + event.delta.partial_json);
   } else if (event.type === 'content_block_stop') {
-    const json = turn.json.get(event.index);
-    if (json === undefined) return undefined;
-    turn.json.delete(event.index);
-    const input = parseStrict(json);
-    turn.inputs.set(event.index, input);
-    return { type: 'tool-input', input };
+    return stopBlock(event.index, turn);
   }
   return undefined;
 }
@@ -120,7 +147,8 @@ const DROPPED_BEFORE_FALLBACK: ReadonlySet<string> = new Set([
 // Turn n's assistant content as received (fallback blocks in place) minus the blocks above before
 // the last fallback block, with each tool_use input replaced by its strict parse, then one `ok`
 // tool_result per tool_use, in order. A turn that kept a tool_use before a fallback block has
-// already rejected, so every acked call follows the last fallback.
+// already rejected, so every acked call follows the last fallback; an unfinished turn has
+// rejected too, so every replayed input passed the strict parse.
 function acknowledged(content: readonly BetaContentBlock[], turn: TurnInputs): BetaMessageParam[] {
   const lastFallback = content.map((block) => block.type).lastIndexOf('fallback');
   const replay = content.flatMap((block, index): BetaContentBlockParam[] => {
@@ -139,30 +167,60 @@ function acknowledged(content: readonly BetaContentBlock[], turn: TurnInputs): B
   ];
 }
 
+// The SDK's own error for tool input its partial parser rejects at block stop
+// (BetaMessageStream `#toolInputParseError`, SDK pinned at 1.13.0). Its message quotes the raw
+// model JSON, so only this prefix is read.
+const SDK_INPUT_PARSE_ERROR = 'Unable to parse tool parameter JSON from model';
+
+// SDK messages quote response bodies, request ids and model output, so no SDK error is forwarded
+// or kept as a cause. Every APIError (HTTP status, connection, user abort) is a transport error;
+// the turn loop turns an abort into signal.reason.
+function classified(error: unknown): Error {
+  if (
+    error instanceof ProviderOutputError ||
+    error instanceof ProviderTransportError ||
+    error instanceof ProviderRefusedError
+  ) {
+    return error;
+  }
+  if (
+    error instanceof AnthropicError &&
+    !(error instanceof APIError) &&
+    error.message.startsWith(SDK_INPUT_PARSE_ERROR)
+  ) {
+    return new ProviderOutputError('Claude tool input is not valid JSON');
+  }
+  return new ProviderTransportError('Claude request failed');
+}
+
+interface TurnOutcome {
+  end: TurnEnd;
+  content: BetaContentBlock[];
+}
+
 // Streams one request. The stream is iterated as soon as it is created, so the SDK always has an
 // error listener; a consumer stop at a yield closes the iterator, which aborts the request. The
-// final message rethrows errors the event iterator swallows. Every error aborts the request first:
-// an error the SDK reports itself (such as malformed tool input at block stop) rejects the
-// iterator without closing it, and the body would keep streaming. SDK errors become a
-// fixed-message transport error because their messages quote response bodies and model output.
+// final message rethrows errors the event iterator swallows, and its stop reason gives the turn
+// verdict. Every error aborts the request first: an error the SDK reports itself (such as
+// malformed tool input at block stop) rejects the iterator without closing it, and the body would
+// keep streaming.
 async function* streamTurn(
   client: Anthropic,
   body: BetaMessageStreamParams,
   signal: AbortSignal,
   turn: TurnInputs,
-): AsyncGenerator<TurnItem, BetaMessage, undefined> {
+): AsyncGenerator<TurnItem, TurnOutcome, undefined> {
   const stream = client.beta.messages.stream(body, { signal });
   try {
     for await (const event of stream) {
       const item = acceptEvent(event, turn);
       if (item !== undefined) yield item;
     }
-    return await stream.finalMessage();
+    const message = await stream.finalMessage();
+    return { end: turnEnd(message.stop_reason, turn), content: message.content };
   } catch (error) {
     stream.abort();
-    if (error instanceof ProviderOutputError || error instanceof ProviderTransportError)
-      throw error;
-    throw new ProviderTransportError('Claude request failed');
+    throw classified(error);
   }
 }
 
@@ -172,11 +230,10 @@ function attemptTurns(client: Anthropic, model: string, request: GenerateRequest
   const prompt = buildGenerateRequest(request.topic);
   const history: BetaMessageParam[] = [...prompt.messages];
   return async function* runTurn(): AsyncGenerator<TurnItem, TurnEnd, undefined> {
-    const turn: TurnInputs = { json: new Map(), inputs: new Map() };
+    const turn: TurnInputs = { json: new Map(), inputs: new Map(), unfinished: false };
     const body = requestBody(model, prompt.system, history);
-    const message = yield* streamTurn(client, body, request.signal, turn);
-    const end = turnEnd(message.stop_reason);
-    if (end === 'tool-use') history.push(...acknowledged(message.content, turn));
+    const { end, content } = yield* streamTurn(client, body, request.signal, turn);
+    if (end === 'tool-use') history.push(...acknowledged(content, turn));
     return end;
   };
 }

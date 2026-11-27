@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import type {
   BetaRawMessageStreamEvent,
+  BetaRefusalStopDetails,
   BetaStopReason,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,7 +16,11 @@ import {
   GENERATE_SYSTEM_PROMPT,
   GENERATE_TOOL_DEFINITION,
 } from '../../application/generate-prompt';
-import { ProviderOutputError, ProviderTransportError } from '../../domain/errors';
+import {
+  ProviderOutputError,
+  ProviderRefusedError,
+  ProviderTransportError,
+} from '../../domain/errors';
 import { createAnthropicProvider } from './anthropic';
 
 // Hand-authored Messages SSE fixtures (Anthropic streaming wire format: message_start, then a
@@ -159,14 +164,32 @@ function redactedThinkingBlock(index: number, data: string): StreamEvent[] {
   ];
 }
 
+// The vendor refusal shape (refusals-and-fallback, "What a refusal looks like"); the SDK's other
+// BetaRefusalStopDetails fields are null, as for a request without fallback credit.
+const REFUSAL_DETAILS: BetaRefusalStopDetails = {
+  type: 'refusal',
+  category: 'cyber',
+  explanation: 'This request was declined because it could enable cyber harm.',
+  fallback_credit_token: null,
+  fallback_has_prefill_claim: null,
+  recommended_model: null,
+};
+
+// stop_details is null for every stop reason other than refusal.
 function turnOf(blocks: StreamEvent[][], stopReason: BetaStopReason | null): StreamEvent[] {
+  const stopDetails = stopReason === 'refusal' ? REFUSAL_DETAILS : null;
   return [
     messageStart(),
     ...blocks.flat(),
     {
       type: 'message_delta',
       context_management: null,
-      delta: { container: null, stop_details: null, stop_reason: stopReason, stop_sequence: null },
+      delta: {
+        container: null,
+        stop_details: stopDetails,
+        stop_reason: stopReason,
+        stop_sequence: null,
+      },
       usage: {
         cache_creation_input_tokens: null,
         cache_read_input_tokens: null,
@@ -286,6 +309,19 @@ function sentAt(wire: { sent: SentRequest[] }, turn: number): SentRequest {
   return sent;
 }
 
+// One fixture turn with a sentinel tool_use turn behind it, so a second request is counted.
+async function oneTurn(reply: Reply) {
+  const wire = sequence([reply, ROOT_TURN]);
+  const result = await attempt(providerOver(wire.fetch).streamOps(request()));
+  return { ...result, wire };
+}
+
+function consoleSpies() {
+  return (['debug', 'info', 'log', 'warn', 'error'] as const).map((level) =>
+    vi.spyOn(console, level).mockImplementation(() => undefined),
+  );
+}
+
 // Every ANTHROPIC_* variable is cleared, then the ones the SDK reads for credentials, host and
 // logging get decoys, so a client that falls back to the environment for them is caught. The SDK
 // always merges ANTHROPIC_CUSTOM_HEADERS under the client's default headers: only the names the
@@ -331,7 +367,16 @@ function claudeHarness(scenario: ProviderScenarioName): ProviderHarness {
 describeProviderContract('anthropic', claudeHarness);
 
 const ROOT_CALL = call('root', 'a', 'b');
-const ROOT_TURN = turnOf([toolUse(0, 'toolu_root', ROOT_CALL)], 'tool_use');
+const ROOT_USE = toolUse(0, 'toolu_root', ROOT_CALL);
+const ROOT_TURN = turnOf([ROOT_USE], 'tool_use');
+// The SDK's partial-JSON parse completes this prefix to a schema-valid call.
+const TRUNCATED = '{"parentId":"root","children":[{"id":"a","text":"节点 a"}';
+
+// A tool_use block carrying TRUNCATED, with or without its content_block_stop.
+function cutToolUse(index: number, stops: boolean): StreamEvent[] {
+  const events = rawToolUse(index, 'toolu_cut', TRUNCATED);
+  return stops ? events : events.slice(0, -1);
+}
 const NATURAL_TURN = turnOf([toolUse(0, 'toolu_a', call('a', 'a1'))], 'end_turn');
 const SINGLE_TURN = turnOf([toolUse(0, 'toolu_root', ROOT_CALL)], 'end_turn');
 
@@ -369,9 +414,7 @@ describe('Claude adapter: request', () => {
   });
 
   it('sends the key only as x-api-key over the env key, token, host, log and pinned custom-header decoys, and logs nothing', async () => {
-    const logged = (['debug', 'info', 'log', 'warn', 'error'] as const).map((level) =>
-      vi.spyOn(console, level).mockImplementation(() => undefined),
-    );
+    const logged = consoleSpies();
     const wire = sequence([ROOT_TURN, NATURAL_TURN]);
 
     await attempt(providerOver(wire.fetch).streamOps(request()));
@@ -515,25 +558,81 @@ describe('Claude adapter: turn loop', () => {
     expect(wire.sent).toHaveLength(1);
   });
 
-  it.each([['pause_turn' as const], [null]])(
-    'rejects stop reason %s as a transport error after its ops',
-    async (stopReason) => {
-      const wire = sequence([turnOf([toolUse(0, 'toolu_root', ROOT_CALL)], stopReason), ROOT_TURN]);
+  // The last row is the SDK's own non-APIError "stream ended" error: not malformed tool input.
+  it.each<[string, Reply]>([
+    ['stop reason pause_turn', turnOf([ROOT_USE], 'pause_turn')],
+    [
+      'stop reason model_context_window_exceeded',
+      turnOf([ROOT_USE], 'model_context_window_exceeded'),
+    ],
+    ['a missing stop reason', turnOf([ROOT_USE], null)],
+    ['a body that closes before message_delta', [messageStart(), ...ROOT_USE]],
+  ])('rejects %s as a transport error after its op', async (_, reply) => {
+    const result = await oneTurn(reply);
 
-      const result = await attempt(providerOver(wire.fetch).streamOps(request()));
+    expect(result.emitted).toHaveLength(1);
+    expect(result.error).toBeInstanceOf(ProviderTransportError);
+    expect(result.wire.sent).toHaveLength(1);
+  });
+});
+
+// A strict-parse failure or an unclosed tool_use block leaves the turn unfinished; the verdict is
+// taken at the turn end (proposal "Issue #303 Fixture Triage", turn-end mapping).
+describe('Claude adapter: turn-end verdict', () => {
+  it.each<[string, StreamEvent[][], number]>([
+    ['with no tool call', [], 0],
+    ['cutting a truncated tool input at its block stop', [cutToolUse(0, true)], 0],
+    ['cutting a tool input whose block never stops', [cutToolUse(0, false)], 0],
+    ['after an op of the same turn', [ROOT_USE], 1],
+  ])('rejects a refusal %s as refused after one request', async (_, blocks, ops) => {
+    const result = await oneTurn(turnOf(blocks, 'refusal'));
+
+    expect(result.emitted).toHaveLength(ops);
+    expect(result.error).toBeInstanceOf(ProviderRefusedError);
+    expect((result.error as Error).cause).toBeUndefined();
+    expect(result.wire.sent).toHaveLength(1);
+  });
+
+  it.each<[string, boolean]>([
+    ['truncated at its block stop', true],
+    ['whose block never stops', false],
+  ])(
+    'rejects a tool input %s at the token cap as invalid output after the complete op',
+    async (_, stops) => {
+      const result = await oneTurn(turnOf([ROOT_USE, cutToolUse(1, stops)], 'max_tokens'));
 
       expect(result.emitted).toHaveLength(1);
-      expect(result.error).toBeInstanceOf(ProviderTransportError);
-      expect(wire.sent).toHaveLength(1);
+      expect(result.error).toBeInstanceOf(ProviderOutputError);
+      expect(result.wire.sent).toHaveLength(1);
     },
   );
+
+  it('ends naturally at the token cap when every tool input is complete', async () => {
+    const result = await oneTurn(
+      turnOf([ROOT_USE, toolUse(1, 'toolu_a', call('a', 'a1'))], 'max_tokens'),
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.emitted.map((op) => op.op)).toStrictEqual(['add_children', 'add_children']);
+    expect(result.wire.sent).toHaveLength(1);
+  });
+
+  it('rejects a block after an unfinished tool input as invalid output and aborts the request', async () => {
+    const wire = sequence([
+      { open: [messageStart(), ...cutToolUse(0, true), ...toolUse(1, 'toolu_root', ROOT_CALL)] },
+    ]);
+
+    const result = await attempt(providerOver(wire.fetch).streamOps(request()));
+
+    expect(result.emitted).toStrictEqual([]);
+    expect(result.error).toBeInstanceOf(ProviderOutputError);
+    expect(sentAt(wire, 1).signal?.aborted).toBe(true);
+  });
 });
 
 describe('Claude adapter: tool input and fallback', () => {
   it('rejects a truncated partial_json at block stop as invalid output, never repaired', async () => {
-    // The SDK's partial-JSON parse would complete this to a schema-valid call.
-    const truncated = '{"parentId":"root","children":[{"id":"a","text":"节点 a"}';
-    const wire = sequence([turnOf([rawToolUse(0, 'toolu_cut', truncated)], 'tool_use')]);
+    const wire = sequence([turnOf([cutToolUse(0, true)], 'tool_use')]);
 
     const result = await attempt(providerOver(wire.fetch).streamOps(request()));
 
@@ -543,28 +642,29 @@ describe('Claude adapter: tool input and fallback', () => {
     expect(wire.sent).toHaveLength(1);
   });
 
-  it('withholds the raw model JSON when the SDK rejects malformed input', async () => {
-    const malformed = '{"parentId":"root","children":[{"id":"a","text":"leak-marker"}]}}';
-    const wire = sequence([turnOf([rawToolUse(0, 'toolu_bad', malformed)], 'tool_use')]);
+  // The SDK rejects this at block stop with a message quoting the raw JSON.
+  const MALFORMED = rawToolUse(
+    0,
+    'toolu_bad',
+    '{"parentId":"root","children":[{"id":"a","text":"leak-marker"}]}}',
+  );
+  it.each<[string, Reply]>([
+    ['a closed body', turnOf([MALFORMED], 'tool_use')],
+    ['an open body', { open: [messageStart(), ...MALFORMED] }],
+  ])(
+    'rejects malformed input JSON over %s as invalid output without the raw JSON and aborts the request',
+    async (_, reply) => {
+      const result = await oneTurn(reply);
 
-    const result = await attempt(providerOver(wire.fetch).streamOps(request()));
-
-    expect(result.emitted).toStrictEqual([]);
-    expect(result.error).toBeInstanceOf(Error);
-    expect((result.error as Error).message).not.toContain('leak-marker');
-    expect((result.error as Error).cause).toBeUndefined();
-  });
-
-  it('aborts the HTTP request when the SDK rejects malformed input while the body is open', async () => {
-    const malformed = '{"parentId":"root","children":[{"id":"a","text":"节点 a"}]}}';
-    const wire = sequence([{ open: [messageStart(), ...rawToolUse(0, 'toolu_bad', malformed)] }]);
-
-    const result = await attempt(providerOver(wire.fetch).streamOps(request()));
-
-    expect(result.emitted).toStrictEqual([]);
-    expect(result.error).toBeInstanceOf(ProviderTransportError);
-    expect(sentAt(wire, 1).signal?.aborted).toBe(true);
-  });
+      expect(result.emitted).toStrictEqual([]);
+      expect(result.error).toBeInstanceOf(ProviderOutputError);
+      const error = result.error as Error;
+      expect(`${error.message}\n${String(error.stack)}`).not.toContain('leak-marker');
+      expect(error.cause).toBeUndefined();
+      expect(sentAt(result.wire, 1).signal?.aborted).toBe(true);
+      expect(result.wire.sent).toHaveLength(1);
+    },
+  );
 
   it('replays a fallback-first turn with the fallback block in place and acks only the later call', async () => {
     const wire = sequence([
@@ -652,22 +752,41 @@ describe('Claude adapter: tool input and fallback', () => {
   });
 });
 
+const REQUEST_ID = 'req_fixture_303';
+
+// ai-provider "Provider HTTP error body withheld": the body carries the key and the request id.
 describe('Claude adapter: HTTP failure', () => {
-  it('requests a retryable 529 exactly once and rejects without its body', async () => {
-    const overloaded = new Response(
-      JSON.stringify({
-        type: 'error',
-        error: { type: 'overloaded_error', message: 'body-marker' },
-      }),
-      { status: 529, headers: { 'content-type': 'application/json', 'x-should-retry': 'true' } },
-    );
-    const wire = sequence([overloaded, ROOT_TURN]);
+  it.each<[number, string, Record<string, string>]>([
+    [529, 'overloaded_error', { 'x-should-retry': 'true' }],
+    [500, 'api_error', {}],
+  ])(
+    'requests a %i exactly once and rejects without its body, key or request id',
+    async (status, type, retry) => {
+      const logged = consoleSpies();
+      const failed = new Response(
+        JSON.stringify({
+          type: 'error',
+          error: { type, message: `body-marker ${API_KEY} ${REQUEST_ID}` },
+          request_id: REQUEST_ID,
+        }),
+        {
+          status,
+          headers: { 'content-type': 'application/json', 'request-id': REQUEST_ID, ...retry },
+        },
+      );
 
-    const result = await attempt(providerOver(wire.fetch).streamOps(request()));
+      const result = await oneTurn(failed);
 
-    expect(wire.sent).toHaveLength(1);
-    expect(result.emitted).toStrictEqual([]);
-    expect(result.error).toBeInstanceOf(ProviderTransportError);
-    expect((result.error as Error).message).not.toContain('body-marker');
-  });
+      expect(result.wire.sent).toHaveLength(1);
+      expect(result.emitted).toStrictEqual([]);
+      expect(result.error).toBeInstanceOf(ProviderTransportError);
+      const error = result.error as Error;
+      expect(error.message).toBe('Claude request failed');
+      expect(error.cause).toBeUndefined();
+      for (const leaked of ['body-marker', API_KEY, REQUEST_ID]) {
+        expect(`${error.message}\n${String(error.stack)}`).not.toContain(leaked);
+      }
+      for (const spy of logged) expect(spy).not.toHaveBeenCalled();
+    },
+  );
 });
