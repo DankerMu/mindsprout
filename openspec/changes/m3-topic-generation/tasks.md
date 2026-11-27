@@ -61,7 +61,7 @@ Minimal mergeable slice: 1.1 - the domain, acl and assembler are green alone; 1.
 
 ## 2. Configuration and generate use case
 
-- [ ] 2.1 Extend `src/shared/env.ts` with the AI fields, empty-means-unset preprocessing and the cross-field rules (design D7).
+- [x] 2.1 Extend `src/shared/env.ts` with the AI fields, empty-means-unset preprocessing and the cross-field rules (design D7).
   - Rewrite the `.env.example` AI block:
     - leave `AI_PROVIDER=` empty;
     - put the platform default in comments: `anthropic`, `https://www.dmxapi.cn`, `deepseek-v4.1-flash-1017`, plus the OpenAI-compatible alternative;

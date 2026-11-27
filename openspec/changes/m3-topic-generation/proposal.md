@@ -251,6 +251,53 @@ Blast radius: the second real adapter, selected with `AI_PROVIDER=openai-compati
 - No call reaches the gateway: `globalThis.fetch` is stubbed to throw during the tests and is called 0 times, and the injected `fetch` is called once per turn.
 - `pnpm licenses:check`, `pnpm install --frozen-lockfile`, `pnpm dead-code`, `pnpm boundaries`, `pnpm docs:check`, `pnpm decisions:check` and `pnpm test:guardrails` pass, and coverage is at least 90%.
 
+## Issue #298 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded. Agree: `loadEnv` runs on every account request (`src/app/server/account-services.ts:30, :126`), so a wrong rule breaks sign-in for everyone or silently leaves AI misconfigured.
+Blast radius: production configuration. The schema has four failure modes:
+
+- It rejects a valid environment, so every account request throws.
+- It accepts a partial one, which shows up later as a 503 or a provider 401.
+- It echoes a key value in its load error.
+- It makes `.env.example` fail to load, so every account request fails after the documented `cp .env.example .env`.
+  Selected risk packs:
+- Config: the fields, empty-means-unset preprocessing and the cross-field rules.
+- Auth/secrets: errors name variables, never values; `.env.example` holds no key value.
+- Docs: the `.env.example` AI block.
+  Not selected: Public API, Schema, File IO, Concurrency, Resource limits, Legacy, Release.
+  Interface: `src/shared/env.ts`.
+- `envSchema` gains `AI_PROVIDER` (`z.enum(['anthropic', 'openai-compatible', 'mock'])`), `AI_MODEL`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` (non-empty strings), and `ANTHROPIC_BASE_URL` and `OPENAI_BASE_URL` (`z.url({ protocol: /^https?$/ })`, fail-loud like `DATABASE_URL`; the protocol check also rejects the `localhost:11434/v1` typo). All are optional. Base URLs are format-checked even when their provider is not selected.
+- Each AI field is wrapped in one shared preprocess that turns `''` into `undefined`. It is written once and applied to all six fields.
+- A `superRefine` adds one custom issue for each variable the selected provider requires and lacks. `path` is the variable name and the message is fixed, for example `required when AI_PROVIDER=openai-compatible`. The thrown error therefore names every missing variable together. The exception is when another field fails its own enum check (`NODE_ENV`, `LOG_LEVEL`): Zod v4 then skips the refinement, the error names that field, and it still throws.
+- `mock` with `NODE_ENV=production` adds an issue on `AI_PROVIDER`.
+- `loadEnv`'s error format stays `path: message`. No message contains an input value: Zod's enum and URL messages do not echo the input, and the custom messages are fixed. `Env` stays the inferred type.
+- Narrowing to a discriminated provider config is task 4.1 and stays out of scope.
+  `.env.example`, AI block only:
+- `AI_PROVIDER=`, `AI_MODEL=`, `ANTHROPIC_API_KEY=`, `ANTHROPIC_BASE_URL=`, `OPENAI_API_KEY=` and `OPENAI_BASE_URL=` are all empty. The current `OPENAI_BASE_URL=https://api.openai.com/v1` value moves into a comment.
+- The header `# 内置提供方（至少配一个）` is replaced, because AI is optional.
+- Comments give the platform default (`AI_PROVIDER=anthropic`, `ANTHROPIC_BASE_URL=https://www.dmxapi.cn`, `AI_MODEL=deepseek-v4.1-flash-1017`) and the OpenAI-compatible alternative (`AI_PROVIDER=openai-compatible`, `OPENAI_BASE_URL=…`, the same `AI_MODEL`).
+- A comment notes that `AI_PROVIDER=mock` is for local verification only and is refused in production.
+- `OLLAMA_BASE_URL` is dropped. Every other line stays, including `PROVIDER_KEY_ENCRYPTION_SECRET`, which belongs to M3.5.
+- Agents read only `.env.example`, never `.env`.
+  Out of scope: provider construction from env (4.1), with the #302 handoff "reject or document `ANTHROPIC_CUSTOM_HEADERS`" kept for 4.1; and forcing the mock on verification servers (4.2).
+  Must preserve: the existing env tests and fields, and `account-services.ts` callers unchanged. The PR Risk section states that an owner `.env` with a partial AI setup now turns account routes into load errors, and that base URLs are checked even when their provider is unselected.
+  Evidence floor (Vitest, `src/shared/env.test.ts`):
+- "AI not configured": `{}`, `{ AI_PROVIDER: '' }` and every AI field set to `''` load, with `AI_PROVIDER` undefined.
+- "Example environment loads": the real `.env.example`, parsed with Node's `util.parseEnv`, loads with AI unconfigured. The parsed object has all six AI keys present and equal to `''`, and has no `OLLAMA_BASE_URL`. The same parsed copy with `AI_PROVIDER=anthropic` throws `/ANTHROPIC_API_KEY/`; this is committed as an assertion. The row fails against the current file and passes after the rewrite.
+- "Partially configured provider fails at load", for `openai-compatible`:
+  - each of `OPENAI_API_KEY`, `OPENAI_BASE_URL` and `AI_MODEL`, missing and then `''`, throws an error naming that variable (`it.each`);
+  - all three missing names all three.
+- For `anthropic`, missing `ANTHROPIC_API_KEY` or `AI_MODEL` throws naming it.
+- A full `openai-compatible` configuration (key, base URL, model) loads. `OPENAI_API_KEY` and `OPENAI_BASE_URL` survive into the output, and no Anthropic variable is required.
+- A legacy `.env`, given as the current `.env.example` contents written as a literal (`OPENAI_BASE_URL=https://api.openai.com/v1`, `OLLAMA_BASE_URL=…`, no `AI_PROVIDER`), loads with `AI_PROVIDER` undefined.
+- `OPENAI_BASE_URL=localhost:11434/v1` throws naming `OPENAI_BASE_URL`.
+- "Claude provider configuration": `anthropic` with a key and a model loads. `ANTHROPIC_BASE_URL` is undefined when unset or `''`, and kept when set.
+- "Mock refused in production": `mock` and `production` throws naming `AI_PROVIDER`. `mock` and `development` loads.
+- No echo: an invalid `AI_PROVIDER` value and an invalid base URL throw messages that contain neither input. A missing-model error contains no key value present in the input.
+- The existing three tests pass. Coverage of `env.ts` is at least 90%. `pnpm typecheck` and `pnpm lint` pass.
+
 ## Impact
 
 - **Code:**
