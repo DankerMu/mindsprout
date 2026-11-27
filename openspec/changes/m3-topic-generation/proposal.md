@@ -73,6 +73,17 @@ Must preserve: `src/contexts/map/domain/tree-op.ts`, `parseTreeOp`, the `domain-
 Input contract: the assembler takes an already-parsed `unknown` tool input; JSON parsing belongs to the adapters, whose unparseable-input cases are proven in 3.2 and 3.4.
 Evidence floor: Vitest scenarios listed in task 1.1 including `complete` and parseTreeOp on every emitted op; `pnpm boundaries`; per-file coverage ≥ 90%; `pnpm typecheck`, `pnpm lint`. design.md D1/D2 are the design; no per-issue design section.
 
+## Issue #316 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: compact (override: the turn count and stop rule are a billing guard — money trigger — and the helper owns async ordering, abort and iterator cleanup)
+Blast radius: every adapter's turn count and stop rule; a missed stop bills an extra turn on every generation, an early stop truncates skeletons, a missed zero-op check passes an empty answer as success, an unclosed turn keeps streaming and billing while 2.2 retries.
+Selected risk packs: Resource limits (4 turns; `complete` stop; turn iterator closed on early stop); Error handling (zero-op natural end is `ProviderOutputError`; assembler errors propagate; abort is never `ProviderOutputError`); Concurrency/ordering (ops yielded at once in arrival order; abort checked before each turn). Not selected: Schema (1.1 owns it), Public API (internal; consumers named below), Config, Auth, File IO, Release, Legacy, Docs (design D3 amended in this PR).
+Interface: `runTurnLoop({ request, idFactory, caps, runTurn, maxTurns = 4 })` yields `TreeOp`; `runTurn(turn)` yields `{ type: 'tool-input', input: unknown }` items then returns `'natural' | 'tool-use'`; the D3 turn-end mapping is applied by adapters. Design: D3 "One loop".
+Must preserve: the 1.1 assembler and errors unchanged. Downstream consumers: 3.1 mock, 3.2 OpenAI-compatible, 3.3 Claude (each supplies only `runTurn`); 2.2 retries the helper's `ProviderOutputError` and never an abort.
+Evidence floor (Vitest, scripted fake turns): "Two-turn skeleton" → two `runTurn` calls, ops of both turns, no third call; "Turn limit" → exactly 4 calls, all ops kept, normal end; "No tool call is invalid output" → natural end with zero ops rejects `ProviderOutputError`; natural end after ops → no further call; immediacy → a turn that yields input 1 then blocks delivers op 1 before the turn ends; ops after `complete` within one turn are yielded; abort before turn n → `runTurn(n)` never called, rejects with `signal.reason`, zero-op abort is not `ProviderOutputError`; assembler error mid-turn and consumer early stop → the fake turn's `return()` is recorded; `pnpm boundaries`; coverage ≥ 90%.
+
 ## Impact
 
 - **Code:**
