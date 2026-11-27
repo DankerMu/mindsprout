@@ -1,3 +1,5 @@
+import { tracingChannel } from 'node:diagnostics_channel';
+import { registerTelemetry, type Telemetry } from 'ai';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   describeProviderContract,
@@ -94,8 +96,8 @@ function turnSse(
   ].join('');
 }
 
-// A string is a whole SSE body; `stall` sends nothing until the request's own signal aborts;
-// `broken` sends its prefix and then fails the body read.
+// A string is a whole SSE body; `stall` holds its body open, sending nothing, and errors it when
+// the request's init.signal aborts; `broken` sends its prefix and then fails the body read.
 type Reply = string | Response | { stall: true } | { broken: string };
 
 interface SentRequest {
@@ -151,7 +153,8 @@ function respond(answer: Reply, signal: AbortSignal | undefined, started: () => 
 }
 
 // The injected transport: records each request and answers turn n with `reply(n)`. A stalled
-// turn's body settles only when the request's own init.signal aborts.
+// turn ends on abort both through its body (init.signal errors it) and through the SDK's own
+// abort handling, which cancels its read; only the recorded init.signal shows the wire abort.
 function transport(reply: (turn: number) => Reply) {
   const sent: SentRequest[] = [];
   const box: { release?: () => void } = {};
@@ -491,5 +494,71 @@ describe('OpenAI-compatible adapter: HTTP failure', () => {
       expect(`${error.message}\n${String(error.stack)}`).not.toContain(leaked);
     }
     for (const spy of logged) expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('OpenAI-compatible adapter: abort', () => {
+  it('aborts a stalled turn on the wire: the request init.signal is aborted', async () => {
+    const { fetch, sent, waiting } = sequence([{ stall: true }]);
+    const controller = new AbortController();
+    const pending = attempt(providerOver(fetch).streamOps(request(controller.signal)));
+    await waiting;
+    const reason = new Error('adapter abort');
+
+    controller.abort(reason);
+    const result = await pending;
+
+    expect(result.emitted).toStrictEqual([]);
+    expect(result.error).toBe(reason);
+    expect(sent).toHaveLength(1);
+    expect(sentAt(sent, 1).signal?.aborted).toBe(true);
+  });
+});
+
+// Records every lifecycle callback it receives by name; it forwards model calls unchanged.
+function recordingTelemetry(names: string[]): Telemetry {
+  const record = (name: string) => () => {
+    names.push(name);
+  };
+  return {
+    onStart: record('onStart'),
+    onLanguageModelCallStart: record('onLanguageModelCallStart'),
+    onStepEnd: record('onStepEnd'),
+    onEnd: record('onEnd'),
+    executeLanguageModelCall({ execute }) {
+      names.push('executeLanguageModelCall');
+      return execute();
+    },
+  };
+}
+
+// The SDK's telemetry is opt-out: a global integration and an `ai:telemetry` tracing-channel
+// subscriber would both receive the topic and the model output unless the call disables it.
+describe('OpenAI-compatible adapter: telemetry', () => {
+  it('reaches no global integration and no tracing-channel subscriber over two turns', async () => {
+    const integration: string[] = [];
+    const channel: string[] = [];
+    const traced = tracingChannel('ai:telemetry');
+    const onTraceStart = (message: unknown) => {
+      channel.push(String((message as { type?: unknown }).type));
+    };
+    const previous = globalThis.AI_SDK_TELEMETRY_INTEGRATIONS;
+    traced.start.subscribe(onTraceStart);
+    registerTelemetry(recordingTelemetry(integration));
+    try {
+      const { fetch, sent } = sequence([
+        ROOT_TURN,
+        turnSse([wire('call_a', call('a', 'a1'))], 'stop'),
+      ]);
+
+      const result = await attempt(providerOver(fetch).streamOps(request()));
+
+      expect(result.error).toBeUndefined();
+      expect(sent).toHaveLength(2);
+      expect({ integration, channel }).toStrictEqual({ integration: [], channel: [] });
+    } finally {
+      globalThis.AI_SDK_TELEMETRY_INTEGRATIONS = previous;
+      traced.start.unsubscribe(onTraceStart);
+    }
   });
 });
