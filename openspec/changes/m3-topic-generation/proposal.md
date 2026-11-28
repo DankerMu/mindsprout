@@ -483,6 +483,192 @@ Selected risk packs:
 - `bash -n` and `shellcheck` (if installed) pass on both scripts.
 - `pnpm dev:bg`, `pnpm dev:status` and `pnpm dev:stop` still work. The health probe returns HTTP 200 with `$.status == "ok"`.
 
+## Issue #305 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded. Agree: `src/app/api/` and `constraints.yaml` are Critical Paths, and this is the first public streaming route, with auth, abort and billing exposure.
+Blast radius: every generation. The failure modes are:
+
+- a provider call before auth or validation, which bills an anonymous or malformed request;
+- a missed disconnect, which keeps billing after the user left;
+- a `done` after an abort, which makes the editor treat a partial result as complete;
+- a leaked provider message, key or topic in a frame or a log;
+- a contract drift, which the editor (5.1) and smoke would only discover later.
+
+Governing invariant:
+
+- No provider call happens before the 415, 401, 400 and 503 checks have all passed.
+- A stream that is not aborted ends with exactly one terminal frame.
+- A client abort ends the stream with no terminal frame and no write after the abort.
+- No frame and no log line carries a provider message, a key or the topic.
+
+Selected risk packs:
+
+- Public API: status codes, JSON error codes, SSE frames, OpenAPI and its snapshot.
+- Auth/secrets: session and binding before the body is read, and no provider text in frames or logs.
+- Concurrency/abort: client disconnect through `request.signal`, and no write after an abort.
+- Config: the `aiService()` failure modes (`undefined` gives 503, a throw gives 500).
+- Docs: TECH §7 and §8.
+- Error handling / partial outputs:
+  - error-after-2 keeps its 2 op frames and then sends one `error` frame;
+  - the 500 paths;
+  - a non-`GenerationError` is rethrown, never mapped.
+- Resource limits / large input: `topic` is at most 200 code units. The body byte cap is deferred (see Not in this slice).
+  Not selected:
+- Schema: no storage and no migration.
+- File IO: the route touches no file.
+- Legacy: a new route, with no prior behaviour to keep.
+- Release: no flag, and no deploy target yet.
+  Interface: new `src/app/api/ai/generate/route.ts` exports only `POST(request: Request): Promise<Response>`.
+  Checks run in this order, and each one returns before the next starts:
+
+1. `requireJson(request)` gives 415 `unsupported-media-type`. `requireUser` is not called.
+2. `requireUser(request)` passes through its 401 Response unchanged. The body is not read.
+3. `request.json()` is parsed with a strict Zod object `{ topic, rootId }`.
+   - `topic` is `z.string().max(200)`, which counts UTF-16 code units on the raw string, and it is refined to be non-blank after `trim()`.
+   - `rootId` is `z.string().min(1)`.
+   - Invalid JSON, a non-object body, a missing or extra field, or a wrong type gives 400 `{"error":"invalid-input"}`.
+   - The raw `topic` goes to `generate` unchanged. The editor trims it (topic-generation spec).
+4. `aiService()`:
+   - It returns `undefined` when no provider is configured, giving 503 `{"error":"ai-unavailable"}`.
+   - It throws on an invalid env, which is the #304 handoff.
+5. A throw from `requireUser` or `aiService()` gives 500 `{"error":"internal"}` and one `logger.error({ event: 'ai.generate.failed' })`. The error object and its message are never logged or returned. This matches the house pattern of `src/app/api/maps/route.ts`.
+
+Success returns `new Response(stream, { headers })` with `content-type: text/event-stream` and `cache-control: no-store`. The status is 200.
+
+- Frames are `event: <name>\ndata: <JSON.stringify(data)>\n\n`, where name is `op`, `error` or `done`.
+- The stream is a `ReadableStream<Uint8Array>` whose `start(controller)` iterates `generate(service.provider, { topic, rootId, signal: request.signal }, { providerId, model, log })`. This follows the #299 handoff: the timer starts at the first `next()`, so iteration starts at once and not on the first pull.
+  - Each op is written as an `op` frame.
+  - On a normal return:
+    - if `request.signal.aborted`, no terminal frame is written and the stream closes;
+    - otherwise one `done` frame with `{}` is written and the stream closes.
+  - On a `GenerationError`, one `error` frame with `{ code: error.code, message: error.message }` is written and the stream closes. `generate` throws nothing else (the #299 contract), so the route catches only `GenerationError` and rethrows anything else. It never swallows an error.
+  - Write mechanism (one rule, no guarded catch):
+    - The underlying source's `cancel()` only sets a local `cancelled = true`. It does not call `iterator.return()`.
+    - Every `enqueue` and the final `close` go through one helper that does nothing once `cancelled` is true. On a cancelled stream both `enqueue` and `close` throw `TypeError`.
+    - When Next cancels the response on disconnect, the flag stops every write. When nobody cancelled, for example in a unit test that aborts only the request signal, the stream still closes, so `read()` returns `done: true`.
+- Disconnect relies on `request.signal` alone. Next 16 aborts it when the response closes (`signalFromNodeResponse`, `next/dist/server/web/spec-extension/adapters/next-request.js:56`). No `cancel()` → `iterator.return()` path is used, because `return()` queues behind an in-flight `next()` (the #299 handoff).
+- The handler imports only `account-services` (`requireJson`, `requireUser`), `ai-services` (`aiService`), `generate`/`GenerationError` from `ai/application/generate`, `zod` and `logger`. It imports no adapter and no map store. Review-only check (the #304 handoff): no non-test module other than `ai-services.ts` imports `contexts/ai/infrastructure/providers/*`.
+
+Contract surfaces:
+
+- `schemas/openapi.yaml` gains `/api/ai/generate` `post`:
+  - the `SessionBinding` parameter;
+  - a request body `GenerateRequest` (`additionalProperties: false`, `topic` with `maxLength: 200`, `rootId` with `minLength: 1`);
+  - a 200 `text/event-stream` response whose description names the three frames;
+  - components `GenerateOp`, `GenerateError` and `GenerateDone`:
+    - `GenerateOp` is the `add_children` TreeOp, the only op `generate` emits. It mirrors `addChildrenOp` and `newNodeSchema` in `src/contexts/map/domain/tree-op.ts`.
+    - `GenerateError` has a `code` enum of the four terminal codes and a `message`.
+    - `GenerateDone` is an empty object with `additionalProperties: false`.
+  - JSON error responses for 400, 401, 415, 500 and 503 with `Error` examples.
+  - `schemas/snapshots/openapi.yaml.snapshot` is the same bytes, reviewed hunk by hunk.
+- `smoke/api.hurl` gains a section at the end of the file, where the second smoke user is signed in.
+  - 401: a valid body with `x-mindsprout-session-binding: not-this-user` gives `body == "{\"error\":\"unauthenticated\"}"`. A signed-out request cannot be sent, because the cookie jar already holds a session; the signed-out case is unit-covered.
+  - 400: `{"topic":"   ","rootId":"root"}` gives `{"error":"invalid-input"}`.
+  - 200 with topic `smoke generate`:
+    - `Content-Type` is exactly `text/event-stream`, and `Cache-Control` is `no-store`;
+    - `body matches /^(event: op\ndata: \{[^\n]*\}\n\n){5}event: done\ndata: \{\}\n\n$/`. It must be a Hurl regex literal, because a quoted string fails `hurlfmt` at `\{`. It must also parse under CI's hurl 7.0.0;
+    - the body contains `要点 4.3`, the mock skeleton's last node.
+- `constraints.yaml`: `/api/ai/generate` becomes `covered by smoke/api.hurl`. `/api/ai/grow` stays pending.
+- TECH:
+  - §7 gains the line `api/ai/generate/  主题生成（SSE 流式 TreeOp）`. The `server/` line also names the AI service composition.
+  - §8 says that generation requires a session and its binding, that the body is validated by Zod (topic ≤ 200), that a disconnect aborts the provider call, and that frames carry fixed messages only.
+  - The quota and 429 bullet stays as the M4 plan.
+
+Not in this slice (recorded):
+
+- Request-body byte cap: `request.json()` reads the whole body, the same as the auth routes' `readCredentials`. A cap like `readMapBody` is a follow-up.
+- Rate limit, quota and 429: M4.
+- A binding-mismatch or empty-binding check with the real `requireUser`: `src/app/server/account-services.test.ts:101` owns those semantics. The route tests prove delegation and short-circuit, which is the M2 route precedent (`src/app/api/maps/route.test.ts`).
+- A dependency-cruiser rule for D1: a follow-up proposed at stage end.
+
+Must preserve:
+
+- `account-services.ts`, `ai-services.ts`, `generate.ts`, the adapters and every existing route;
+- the existing smoke entries and their order;
+- the other OpenAPI paths, byte for byte.
+
+Sibling surfaces and downstream consumers:
+
+- 5.1 `HttpGenerateSource` parses exactly this frame syntax. It maps 401 to `unauthenticated` and 503 to `ai-unavailable`, and it treats a stream with no terminal frame as `provider-error`. A frame or status change breaks it.
+- 5.5 e2e depends on the composition's 150 ms mock pacing. The route adds no delay or buffering of its own.
+- CI layer3 runs `pnpm smoke` against `pnpm dev:bg`, which forces the mock.
+- The #306 handoff "4.3 must resolve the foreign/reused-server issue before smoke gains generation entries" is discharged: #333 merged in PR #335, and `scripts/dev-bg.sh` refuses a foreign server.
+
+Evidence floor:
+
+- Unit (`src/app/api/ai/generate/route.test.ts`). It runs the real handler, the real `generate` and the real mock provider.
+  - `@/app/server/account-services` is mocked with `importOriginal`. `requireJson` stays real, `requireUser` is a `vi.fn`, and `mapsForUser` is a spy.
+  - `@/app/server/ai-services` is mocked so that `aiService` is a `vi.fn` returning `{ provider, providerId: 'mock', model: 'mock', log: { info } }`.
+    - `provider` is the real `createMockProvider({ idFactory, delayMs: 0, script? })`, with its `streamOps` wrapped in a spy.
+    - `idFactory` is a counter.
+  - `@/shared/logger` is mocked for `error`.
+  - Form-encoded body: 415, and `requireUser`, `aiService` and `streamOps` are not called.
+  - Signed out, Binding mismatch and Empty binding:
+    - the requests carry no cookie, `x-mindsprout-session-binding: other`, and `x-mindsprout-session-binding: ` respectively;
+    - `requireUser` is called exactly once with that same request and returns a 401 Response;
+    - the route returns that Response object (`toBe`);
+    - `aiService` and `streamOps` are not called, and the body is unread (`request.bodyUsed === false`).
+  - Blank topic (`'   '` and `'　'`), Oversized topic (201 ASCII code units, and 101 `'𐀀'` = 202 code units), Unknown field, invalid JSON, `rootId: ''` and a missing `rootId`:
+    - each gives 400 `{"error":"invalid-input"}`;
+    - `streamOps` is not called.
+  - Longest topic accepted:
+    - 200 ASCII code units and 100 `'𐀀'` each give 200;
+    - `streamOps` receives the topic unchanged and `rootId`.
+  - AI disabled: with `aiService` returning `undefined`, the response is 503 `{"error":"ai-unavailable"}`.
+  - Order of checks 3 and 4: a blank topic with `aiService` returning `undefined` gives 400, not 503.
+  - Internal failures:
+    - `aiService` throws `new Error('ANTHROPIC_API_KEY is required ...')`, and separately `requireUser` rejects;
+    - each gives 500 `{"error":"internal"}`;
+    - `logger.error` is called exactly once with `{ event: 'ai.generate.failed' }`;
+    - the response body does not contain the error message.
+  - Mock generation streams to done:
+    - the status is 200, the content type is exactly `text/event-stream`, and cache-control is `no-store`;
+    - the body is split into frames: 5 `op` frames, then one `done` with data `{}`, and nothing after;
+    - each op's data passes `parseTreeOp` and has `op: 'add_children'`;
+    - the first op's `parentId` is the posted `rootId`;
+    - `info` is called once with `outcome: 'done'` and `ops: 5`.
+  - Error after partial output:
+    - topic `mock:error-after-2` gives 2 `op` frames, then exactly one `error` frame with data `{"code":"provider-error","message":"The AI provider request failed"}`;
+    - there is no `done`;
+    - no frame contains `mock transport failed`.
+  - Stateless: across a completed generation, `mapsForUser` is never called.
+  - Browser stops the request:
+    - the request carries a test `AbortController`'s signal;
+    - the mock `script` plays the root call and then a `wait` step whose `onWait` aborts that controller;
+    - the reader gets exactly one `op` frame, and then `read()` returns `done: true` with no terminal frame;
+    - the `wait` step settles, which proves `request.signal` reached the provider (a different signal would hang the test until it times out);
+    - `info` is called with `outcome: 'aborted'`.
+  - Cancel before abort, the order Next uses:
+    - the `wait` step's `onWait` first calls `reader.cancel()` and then aborts the request controller;
+    - the `cancel()` promise resolves;
+    - `info` gets `outcome: 'aborted'`;
+    - no unhandled rejection occurs during the test.
+    - This test exists for coverage of `cancel()` and of the helper's cancelled branch. Without the flag, the stream swallows the `TypeError` from `close()`, so "no write after cancel" is a review-only check.
+  - Unexpected error:
+    - `@/contexts/ai/application/generate` is mocked with `importOriginal`, so `generate` is `vi.fn(actual.generate)`;
+    - in one test, `generate` is an async generator that throws `new TypeError('boom')`;
+    - `read()` rejects with that error, no terminal frame was written, and the error is not mapped to an `error` frame.
+  - Already-aborted request:
+    - a signal aborted before `POST` gives 200;
+    - the first `read()` returns `done: true` with no bytes;
+    - `streamOps` is not called;
+    - `info` gets `attempts: 0`.
+- Contract: `pnpm test:contract` passes.
+- Smoke: `AI_PROVIDER=anthropic ANTHROPIC_API_KEY=dummy AI_MODEL=dummy pnpm dev:bg && pnpm smoke` passes. The live disconnect check below then runs, and `pnpm dev:stop` comes last. `.env` is neither read nor written. The proof is `stat -f %m .env` before and after, which is metadata only.
+- Live disconnect, recorded in Runtime evidence:
+  - against the same `dev:bg` server, register a throwaway user with curl;
+  - run `curl -N --max-time 0.4` on a valid generate request;
+  - the warm-up is the smoke run above, so the route is already compiled;
+  - `.run/dev.log` then holds a new `ai.generate` line with `"outcome":"aborted"`, `"attempts":1` and 1 ≤ `ops` < 5;
+  - no `ai.generate.failed` or error-level line follows it;
+  - only that line is quoted.
+- `pnpm test:guardrails` passes, and the PR flags the `constraints.yaml` edit.
+- `pnpm lint`, `typecheck`, `boundaries`, `docs:check` and `anti-drift` pass.
+- Per-file coverage is at least 90%.
+- The PR carries `diff-limit-exempt`, with the M2 route-PR justification and a self-checked `git diff --numstat origin/main...HEAD` total.
+
 ## Impact
 
 - **Code:**
