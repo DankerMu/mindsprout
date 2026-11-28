@@ -827,6 +827,195 @@ Evidence floor (Vitest, `http-generate-source.test.ts`). An injected `fetch` ret
 - `pnpm boundaries` passes, so map imports no ai code. `pnpm lint`, `typecheck`, `dead-code` (knip) and `docs:check` pass.
 - Runtime evidence: none. This is a review-only surface, because the adapter is unused until 5.4. The real route is covered by 4.3 smoke and the 5.5 e2e.
 
+## Issue #308 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded. Agree: this action owns the undo group, the lock and the first-op deferral. A slip leaves a group open (autosave never saves), splits a generation into several undo steps, lets a user edit sneak into the generation group, or loses partial results on Stop.
+Blast radius: every editor generation, undo, and autosave of a generated map.
+Governing invariant:
+
+- A generation opens exactly one `generate` group and closes it exactly once. It closes through `endGroup`, or History closes it through a reducer rejection, or `load` replaces History.
+- `generating` is true exactly while the group is the session's. It is false after every end.
+- Nothing in the tree or the title changes before the first op.
+- Every tree change during a generation comes from the session's own dispatch.
+
+Selected risk packs:
+
+- Concurrency/state machine: double submit, Stop racing a frame, an end after Stop, a `load` during a generation, a reducer rejection inside the group.
+- Error handling / partial outputs: an error after ops keeps them, and the prefix follows the ops-applied count.
+- Data integrity (undo/history): one undo step, the empty group on zero ops, no `endGroup` after a rejection.
+- Persistence: autosave holds while the group is open and saves once after.
+- User-visible text: the notice table.
+  Not selected:
+- Public API: there is no HTTP here; 5.1 owns it.
+- Auth/secrets: `unauthenticated` only maps to the existing `SESSION_EXPIRED` notice.
+- Schema: there is no new TreeOp and no History change.
+- Config, File IO, Legacy and Release: not applicable.
+- Docs: 5.4 owns README.
+
+Interface (all in `src/contexts/map/application/editor-store/`):
+
+- `createEditorStore` options gain `generateSource?: GenerateSource`, the port from 5.1, injected as a fake in tests.
+- `EditorStoreErrorCode` gains `'generating' | 'not-empty' | 'invalid-topic' | 'no-source'`.
+- `EditorState` gains:
+  - `readonly generating: boolean`;
+  - `readonly aiUnavailable: boolean`;
+  - `generate(topic: string): Promise<void>`;
+  - `stopGeneration(): void`.
+- The notice table lives in one new module, `generation-notice.ts` (paired test). It exports `generationNotice(code, opsApplied): string | null`:
+  - The five codes `timeout`, `provider-error`, `invalid-output`, `refused` and `network` give `生成失败：` + text when `opsApplied` is 0, and `生成中断：` + text otherwise. The texts are the ones in the D9 table.
+  - `unauthenticated` gives the existing `SESSION_EXPIRED`.
+  - `ai-unavailable` gives `null`. Its state is `aiUnavailable`, and the form text `AI 未配置` belongs to 5.4.
+  - It is the single source of these strings (D9).
+
+`generate(topic)` is a non-async method. Its refusals throw synchronously, so a second submit fails before any await. It returns the session's promise, which never rejects for a `GenerateError`.
+
+1. Refusals, in order. Each throws `EditorStoreError` and changes no state.
+   - `no-map`.
+   - `no-source`: no `generateSource` was injected (a composition defect).
+   - `generating`: a generation is running.
+   - `already-editing`: an inline edit is open (`requireIdle`).
+   - `not-empty`: the primary root has children, or more than one root exists.
+   - `invalid-topic`: the trimmed topic is empty, or its `length` (UTF-16 code units) is over 200.
+2. Start. In the same synchronous run:
+   - create an `AbortController`;
+   - set `generating: true`;
+   - call `history.beginGroup('generate')` and publish through `commit`, so `groupOpen` is true and autosave stops observing.
+   - Then iterate `generateSource.generate({ topic: trimmed, rootId }, controller.signal)`, where `rootId` is `map.roots[0].id`.
+3. First op, before dispatching it:
+   - dispatch `update_node { id: rootId, text: trimmed }` through the session's own dispatch, inside the group;
+   - if `map.title === '新导图'`, apply `rename(trimmed)` and remember the previous title. Rename is metadata, not an undo step, and it is not locked;
+   - then dispatch the op.
+   - Later ops are dispatched as they arrive.
+   - The session's dispatch is an internal path that bypasses the lock, using the same `apply` and `history.dispatch` as `dispatch`.
+4. Normal end (the iterable returns) when the session is still active:
+   - `history.endGroup()`, published through `commit`;
+   - `generating: false`;
+   - no notice.
+   - With zero ops the group is empty, so nothing is pushed and the map, the title and `canUndo` are unchanged.
+5. `GenerateError` when the session is still active:
+   - end the group as in step 4;
+   - `generating: false`;
+   - for `ai-unavailable`, `aiUnavailable: true` and no notice;
+   - otherwise `notice: generationNotice(code, opsApplied)`.
+   - `opsApplied` counts the source ops that were dispatched. The root-text `update_node` is not counted.
+6. Reducer rejection. The session's dispatch throws `TreeOpError`, which means History has already reverted and closed the group:
+   - abort the controller first, then stop iterating, following the #307 handoff;
+   - do not call `endGroup`;
+   - restore the remembered title if this session renamed it and the title still equals the topic;
+   - set `generating: false` and `notice: generationNotice('invalid-output', 0)`, which is `生成失败：AI 返回的内容无法使用，请重试`.
+7. `stopGeneration()`:
+   - with no generation running, it does nothing;
+   - otherwise, synchronously: abort the controller, end the group as in step 4, and set `generating: false` with no notice.
+   - The session is then inactive. Every later op, return or error from the source is ignored, so nothing is dispatched and no notice is shown.
+   - This keeps Stop synchronous, so 5.4's unmount and pagehide handlers can call `stopGeneration()` and then `flush()`. The partial map is already stable, so the flush saves it.
+8. `load(map)` during a generation aborts the controller and marks the session inactive. The session must not touch the new map or the new History. `load` already resets `groupOpen`, and it also sets `generating: false`. `aiUnavailable` is kept.
+   - "Page session" for `AI 未配置` means the store's lifetime, one editor visit, because `EditorSession` creates one store per mount. This interpretation is recorded.
+9. Any other error thrown by the source, which is a defect: the session ends the group if it is still open, clears `generating`, and rethrows from the returned promise. It never leaves the lock set.
+10. Lock. While `generating` is true, these refuse with `EditorStoreError('generating')` before any change:
+    - `dispatch`, `undo`, `redo`;
+    - `beginGroup`, `endGroup`, `cancelGroup`, and so `runGrouped`;
+    - `createNode`, `deleteSelection`, `startEdit`, `commitTitle`, `cancelEdit`.
+      These remain available:
+    - `select`, `toggleSelect`, `setSelection`, `selectAll`, `clearSelection`;
+    - `openMenu`, `closeMenu`, `topmostSelected`;
+    - `showNotice`, `clearNotice`, `rename`, `flush` and `stopGeneration`.
+    - Moving, recolouring and notes all go through `dispatch`, so they are covered.
+    - Pan and zoom live in the canvas and are not store actions; 5.3 adds the handler guards.
+
+Must preserve:
+
+- History unchanged (no History change);
+- every existing store action's behaviour while not generating;
+- the creation-group rules;
+- autosave semantics, which observe only stable maps;
+- `SESSION_EXPIRED` text;
+- the existing editor-store test files, which must pass unchanged.
+
+Downstream consumers:
+
+- 5.3 canvas guards read `generating`.
+- 5.4 wires three things:
+  - the form, from `generating`, `aiUnavailable` and the empty-map rule;
+  - the Stop control, through `stopGeneration`;
+  - unmount and pagehide, through `stopGeneration()` then `flush()`.
+- 5.5 e2e.
+
+Sibling surfaces: `EditorStoreError` codes; the notice slot shared with the autosave notices (`保存失败`, `SESSION_EXPIRED`); `MapLibrary.tsx:249`, where the default title `新导图` is set.
+
+Not in this slice (recorded):
+
+- A shared constant for `新导图`: `MapLibrary.tsx` keeps its literal. A shared constant would cross into the components layer, so the literal is compared in one place in the store.
+- Restoring the title on Stop or on errors after ops: the spec keeps the title.
+- The canvas guards (5.3) and the form (5.4).
+
+Evidence floor (Vitest). Tests go in a new `editor-store-generate.test.ts`, following the existing split per behaviour. Notice-table tests go in `generation-notice.test.ts`.
+
+- Test setup. A fake `GenerateSource` returns an async generator driven by the test:
+  - a deferred queue of ops, then a return or a throw;
+  - it records the input and the signal, and whether the signal was aborted.
+  - Ops are real `add_children` TreeOps under the root id.
+  - A store with an injected fake repository and fake timers covers autosave.
+- Root text and title:
+  - a map titled `新导图`, generated with `'  学习 TypeScript  '`;
+  - the source receives the trimmed topic and the root id;
+  - after the first op, the root text and title are both `学习 TypeScript`.
+- Custom title kept: titled `我的计划`, the title is unchanged and only the root text changes.
+- Nothing changes before the first op: while the source has yielded nothing, the map is `===` the pre-generation map, the title is unchanged, `canUndo` is false, `generating` is true and `groupOpen` is true.
+- Failure before the first op:
+  - the source throws `GenerateError('invalid-output')` before any op;
+  - the map is still the identical object, the title is unchanged and `canUndo` is false;
+  - the notice is `生成失败：AI 返回的内容无法使用，请重试`, and `generating` is false.
+- Completed, then undo and redo:
+  - after the 5-op skeleton, the map holds 16 nodes and one `undo()` gives only the root with its pre-generation text;
+  - `redo()` gives the 16 nodes back;
+  - `canUndo` is false after the undo, which proves this was one entry.
+- Undo partial generation: after 2 ops and `stopGeneration()`, one undo restores the pre-generation tree.
+- Double submit:
+  - a second `generate` while running throws `generating` synchronously;
+  - the source was called once.
+- Refusals:
+  - `not-empty`, for a root with a child and separately for a floating root;
+  - `invalid-topic`, for `'   '`, for 201 ASCII units and for 101 `'𐀀'`;
+  - `no-source`;
+  - `already-editing`, with a rename edit open.
+  - Each leaves the state unchanged and calls no source.
+- Reducer rejection:
+  - after one valid op, the source yields an op whose `parentId` is unknown;
+  - the map is deep-equal to the pre-generation map, `canUndo` is false and the title is restored to `新导图`;
+  - the signal was aborted before the iterator's `return` ran, which the fake records;
+  - the notice is the invalid-output failure text and `generating` is false;
+  - a later `undo` is a no-op, so no entry exists.
+- AI unavailable:
+  - `GenerateError('ai-unavailable')` gives `aiUnavailable: true`, no notice and an unchanged map;
+  - `aiUnavailable` stays true after `load` of another map.
+- Session expired at submit: `unauthenticated` gives `notice === SESSION_EXPIRED` and an unchanged map.
+- Network failure: `network` before any op gives `生成失败：网络连接失败，请检查网络后重试`.
+- Failure notices use fixed texts: a table-driven test over the five codes, each with `opsApplied` 0 and 1, comparing exact strings, both through `generationNotice` and through the store with 0 and 1 ops.
+- Stop:
+  - after the first op, `stopGeneration()` synchronously sets `generating: false` and `groupOpen: false`, with no notice;
+  - the nodes from that op remain, and the signal is aborted;
+  - an op the fake then yields is not dispatched, and a `GenerateError` it then throws shows no notice.
+- Mid-stream error:
+  - 2 ops (the root call with 4 children, then 3 children under `p1`), then `provider-error`;
+  - 7 non-root nodes remain;
+  - the notice is `生成中断：AI 服务出错，请稍后重试`;
+  - one undo restores the pre-generation state.
+- Load during a generation:
+  - `load(other)` aborts the signal and sets `generating: false`;
+  - a later op from the old source is not applied to `other`, and `other` stays `===` the loaded map.
+- A defect error: the source throws a plain `Error`, the promise rejects with it, and `generating` and `groupOpen` are both false.
+- Lock:
+  - while `generating`, each refused action listed in step 10 throws `EditorStoreError` with code `generating`, and the map is unchanged;
+  - each allowed action listed in step 10 succeeds.
+- Saved after completion:
+  - with fake timers and a fake repository, no `put` happens while generating, even after `AUTOSAVE_DELAY_MS` × 2;
+  - after completion and the delay, exactly one `put` happens, carrying the generated map.
+  - After `stopGeneration()` and `flush()`, the partial map is put.
+- Gates: per-file coverage of at least 90% for `editor-store.ts` and `generation-notice.ts`. `pnpm lint` (complexity 10, 700-line files), `typecheck`, `boundaries` and `fmt:check` pass. All existing editor-store tests pass unchanged.
+- Runtime evidence: none. This is a review-only surface: the store action is unused until 5.4 composes it. The 5.5 e2e covers the UI path.
+
 ## Impact
 
 - **Code:**
