@@ -1313,6 +1313,77 @@ Evidence floor (Vitest, jsdom), with a real store and the #308 fake source, rend
   - `pnpm e2e` must stay green, because the existing walks see the new form on new maps;
   - its screenshot of a new map is attached.
 
+## Issue #311 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded. Agree. This slice is the only browser proof of the generation flow, and it closes the e2e server's path to a real provider.
+Blast radius: every `pnpm e2e` run. Without the forcing, an e2e server started next to an owner `.env` that configures a real provider would bill a real key. A flaky timing assertion would make the required `E2E (Playwright)` check flake.
+
+Governing invariant:
+
+- The e2e server runs with `AI_PROVIDER=mock`. The value is set in the child's process environment, so it wins over `.env` and over the caller's environment.
+- `.env` is neither read nor written by the agent. No test or local run calls a real provider.
+- Each assertion that depends on stream timing states a range that every pacing outcome satisfies, never an exact count that needs a click to land within one 150 ms gap.
+
+Selected risk packs:
+
+- Auth/secrets (billing): the mock forcing.
+- Concurrency/state: Stop, leaving and the saved partial result, asserted against a real stream.
+- User-visible behaviour: the six scenarios, zero console errors, screenshots.
+  Not selected:
+- Public API, Schema, Config, File IO, Legacy, Release, Docs: none apply. The AGENTS Runtime Lifecycle line changes in 7.1.
+
+Interface:
+
+1. `scripts/e2e-server.mjs`: the spawned `next dev` gets `AI_PROVIDER: 'mock'` after `...process.env`, with a comment naming the failure mode (a real key billed by `pnpm e2e`) and that 7.1 adds the live pass-through. No other variable changes. The mock ignores `AI_MODEL` and the keys (`src/app/server/ai-services.ts:57`), and `src/shared/env.ts:19` requires none for `mock`.
+2. New `e2e/topic-generation.spec.ts`. It uses the signed-in `test` from `e2e/support/session.ts`, creates a map with `新建导图` (root text `新导图`, `src/components/library/MapLibrary.tsx:250`), and generates through the real form (`主题`, `生成`, `停止生成`).
+   - The mock skeleton (D11, `src/contexts/ai/infrastructure/providers/mock.ts`) is 5 ops at 150 ms each. Op 1 adds `要点 1`–`要点 4` under the root. Ops 2–5 each add three children (`要点 1.1`…`要点 4.3`). A completed map has 17 nodes. The node count after k ops is 1 + 4 + 3(k − 1): 5, 8, 11, 14, 17.
+   - To observe "the first op has landed", the spec waits in the page with `page.waitForFunction(…, { polling: 'raf' })` until `要点 4` is rendered, and returns `.react-flow__node` counts sampled in that frame.
+
+Scenarios (spec `specs/topic-generation/spec.md`), each a `test` in the new spec:
+
+- Progressive appearance: submit `学习 TypeScript`. When the four first-level nodes first appear, the sampled node count is ≤ 8, so they appeared before the stream ended. Then all 17 nodes appear, `停止生成` disappears, and the root and the header title read `学习 TypeScript`. Screenshot mid-stream (`停止生成` visible) and after completion.
+- Stop: after the first op, click `停止生成`. Then:
+  - `停止生成` disappears and no notice is shown;
+  - the node count is in [5, 14] and is unchanged after waiting 1 s, which is longer than the rest of the stream (600 ms), so the stream really ended;
+  - `要点 1`–`要点 4` are all visible;
+  - editing is unlocked: clicking the root and pressing Tab creates a child.
+    Screenshot after Stop.
+- Mid-stream error: submit `mock:error-after-2`. Exactly 8 nodes remain (the root and the 7 nodes from the two ops). The notice reads `生成中断：AI 服务出错，请稍后重试`. Screenshot.
+- Leaving saves partial result: after the first op, click `返回导图列表` (client-side navigation, no pagehide). Then:
+  - the generate request is aborted: `requestfailed` fires for `/api/ai/generate`, or its response stream ends without a `done` frame. The spec picks one observable and states which;
+  - the editor's leave flush writes a `PUT` for the map, and the spec waits for its 2xx response;
+  - reopening the map from the library shows `要点 1`–`要点 4` with a node count in [5, 14].
+    Screenshot of the reopened map.
+- Saved after completion: submit with `Enter` in the `主题` input (the real implicit submit, #310 handoff), wait for completion and for the `PUT` that follows it to return 2xx, then reload. The reloaded map has 17 nodes, including `要点 4.3`.
+- Undo completed generation: after completion, press `ControlOrMeta+z` once with focus outside any text input. The map has exactly one node, and it reads `新导图`.
+
+Every scenario fails on any console error, warning or uncaught page error, using the same collector pattern as the existing specs. Responses it expects, such as an aborted request, are declared explicitly, never filtered wholesale.
+
+Must preserve:
+
+- Every existing e2e walk, the zero-skip gate and the `E2E (Playwright)` CI check.
+- `scripts/e2e-server.mjs` keeps the derived test database variables and its credential handling (decision 0026).
+- No `src/**` change.
+
+Not in this slice (recorded):
+
+- The IME check (an Enter that confirms a Chinese candidate must not submit) cannot be driven by Playwright. It is a manual WebKit check for the owner's functional acceptance.
+- The keyboard and pointer lock during a generation (Cmd/Ctrl+Z, Tab, the context menu, a drag in progress) is proven in jsdom by #309. The 600 ms mock window is too short for a deterministic browser assertion.
+- Live pass-through, the CI refusal, `pnpm e2e:live` (7.1, 7.2); `reducedMotion` (6.1).
+
+Evidence floor:
+
+- Red: the new spec fails before the forcing exists, when the process environment selects a non-mock provider. Bite check: remove the forcing and run only the new spec with `AI_PROVIDER=anthropic ANTHROPIC_API_KEY=dummy AI_MODEL=dummy ANTHROPIC_BASE_URL=http://127.0.0.1:9`. The local unroutable base URL keeps the request off the network. The walk must fail without mock output. Restore the forcing and confirm the file with `cmp`.
+- Never run any e2e command unless the forcing is in place or the process environment selects mock or the unroutable dummy provider. The owner's `.env` may configure a real provider.
+- Green:
+  - `AI_PROVIDER=anthropic ANTHROPIC_API_KEY=dummy AI_MODEL=dummy pnpm e2e` passes, and the generation walk shows mock output (`要点 4.3`). This is ai-live-acceptance "Default e2e", the mock server half.
+  - A plain `pnpm e2e` passes.
+  - The new spec run alone with `--repeat-each=5` passes 5/5 for each scenario. This shows the ranges hold.
+- Screenshots in `.run/ui-evidence/topic-generation-*.png`.
+- `pnpm lint`, `typecheck`, `fmt:check`, `test:guardrails` (`scripts/` touched) and `native:browser:test` pass.
+
 ## Impact
 
 - **Code:**
