@@ -1313,6 +1313,88 @@ Evidence floor (Vitest, jsdom), with a real store and the #308 fake source, rend
   - `pnpm e2e` must stay green, because the existing walks see the new form on new maps;
   - its screenshot of a new map is attached.
 
+## Issue #311 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded. Agree. This slice is the only browser proof of the generation flow, and it closes the e2e server's path to a real provider.
+Blast radius: every `pnpm e2e` run. Without the forcing, an e2e server started next to an owner `.env` that configures a real provider would bill a real key. A flaky timing assertion would make the required `E2E (Playwright)` check flake.
+
+Governing invariant:
+
+- The e2e server runs with `AI_PROVIDER=mock`. The value is set in the child's process environment, so it wins over `.env` and over the caller's environment.
+- `.env` is neither read nor written by the agent. No test or local run calls a real provider.
+- Each assertion that depends on stream timing states a range that every pacing outcome satisfies, never an exact count that needs a click to land within one 150 ms gap.
+
+Selected risk packs:
+
+- Auth/secrets (billing): the mock forcing.
+- Concurrency/state: Stop, leaving and the saved partial result, asserted against a real stream.
+- User-visible behaviour: the six scenarios, zero console errors, screenshots.
+  Not selected:
+- Public API, Schema, Config, File IO, Legacy, Release, Docs: none apply. The AGENTS Runtime Lifecycle line changes in 7.2.
+
+Interface:
+
+1. `scripts/e2e-server.mjs`: the spawned `next dev` gets `AI_PROVIDER: 'mock'` after `...process.env`, with a comment naming the failure mode (a real key billed by `pnpm e2e`) and that 7.1 adds the live pass-through. No other variable changes. The mock ignores `AI_MODEL` and the keys (`src/app/server/ai-services.ts:57`), and `src/shared/env.ts:19` requires none for `mock`.
+2. New `e2e/topic-generation.spec.ts`. It uses the signed-in `test` from `e2e/support/session.ts`, creates a map with `新建导图` (root text `新导图`, `src/components/library/MapLibrary.tsx:250`), and generates through the real form (`主题`, `生成`, `停止生成`).
+   - The mock skeleton (D11, `src/contexts/ai/infrastructure/providers/mock.ts`) is 5 ops at 150 ms each. Op 1 adds `要点 1`–`要点 4` under the root. Ops 2–5 each add three children (`要点 1.1`…`要点 4.3`). A completed map has 17 nodes. The node count after k ops is 1 + 4 + 3(k − 1): 5, 8, 11, 14, 17.
+   - To observe "the first op has landed", the spec waits in the page with `page.waitForFunction(…, { polling: 'raf' })` until `要点 4` is rendered. In that same frame it samples the `.react-flow__node` count and whether `停止生成` is present.
+   - "No notice" is asserted as zero `关闭提示` buttons (`src/components/NoticeToast.tsx:12`). It is never asserted by counting `role=alert`, because Next's route announcer is also an alert.
+
+Scenarios (spec `specs/topic-generation/spec.md`), each a `test` in the new spec:
+
+- Progressive appearance: submit `学习 TypeScript`. In the frame where the four first-level nodes first appear, `停止生成` is present and the node count is ≤ 14, so they appeared before the stream ended. A buffered response renders all 17 nodes in that first frame, so it fails this check. Then all 17 nodes appear, `停止生成` disappears, and the root and the header title read `学习 TypeScript`. Screenshot mid-stream (`停止生成` visible) and after completion.
+- Stop: after the first op, click `停止生成`. Then:
+  - `停止生成` disappears and no notice is shown (zero `关闭提示`);
+  - the node count is in [5, 14] and is unchanged after waiting 1 s, which is longer than the rest of the stream (600 ms), so the stream really ended;
+  - `要点 1`–`要点 4` are all visible;
+  - editing is unlocked: clicking the root and pressing Tab creates a child.
+    Screenshot after Stop.
+- Mid-stream error: submit `mock:error-after-2`. Exactly 8 nodes remain (the root and the 7 nodes from the two ops). The notice reads `生成中断：AI 服务出错，请稍后重试`. Screenshot.
+- Leaving saves partial result: after the first op, go back to the library with `page.goBack()`. The editor must have been opened by clicking `新建导图` on a hydrated `/` in the same document. A `page.goto('/maps/<id>')` would make going back a cross-document navigation, which fires pagehide. The map was opened from the library by client navigation. Going back is also client navigation: it fires no pagehide, and it reuses the router cache instead of a dev RSC round trip. This keeps the leave inside the remaining 600 ms of the stream. The editor's `leave()` runs only on unmount, after the library route commits. Then:
+  - the generate request is aborted. `page.waitForEvent('requestfailed')` is registered before the navigation and filtered to the pathname `/api/ai/generate`. A response stream that ends without `done` is not observable in Playwright, so this is the only abort check;
+  - the save comes from the leave flush, not from a later timer. The library entry immediately reads `学习 TypeScript`, not `新导图`: the flush's `PUT` is issued synchronously on unmount and queued before the library's `GET /api/maps` on the same adapter (`http-map-repository.ts:104-116`). Without the flush, the `PUT` waits for the 500 ms autosave debounce (`autosave.ts:70`), so it lands after `list()` and the list reads the old title `新导图`.
+  - opening the `学习 TypeScript` entry shows `要点 1`–`要点 4` and a node count in [5, 14].
+    The spec logs the measured time from leaving to `requestfailed`. Screenshot of the reopened map.
+- Saved after completion: submit with `Enter` in the `主题` input (the real implicit submit, #310 handoff), wait for completion and for the `PUT` that follows it to return 2xx, then reload. The reloaded map has 17 nodes, including `要点 4.3`.
+- Undo completed generation: after completion, focus the canvas region (`getByRole('region', { name: '思维导图画布' }).focus()`). The undo shortcut is handled only on that region (`MindMapCanvas.tsx:285-291`), and after submit the focus is on `body`, because the form unmounts. Then press `ControlOrMeta+z` once. The map has exactly one node, and it reads `新导图`. The title stays `学习 TypeScript`, because the title is metadata and not an undo step (`editor-store.ts:358-361`).
+
+Every scenario fails on any console error, warning or uncaught page error, through `collectExpectedResponses(page, [])` with no declarations. An aborted fetch produces no console event in Chromium, so the abort is asserted only through `requestfailed` and is never declared.
+
+Must preserve:
+
+- Every existing e2e walk, the zero-skip gate and the `E2E (Playwright)` CI check.
+- `scripts/e2e-server.mjs` keeps the derived test database variables and its credential handling (decision 0026).
+- No `src/**` change.
+
+Shipped deviations (PR for #311):
+
+- The no-console-noise collector is registered in `beforeEach` and asserted empty in `afterEach`.
+- Hydration of `/` is detected by `还没有导图`, because the `app-ready` marker is server-rendered.
+- Stop clicks `适应画布` before clicking the root, as m2's `child()` does.
+- The completion PUT waiter matches only a body that contains `要点 4.3`, so it skips mid-stream saves.
+- The undo-focus gap is filed as #343.
+
+Not in this slice (recorded):
+
+- The IME check (an Enter that confirms a Chinese candidate must not submit) cannot be driven by Playwright. It is a manual WebKit check for the owner's functional acceptance.
+- Undo focus after a generation. After a generation the focus is on `body`, so Cmd/Ctrl+Z does nothing until the user clicks the canvas. The spec scenario assumes the shortcut works directly. Changing that needs `src/**`, so it is filed as a follow-up, and this walk focuses the canvas explicitly.
+- The keyboard and pointer lock during a generation (Cmd/Ctrl+Z, Tab, the context menu, a drag in progress) is proven in jsdom by #309. The 600 ms mock window is too short for a deterministic browser assertion.
+- Live pass-through, the CI refusal, `pnpm e2e:live` (7.1, 7.2); `reducedMotion` (6.1).
+
+Evidence floor:
+
+- Red: the new spec fails before the forcing exists, when the process environment selects a non-mock provider. Bite check: remove the forcing and run only the new spec with `AI_PROVIDER=anthropic ANTHROPIC_API_KEY=dummy AI_MODEL=dummy ANTHROPIC_BASE_URL=http://127.0.0.1:9`. The local unroutable base URL keeps the request off the network. The walk must fail without mock output. Restore the forcing and confirm the file with `cmp`.
+- Never run any e2e command unless the forcing is in place or the process environment selects mock or the unroutable dummy provider. The owner's `.env` may configure a real provider.
+- Green:
+  - `AI_PROVIDER=anthropic ANTHROPIC_API_KEY=dummy AI_MODEL=dummy pnpm e2e` passes, and the generation walk shows mock output (`要点 4.3`). This is ai-live-acceptance "Default e2e", the mock server half.
+  - A plain `pnpm e2e` passes.
+  - The new spec run alone with `--repeat-each=20` passes for every scenario, and so does one run with `--workers=4`. This shows the ranges and the leave timing hold under load. The measured leave-to-abort times are reported.
+- Screenshots in `.run/ui-evidence/topic-generation-*.png`.
+- `pnpm lint`, `typecheck`, `fmt:check`, `test:guardrails` (`scripts/` touched) and `native:browser:test` pass.
+- Diff budget: the fixture already uses about 75 lines of the 400-line guard, so the spec and the script get about 325. If the total goes over, the PR carries `diff-limit-exempt` with a justification.
+
 ## Impact
 
 - **Code:**

@@ -9,6 +9,8 @@ const target = deriveTestDatabaseTarget('app_e2e', process.env);
 const child = spawn('pnpm', ['exec', 'next', 'dev', '--port', '3100'], {
   env: {
     ...process.env,
+    // A real provider in the owner's .env would bill its key on every `pnpm e2e`; 7.1 adds the live pass-through.
+    AI_PROVIDER: 'mock',
     DATABASE_URL: target.databaseUrl,
     MIGRATION_DATABASE_URL: target.migrationDatabaseUrl,
   },
