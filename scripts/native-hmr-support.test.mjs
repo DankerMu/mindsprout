@@ -34,7 +34,7 @@ const providerSource = fs.readFileSync(
 const probeOptions = { probe: 'native-probe', valueA: 'A', valueB: 'B', variable: 'NATIVE_PROBE' };
 const sourceOptions = { ...probeOptions, mode: 'source-change' };
 const lifecycleOptions = { ...probeOptions, mode: 'restored-lifecycle' };
-const editorAnchor = '    <EditorSession map={loaded.map} repository={repository}>';
+const editorAnchor = '    <EditorSession map={loaded.map} repository={repository} {...source}>';
 const providerAnchor =
   "  const [state, setState] = useState<RepositoryState>({ status: 'opening' });";
 const outputA = '      <output data-testid="native-probe">A</output>';
