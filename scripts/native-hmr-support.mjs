@@ -391,7 +391,7 @@ export function assertQuiet(events) {
 export function sourceStimulus(original, { mode, probe, valueA, valueB, variable }) {
   const anchor =
     mode === 'source-change'
-      ? '    <EditorSession map={loaded.map} repository={repository}>'
+      ? '    <EditorSession map={loaded.map} repository={repository} {...source}>'
       : "  const [state, setState] = useState<RepositoryState>({ status: 'opening' });";
   const text = original.toString('utf8');
   assert.equal(text.split(anchor).length, 2, 'Qualified source seam changed; refusing edit');

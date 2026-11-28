@@ -109,8 +109,9 @@ const CREATION_LABEL = 'add node';
 const GENERATE_LABEL = 'generate';
 // The title MapLibrary gives a new map; only this title is replaced by the topic.
 const DEFAULT_TITLE = '新导图';
-// UTF-16 code units of the trimmed topic (spec "Invalid topic cannot be submitted").
-const TOPIC_MAX_LENGTH = 200;
+// UTF-16 code units of the trimmed topic (spec "Invalid topic cannot be submitted"). The topic
+// form reads it too, so its disabled Generate and this refusal share one limit.
+export const TOPIC_MAX_LENGTH = 200;
 
 const SAVE_FAILED = '保存失败';
 

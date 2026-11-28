@@ -13,6 +13,8 @@ import { CredentialsForm } from '../../components/account/CredentialsForm';
 import { SessionMenu } from '../../components/account/SessionMenu';
 import { MapLibraryClient } from '../MapLibraryClient';
 import { StorageUnauthorizedError } from '../../contexts/map/domain/errors';
+import type { GenerateSource } from '../../contexts/map/domain/generate-source';
+import { HttpGenerateSource } from '../../contexts/map/infrastructure/ai/http-generate-source';
 import { HttpMapRepository } from '../../contexts/map/infrastructure/persistence/http-map-repository';
 import {
   MapRepositoryProvider,
@@ -72,9 +74,24 @@ it('shares the HTTP repository promise and stored maps across replay and remount
   expect(server.requests.map(({ init }) => init?.method)).toEqual(['PUT', 'GET']);
 });
 
+// Runs one generation to its end over a stub that answers /api/ai/generate with a bare done frame.
+async function drainGenerate(source: GenerateSource | undefined): Promise<void> {
+  if (source === undefined) throw new Error('the session has no generate source');
+  const signal = new AbortController().signal;
+  for await (const op of source.generate({ topic: '主题', rootId: 'r' }, signal)) {
+    throw new Error(`unexpected op ${op.op}`);
+  }
+}
+
 it('rebinds the document repository only when the account binding changes', async () => {
   const server = new MapFetch();
-  vi.stubGlobal('fetch', server.fetch);
+  // MapFetch serves only map routes; the generate source's requests are recorded here.
+  const generateHeaders: (string | null)[] = [];
+  vi.stubGlobal('fetch', async (...[input, init]: Parameters<typeof fetch>) => {
+    if (input !== '/api/ai/generate') return server.fetch(input, init);
+    generateHeaders.push(new Headers(init?.headers).get('x-mindsprout-session-binding'));
+    return new Response('event: done\ndata: {}\n\n', { status: 200 });
+  });
   document.cookie = 'mindsprout_session_binding=QWxpY2U; Path=/';
   const alicePromise = openSessionRepository();
   const alice = await alicePromise;
@@ -91,6 +108,15 @@ it('rebinds the document repository only when the account binding changes', asyn
   expect(new Headers(server.requests[0]?.init?.headers).get('x-mindsprout-session-binding')).toBe(
     'Qm9i',
   );
+  expect(bob.generateSource).toBeInstanceOf(HttpGenerateSource);
+  expect(bob.generateSource).not.toBe(alice.generateSource);
+  await drainGenerate(bob.generateSource);
+  expect(generateHeaders).toStrictEqual(['Qm9i']);
+  document.cookie = 'mindsprout_session_binding=; Path=/; Max-Age=0';
+  const unbound = await openSessionRepository();
+  expect(unbound.generateSource).not.toBe(bob.generateSource);
+  await drainGenerate(unbound.generateSource);
+  expect(generateHeaders).toStrictEqual(['Qm9i', '']);
 });
 
 it('opens synchronously on account change in a mounted provider without exposing Alice state', async () => {

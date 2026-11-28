@@ -1,16 +1,19 @@
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StoreApi } from 'zustand/vanilla';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { FakeGenerateSource } from '../../../tests/support/generate-source';
 import { mapOf, node, sampleMap } from '../../../tests/support/map-domain';
 import { RecordingRepository } from '../../../tests/support/map-repository-stub';
+import { AUTOSAVE_DELAY_MS } from '../../contexts/map/application/editor-store/autosave';
 import {
   createEditorStore,
   type EditorState,
 } from '../../contexts/map/application/editor-store/editor-store';
 import type { TreeOp } from '../../contexts/map/domain/tree-op';
 import type { MindMap } from '../../contexts/map/domain/types';
-import { EditorSession, selectMap, useEditorStore } from './EditorSession';
+import { EditorSession, selectMap, useEditorStore, useEditorStoreApi } from './EditorSession';
+import { EditorView } from './EditorView';
 
 // Design "Fixture — issue #16": EditorSession through Testing Library with a recording stub
 // repository and a probe child that reads and dispatches through useEditorStore. Fake timers keep
@@ -166,6 +169,69 @@ describe('EditorSession', () => {
 
     expect(() => render(<Orphan />)).toThrow('useEditorStore must be used inside');
   });
+});
+
+// "Issue #310 Fixture Triage": leaving runs stopGeneration() before flush(). Flushing first would
+// write nothing (the open group keeps autosave from observing), and the partial map would wait for
+// a later timer, which pagehide never lets run: so the put must be there before any timer advances.
+describe('leaving during a generation', () => {
+  const GROW: TreeOp = {
+    op: 'add_children',
+    parentId: 'r',
+    children: [
+      { id: 'a', text: 'A' },
+      { id: 'b', text: 'B' },
+    ],
+  };
+  const PARTIAL_ROOTS = mapOf(
+    node('r', [node('a', [], { text: 'A' }), node('b', [], { text: 'B' })], { text: '主题' }),
+  ).roots;
+
+  it.each(['unmount', 'pagehide'])(
+    'aborts the generation and puts the partial map at once on %s',
+    async (leave) => {
+      const source = new FakeGenerateSource();
+      const repository = new RecordingRepository();
+      let store!: StoreApi<EditorState>;
+      function Probe() {
+        store = useEditorStoreApi();
+        return null;
+      }
+      const view = render(
+        <EditorSession
+          map={{ ...mapOf(node('r')), title: '新导图' }}
+          repository={repository}
+          generateSource={source}
+        >
+          <Probe />
+          <EditorView />
+        </EditorSession>,
+      );
+      fireEvent.change(screen.getByRole('textbox', { name: '主题' }), {
+        target: { value: '主题' },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '生成' }));
+        await Promise.resolve();
+      });
+      await act(() => source.run(0).push(GROW));
+      expect(repository.puts).toStrictEqual([]);
+
+      if (leave === 'unmount') view.unmount();
+      else act(firePagehide);
+
+      expect(store.getState().generating).toBe(false);
+      expect(source.run(0).signal.aborted).toBe(true);
+      expect(repository.puts).toHaveLength(1);
+      expect(repository.puts[0]?.roots).toStrictEqual(PARTIAL_ROOTS);
+      expect(repository.puts[0]?.title).toBe('主题');
+      act(() => {
+        vi.advanceTimersByTime(AUTOSAVE_DELAY_MS);
+      });
+      expect(repository.puts).toHaveLength(1);
+      source.run(0).finish();
+    },
+  );
 });
 
 describe('selectMap', () => {

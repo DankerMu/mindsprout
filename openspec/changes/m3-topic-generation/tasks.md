@@ -143,7 +143,7 @@ Minimal mergeable slice: 4.1 - the composition is unit-tested alone; 4.2 (verifi
     - every listed tree action refuses while generating.
 - [x] 5.3 Make the canvas inert while generating: keyboard shortcuts, the context menu, node drag and the history toolbar check `generating` and do nothing.
   - Verify (jsdom): topic-generation "Shortcut ignored during generation" (Tab and Cmd/Ctrl+Z change nothing and raise no error) and "Pan during generation" (pan handlers stay enabled); menu edits and drag do nothing while generating.
-- [ ] 5.4 Render the topic form, Stop and notices in `EditorView`.
+- [x] 5.4 Render the topic form, Stop and notices in `EditorView`.
   - Compose `HttpGenerateSource` in the `src/app` editor provider.
   - Wire unmount/pagehide abort-end-flush in `EditorSession`.
   - Add README Known Limitations: no quota, local only, AI optional (design D12).

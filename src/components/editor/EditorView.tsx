@@ -7,10 +7,13 @@ import { NotePanel } from '../canvas/NotePanel';
 import { NoticeToast } from '../NoticeToast';
 import { selectMap, useEditorStore, useEditorStoreApi } from './EditorSession';
 import styles from './EditorView.module.css';
+import { TopicForm } from './TopicForm';
 
 // The editor page body (design "Fixture — issue #16"): a header with the map title, never the
 // primary root text, and the canvas over the store's map. data-testid="map-editor-ready" and
-// data-testid="editor-title" are read by the e2e walks and later tasks.
+// data-testid="editor-title" are read by the e2e walks and later tasks. The topic form sits in
+// flow between the header and the canvas; Stop shows for the whole generation, including after
+// the form is gone ("Issue #310 Fixture Triage").
 export function EditorView({ header }: { header?: ReactNode }) {
   const selection = useEditorStore((state) => state);
   const map = selectMap(selection);
@@ -72,7 +75,18 @@ export function EditorView({ header }: { header?: ReactNode }) {
           {map.title}
         </h1>
         {header}
+        {selection.generating && (
+          <button
+            type="button"
+            onClick={() => {
+              store.getState().stopGeneration();
+            }}
+          >
+            停止生成
+          </button>
+        )}
       </header>
+      <TopicForm />
       <NoticeToast
         notice={selection.notice}
         onDismiss={() => {

@@ -1175,6 +1175,144 @@ Evidence floor (Vitest, jsdom):
   - `pnpm verify-ui` is not applicable yet, because no UI path starts a generation until 5.4.
   - This is a review-only surface. The 5.5 e2e covers the browser path.
 
+## Issue #310 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded. Agree. This slice turns the 5.1–5.3 pieces into the user-visible feature.
+Blast radius: every editor visit. A wrong composition sends requests without the account binding. A missing unmount stop leaves a generation running after the user leaves, and it loses the partial result. A form that shows on a non-empty map invites the not-empty refusal.
+
+Governing invariant:
+
+- The form is rendered exactly while the map is empty, and Generate is offered only while idle.
+- Stop is rendered exactly while `generating` is true.
+- Leaving the editor during a generation runs `stopGeneration()` before `flush()`, so the partial map is saved.
+- Components never import infrastructure.
+- While idle, manual editing of an empty map stays fully available. The form covers no part of the canvas and takes no focus on its own.
+
+Selected risk packs:
+
+- User-visible behaviour: the form, Stop, `AI 未配置`, notices.
+- Concurrency/state: double submit, Stop, unmount and pagehide during a generation.
+- Auth/secrets: the generate source carries the same Session binding as the map repository (decision 0028), and it resets with the account like the repository.
+- Docs: README Known Limitations.
+  Not selected:
+- Public API: there is no new route.
+- Schema, Config, File IO, Legacy: none apply.
+- Release: no flag.
+
+Interface:
+
+1. Composition, `src/app/providers/MapRepositoryProvider.tsx`:
+   - `ReadyRepository` becomes `{ repository: MapRepository; generateSource?: GenerateSource }`.
+   - `openSessionRepository()` adds `generateSource: new HttpGenerateSource(undefined, binding ?? '')`, using the same `binding` as the `HttpMapRepository` it opens. An absent cookie therefore sends an empty binding and fails closed, the same as map writes.
+   - The `open` prop path (tests) has no `generateSource`.
+   - `useMapRepository()` exposes it through the ready state.
+2. `src/app/maps/[id]/MapEditor.tsx` passes `generateSource` to `EditorSession` through the prop added in #309, with a conditional spread (`exactOptionalPropertyTypes`). That prop is read once, when the store is created.
+3. `src/components/editor/EditorSession.tsx`: the pagehide handler and the unmount cleanup both call `store.getState().stopGeneration()` and then `flush()`. `stopGeneration` does nothing when idle (#308), so the idle behaviour is unchanged.
+4. New `src/components/editor/TopicForm.tsx`, with a CSS module and a paired test. `EditorView` renders it in normal document flow between the header and the canvas area, as a bar. It is not an overlay, so it never covers the root node or the empty canvas. It does not autofocus: `selectionBlocked` reads `document.activeElement` (`selection-input.tsx:79-88`), so a focused input would block canvas shortcuts.
+   - Visibility: it is rendered while `map.roots.length === 1 && map.roots[0].children.length === 0`, which is the store's own empty rule. Once the map is not empty it renders nothing.
+   - `aiUnavailable`: the form shows the text `AI 未配置` in place of the input and Generate.
+   - The form is a `<form>` with an input labelled `主题` (`aria-label`). Its local `draft` state keeps the text across a failure, so the user can retry.
+   - Generate is a `type="submit"` button labelled `生成`. It is rendered only while `generating` is false, and it is `disabled` unless `draft.trim()` is 1–200 UTF-16 code units long.
+   - While generating, the input is `readOnly` and Generate is not rendered.
+   - `onSubmit` calls `preventDefault`. If the store is not generating and the topic is valid, it calls `void store.getState().generate(draft)`, where the store trims the topic. Otherwise it does nothing, so a second submit makes no request.
+   - Submitting through a click moves focus to the button. That blurs a focused `NotePanel` textarea, which commits its draft before `generate` runs (#309 item 10).
+5. Stop: a separate `<button type="button">停止生成</button>` in `EditorView`. It is rendered while `generating` is true, including after the first op, when the form is gone. `onClick` calls `stopGeneration()`.
+6. Notices: the existing `NoticeToast` already renders `notice`, and the `重新登录` link already follows `SESSION_EXPIRED`. No change is needed. The tests prove that generation notices show through it.
+7. README Known Limitations: the `无 AI` line is replaced by three lines:
+   - AI: generation from one topic on an empty map only, with no expand, regenerate or chat. AI is optional. Without a configured provider, the first submit gets 503, the form then shows `AI 未配置` for the rest of that editor visit, and manual editing is unaffected.
+   - Quota: there is no per-user quota or rate limit (M4).
+   - Deployment: local use only. Quota must exist before any deployment (design.md:66, :310).
+
+Must preserve:
+
+- every existing editor, `MapEditor` and provider test;
+- the map repository's binding and account reset;
+- the pagehide and unmount flush ordering when idle.
+
+Downstream consumers: the 5.5 e2e (the labels `主题`, `生成`, `停止生成`, and the text `AI 未配置`); the 7.1 docs.
+
+Existing e2e walks that open a new or root-only map now see the form bar. They must stay green under `pnpm e2e`, and their screenshots change:
+
+- `m1-acceptance.spec.ts:85-99`;
+- `m2-acceptance.spec.ts:104-116`;
+- `map-library.spec.ts:88-95`;
+- `account-auth.spec.ts:518` and `:632`;
+- `canvas-editing.spec.ts:109-121`;
+- `smoke.spec.ts:16`.
+
+The bar sits in normal flow and shrinks the canvas height. Any walk that asserts absolute positions is checked.
+
+Sibling surfaces:
+
+- `CONTEXT.md` (unchanged; 5.1 already rewrote the map row);
+- README.
+
+Shipped deviations (PR for #310):
+
+- `editor-store.ts` exports `TOPIC_MAX_LENGTH`, so the form and the store share one limit instead of repeating 200.
+- The form has `aria-label="生成导图"` and a placeholder.
+- The session open path builds the result in a `new Promise` executor, so a throwing adapter constructor still becomes a failed open.
+- A changeset is added, because this is a user-visible change.
+- An absolute overlay cannot be detected in jsdom, because jsdom has no layout. Normal flow is proven by the e2e screenshots. The autofocus bite check is caught in jsdom.
+
+Not in this slice (recorded):
+
+- A provider or model switch (M3.5);
+- the e2e walk (5.5);
+- visual polish of the form beyond a usable layout.
+
+Evidence floor (Vitest, jsdom), with a real store and the #308 fake source, rendered through `EditorSession` and `EditorView`:
+
+- New map: the input `主题` and an enabled-on-valid-text `生成` are visible.
+- Non-empty map: a root with a child, and separately a floating root, each render no input and no `生成`.
+- Invalid topic cannot be submitted:
+  - These stay disabled: blank, `'   '`, 201 ASCII characters, and 101 `'𐀀'` (202 code units). For each, `fireEvent.submit(form)` makes no source call.
+  - These are enabled and submit: 200 ASCII characters, and a padded topic whose trim is exactly 200 code units.
+- Guards that only show through errors. Without the `onSubmit` guard, the store would throw `invalid-topic` or `generating` synchronously. So the detecting assertion is that `failOnConsoleNoise()` and a `window` `error` listener both stay empty, the same as #309. The PR shows a bite check with the guard removed.
+- Double submit:
+  - the first submit is a click on `生成`;
+  - a second `fireEvent.submit(form)` while generating makes no second source call and raises no error;
+  - the source was called exactly once.
+- While generating, with zero ops: the input `主题` has `readOnly === true`, and no `生成` button exists.
+- Manual editing while the form shows, idle on a new map:
+  - a click on the root selects it;
+  - Tab creates a child;
+  - the form then disappears;
+  - no error is raised.
+- Root text and title flow end to end: after the first pushed op, the form is gone, Stop is still shown, and the header title reads the topic.
+- AI unavailable: the source throws `GenerateError('ai-unavailable')`. `AI 未配置` is shown, no input or `生成` remains, and the map is unchanged.
+- Notices:
+  - `network` before any op shows `生成失败：网络连接失败，请检查网络后重试`;
+  - `unauthenticated` shows the session-expiry text and the `重新登录` link, with no navigation.
+- Stop:
+  - `停止生成` is visible from submit until the end, before and after the first op;
+  - clicking it ends the generation, so Stop disappears and the nodes remain.
+- Unmount during a generation, using fake timers with the `EditorSession.test.tsx:92-118` pattern:
+  - after one op, `unmount()`;
+  - immediately, with no timer advanced, `puts` holds exactly 1 entry, and it is the partial map;
+  - the source's signal is aborted;
+  - after advancing `AUTOSAVE_DELAY_MS`, `puts` is still 1.
+  - If flush ran before stop, nothing would be written immediately and the partial map would only be saved by a later timer, which pagehide never lets run. So this test fails under the wrong order. The PR shows that bite check.
+- Pagehide during a generation: the same assertions after `window.dispatchEvent(new Event('pagehide'))`.
+- Note draft: a focused note textarea holds an uncommitted draft. To mimic the browser's focus order, call `generateButton.focus()` and then `fireEvent.click(generateButton)`, because `fireEvent.click` alone moves no focus. The note `update_node` lands before the `generate` group, so undo after completion keeps the note.
+- Composition:
+  - Extend the account-switch rebind test (`MapRepositoryProvider.session.test.tsx:75-94`) with `vi.stubGlobal('fetch')`, intercepting `/api/ai/generate`, because `MapFetch` does not handle that route:
+    - Alice's and Bob's `generateSource` are different instances;
+    - a generate request from Bob's carries `x-mindsprout-session-binding: Qm9i`;
+    - with no binding cookie, the header is the empty binding.
+  - The `open` prop path has no `generateSource`.
+  - The `MapEditor` composition test uses the default session path, and a generation started from the rendered editor reaches the session's source.
+- Gates:
+  - per-file coverage is at least 90% for every changed file;
+  - `pnpm lint`, `typecheck`, `boundaries` (components import no infrastructure), `fmt:check` and `docs:check` pass;
+  - all existing tests pass.
+- Runtime evidence:
+  - `pnpm verify-ui` on the editor route is not meaningful until 5.5 adds the generation walk and its mock-forced e2e server;
+  - `pnpm e2e` must stay green, because the existing walks see the new form on new maps;
+  - its screenshot of a new map is attached.
+
 ## Impact
 
 - **Code:**

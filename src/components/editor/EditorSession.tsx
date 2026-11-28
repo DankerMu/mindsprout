@@ -13,10 +13,11 @@ import type { MindMap } from '../../contexts/map/domain/types';
 
 // One editor store per opened map (design D7, "Fixture — issue #16"): created on mount with the
 // session repository, loaded with the stored map (load is not an edit, so opening writes nothing),
-// and flushed when the page is hidden or the editor unmounts. Client-side navigation fires no
-// pagehide (#10 handoff), hence the unmount flush. flush reaches repository.put synchronously;
-// the same adapter's ordered queue keeps later reads behind that write (#11, #13 handoffs).
-// Only an idle queue starts the network request synchronously.
+// and flushed when the page is hidden or the editor unmounts, after stopping a running generation
+// ("Issue #310 Fixture Triage"). Client-side navigation fires no pagehide (#10 handoff), hence
+// the unmount flush. flush reaches repository.put synchronously; the same adapter's ordered queue
+// keeps later reads behind that write (#11, #13 handoffs). Only an idle queue starts the network
+// request synchronously.
 
 const EditorStoreContext = createContext<StoreApi<EditorState> | null>(null);
 
@@ -40,13 +41,16 @@ export function EditorSession({
     return created;
   });
   useEffect(() => {
-    const flush = (): void => {
+    // Stop first: it ends the generate group synchronously, so the flush saves the partial map.
+    // stopGeneration does nothing when idle.
+    const leave = (): void => {
+      store.getState().stopGeneration();
       void store.getState().flush();
     };
-    window.addEventListener('pagehide', flush);
+    window.addEventListener('pagehide', leave);
     return () => {
-      window.removeEventListener('pagehide', flush);
-      flush();
+      window.removeEventListener('pagehide', leave);
+      leave();
     };
   }, [store]);
   return <EditorStoreContext value={store}>{children}</EditorStoreContext>;
