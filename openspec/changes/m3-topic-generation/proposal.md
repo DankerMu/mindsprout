@@ -1332,7 +1332,7 @@ Selected risk packs:
 - Concurrency/state: Stop, leaving and the saved partial result, asserted against a real stream.
 - User-visible behaviour: the six scenarios, zero console errors, screenshots.
   Not selected:
-- Public API, Schema, Config, File IO, Legacy, Release, Docs: none apply. The AGENTS Runtime Lifecycle line changes in 7.1.
+- Public API, Schema, Config, File IO, Legacy, Release, Docs: none apply. The AGENTS Runtime Lifecycle line changes in 7.2.
 
 Interface:
 
