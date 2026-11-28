@@ -215,6 +215,19 @@ test.describe('layout motion', () => {
     await nodeAt(page, 'a').click();
     await page.keyboard.press('Delete');
     await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
+    // Positive control: which wrapper the press landed on, and whether it was still sliding.
+    await page.evaluate(() => {
+      document.addEventListener(
+        'mousedown',
+        (event) => {
+          const wrapper = (event.target as Element).closest<HTMLElement>('.react-flow__node');
+          Object.assign(window, {
+            pressed: [wrapper?.dataset.id, wrapper?.getAnimations().length],
+          });
+        },
+        true,
+      );
+    });
     await page.keyboard.press('ControlOrMeta+z');
     const sliding = await page.waitForFunction(
       () => {
@@ -228,7 +241,15 @@ test.describe('layout motion', () => {
     );
     const point = await sliding.jsonValue();
     if (point === false) throw new Error('waitForFunction resolved without a sample');
-    await page.mouse.click(point.x, point.y);
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.down();
+    await page.mouse.move(point.x + 1, point.y);
+    await page.mouse.up();
+    const pressed = await page.evaluate(
+      () => (window as unknown as { pressed: unknown[] }).pressed,
+    );
+    expect(pressed[0]).toBe('b');
+    expect(pressed[1]).toBeGreaterThan(0);
     await expect(history('撤销')).toBeDisabled();
     await expect(history('重做')).toBeEnabled();
     const roots = async () => ((await readRecord(page, SIBLINGS.id)) as { map: MindMap }).map.roots;

@@ -475,14 +475,21 @@ describe('layout motion around a drag gesture', () => {
     expect(moving()).toBe(true);
   });
 
-  it('treats a release where the node never moved as a click, even over another node', () => {
+  it.each([
+    [0, false],
+    [1, false],
+    [3, false],
+    [4, true],
+  ])('a release %ipx from the grab over another node drops: %s', (jitter, drops) => {
     const { store } = setup();
+    expect(viewportTransform().zoom).toBe(1);
     const before = store.getState().map;
     const target = renderedPosition('p');
-    start('a');
+    const origin = start('a');
+    if (jitter > 0) move(origin.x + 20 + jitter, origin.y + 10 - jitter);
     stop(target.x + 10, target.y + 10);
-    expect(store.getState().map).toBe(before);
-    expect(store.getState().canUndo).toBe(false);
+    expect(store.getState().canUndo).toBe(drops);
+    if (!drops) expect(store.getState().map).toBe(before);
     expect(moving()).toBe(true);
   });
 

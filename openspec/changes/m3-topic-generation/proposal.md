@@ -1425,7 +1425,7 @@ Interface:
 3. `playwright.config.ts`: `use.reducedMotion: 'reduce'`, with a comment naming the failure mode (position assertions sampling mid-transition).
 4. New `e2e/canvas-motion.spec.ts`. A motion `describe` calls `test.use({ reducedMotion: 'no-preference' })` inside it, and a reduced-motion `describe` keeps the default. The tests are named after the scenarios. CSS Module class names are hashed in `next dev`, so the spec asserts computed styles, never class names.
 
-5. A click during a slide commits nothing. With `nodeDragThreshold={0}` (`MindMapCanvas.tsx:305`), a mousedown starts a gesture. That removes the motion class, so the node snaps to its layout position while the pointer is still where the node was drawn mid-slide. On release, `planNodeDrop` (`node-drop.ts:96-111`) then reads a detach or a reparent. The implementer reproduced this 5/5 with motion on. `onNodeDragStop` (`node-drag.tsx:219`) therefore treats a release where the grabbed node never moved (`node.position` equals the captured anchor) as a click and plans no drop. Without motion, such a release is over the node itself, and `planNodeDrop` already yields no op, so behaviour without motion is unchanged.
+5. A click during a slide commits nothing (tap jitter of at most 3 screen px counts as a click). With `nodeDragThreshold={0}` (`MindMapCanvas.tsx:305`), a mousedown starts a gesture. That removes the motion class, so the node snaps to its layout position while the pointer is still where the node was drawn mid-slide. On release, `planNodeDrop` (`node-drop.ts:96-111`) then reads a detach or a reparent. The implementer reproduced this 5/5 with motion on. `onNodeDragStop` therefore treats a release where the grabbed node moved at most `CLICK_TOLERANCE_PX` (3 screen px, divided by the zoom) from the captured anchor as a click, and plans no drop. Touch taps carry jitter, and with `nodeDragThreshold={0}` any 1 px move changes the node position, so exact equality would still let a jittery tap detach a sliding node (PR #345 review). Without motion, such a release is over the node itself, and `planNodeDrop` already yields no op, so behaviour without motion is unchanged.
 
 Scenarios (spec `specs/canvas-layout/spec.md`):
 
@@ -1465,7 +1465,7 @@ Not in this slice (recorded):
 
 - Edge animation. Edges are SVG paths recomputed from node positions, so during the 200 ms they may lead the node boxes. The spec does not require edges to animate.
 - The first-load shift. When measured sizes replace estimated sizes, the layout can move nodes slightly. Users see that small shift slide over 200 ms instead of jumping. Node sizes are estimated close to the measured size (`MindNodeView.module.css` header), so the shift is small.
-- Wrappers reinserted by a DOM reorder jump to their new position instead of sliding, because a reinserted element has no before-change style.
+- Wrappers reinserted by a DOM reorder jump to their new position instead of sliding, because a reinserted element has no before-change style. Visible effect: after a reparenting drag, the siblings it displaces jump into place, and after its undo or redo the moved subtree jumps. Not tried in this slice: emitting nodes from `toFlowElements` in a stable order instead of pre-order (`flow-elements.ts:70-80`) might avoid the reinsertion altogether. That is a follow-up candidate.
 - Grabbing a node during its transition finishes that transition at once, so the grab offset can be off once. A click without movement commits nothing (interface item 5).
 
 Evidence floor:
