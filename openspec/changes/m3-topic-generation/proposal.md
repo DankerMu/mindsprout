@@ -640,7 +640,7 @@ Evidence floor:
     - the reader gets exactly one `op` frame, and then `read()` returns `done: true` with no terminal frame;
     - the `wait` step settles, which proves `request.signal` reached the provider (a different signal would hang the test until it times out);
     - `info` is called with `outcome: 'aborted'`.
-  - Cancel before abort, the order Next uses:
+  - Cancel before abort. Next 16.4.5 usually aborts `request.signal` first (`app-route.js:219` registers it before `pipeToNodeResponse`) and does not guarantee the order; abort-first is covered by "Browser stops the request", and this row covers the cancel-first order:
     - the `wait` step's `onWait` first calls `reader.cancel()` and then aborts the request controller;
     - the `cancel()` promise resolves;
     - `info` gets `outcome: 'aborted'`;

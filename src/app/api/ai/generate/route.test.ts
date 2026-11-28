@@ -282,7 +282,7 @@ describe('POST /api/ai/generate stream', () => {
     );
   });
 
-  it('stops writing when Next cancels the response before aborting the request', async () => {
+  it('stops writing once the response stream is cancelled, before the request signal aborts', async () => {
     const rejections: unknown[] = [];
     const onRejection = (reason: unknown) => {
       rejections.push(reason);
