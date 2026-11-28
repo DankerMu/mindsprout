@@ -1425,6 +1425,8 @@ Interface:
 3. `playwright.config.ts`: `use.reducedMotion: 'reduce'`, with a comment naming the failure mode (position assertions sampling mid-transition).
 4. New `e2e/canvas-motion.spec.ts`. A motion `describe` calls `test.use({ reducedMotion: 'no-preference' })` inside it, and a reduced-motion `describe` keeps the default. The tests are named after the scenarios. CSS Module class names are hashed in `next dev`, so the spec asserts computed styles, never class names.
 
+5. A click during a slide commits nothing. With `nodeDragThreshold={0}` (`MindMapCanvas.tsx:305`), a mousedown starts a gesture. That removes the motion class, so the node snaps to its layout position while the pointer is still where the node was drawn mid-slide. On release, `planNodeDrop` (`node-drop.ts:96-111`) then reads a detach or a reparent. The implementer reproduced this 5/5 with motion on. `onNodeDragStop` (`node-drag.tsx:219`) therefore treats a release where the grabbed node never moved (`node.position` equals the captured anchor) as a click and plans no drop. Without motion, such a release is over the node itself, and `planNodeDrop` already yields no op, so behaviour without motion is unchanged.
+
 Scenarios (spec `specs/canvas-layout/spec.md`):
 
 - **Sibling shifts smoothly.** The root has children A and B. Select A the way `e2e/node-creation.spec.ts:39-50` (`createFrom`) does, so the canvas region holds focus, and press Enter. Enter creates an empty sibling in creation edit, and focus moves into its title input. A blur would commit the empty text and delete the node, moving B back. So every assertion runs before anything moves focus. This inserts a sibling after A and above B (`selection-input.tsx:148-150`), which moves B. Adding a child to a leaf A would not move B: tidy-tree separation applies only between neighbours at the same depth. Assertions:
@@ -1456,11 +1458,13 @@ Not in this slice (recorded):
 - Edge animation. Edges are SVG paths recomputed from node positions, so during the 200 ms they may lead the node boxes. The spec does not require edges to animate.
 - The first-load shift. When measured sizes replace estimated sizes, the layout can move nodes slightly. Users see that small shift slide over 200 ms instead of jumping. Node sizes are estimated close to the measured size (`MindNodeView.module.css` header), so the shift is small.
 - Wrappers reinserted by a DOM reorder jump to their new position instead of sliding, because a reinserted element has no before-change style.
-- Grabbing a node during its transition finishes that transition at once, so the grab offset can be off once.
+- Grabbing a node during its transition finishes that transition at once, so the grab offset can be off once. A click without movement commits nothing (interface item 5).
 
 Evidence floor:
 
 - jsdom (`node-drag` tests, a real canvas). If the fade gating from interface item 2 ships, a `MindNodeView` test covers it: the class is present at mount and absent after `fireEvent.animationEnd`.
+- jsdom no-move release: a gesture that starts and stops at the anchor while the pointer is over another node commits no drop (no `commitDrop` call). Bite check: remove the guard, and the test fails.
+- e2e no-move click: with motion on, click a node while it slides (for example right after an undo moves it), then assert the stored structure is unchanged and `撤销` is in its prior state.
 - jsdom drag class:
   - before a drag, the `.react-flow` root has the motion class;
   - after `onNodeDragStart` (a live gesture), it does not;
