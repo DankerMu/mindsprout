@@ -7,6 +7,7 @@ import {
   StorageUnauthorizedError,
   UnsupportedSchemaVersionError,
 } from '../../../contexts/map/domain/errors';
+import type { GenerateSource } from '../../../contexts/map/domain/generate-source';
 import type { MapRepository } from '../../../contexts/map/domain/map-repository';
 import type { MindMap } from '../../../contexts/map/domain/types';
 import { useMapRepository } from '../../providers/MapRepositoryProvider';
@@ -23,10 +24,12 @@ function StoredMap({
   id,
   repository,
   header,
+  ...source
 }: {
   id: string;
   repository: MapRepository;
   header?: ReactNode;
+  generateSource?: GenerateSource;
 }) {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   useEffect(() => {
@@ -61,7 +64,7 @@ function StoredMap({
   }, [id, repository]);
   if (loaded.status !== 'ready') return <MapStatus kind={loaded.status} />;
   return (
-    <EditorSession map={loaded.map} repository={repository}>
+    <EditorSession map={loaded.map} repository={repository} {...source}>
       <EditorView header={header} />
     </EditorSession>
   );
@@ -71,5 +74,15 @@ export function MapEditor({ id, header }: { id: string; header?: ReactNode }) {
   const repository = useMapRepository();
   if (repository.status === 'opening') return <MapStatus kind="loading" />;
   if (repository.status === 'failed') return <MapStatus kind="error" />;
-  return <StoredMap key={id} id={id} repository={repository.repository} header={header} />;
+  // The session's generate source, read once when the editor store is created.
+  const { generateSource } = repository;
+  return (
+    <StoredMap
+      key={id}
+      id={id}
+      repository={repository.repository}
+      header={header}
+      {...(generateSource === undefined ? {} : { generateSource })}
+    />
+  );
 }

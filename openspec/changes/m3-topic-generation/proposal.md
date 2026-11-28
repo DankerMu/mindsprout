@@ -1249,6 +1249,14 @@ Sibling surfaces:
 - `CONTEXT.md` (unchanged; 5.1 already rewrote the map row);
 - README.
 
+Shipped deviations (PR for #310):
+
+- `editor-store.ts` exports `TOPIC_MAX_LENGTH`, so the form and the store share one limit instead of repeating 200.
+- The form has `aria-label="生成导图"` and a placeholder.
+- The session open path builds the result in a `new Promise` executor, so a throwing adapter constructor still becomes a failed open.
+- A changeset is added, because this is a user-visible change.
+- An absolute overlay cannot be detected in jsdom, because jsdom has no layout. Normal flow is proven by the e2e screenshots. The autofocus bite check is caught in jsdom.
+
 Not in this slice (recorded):
 
 - A provider or model switch (M3.5);

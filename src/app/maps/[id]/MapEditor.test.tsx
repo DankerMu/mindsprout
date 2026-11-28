@@ -30,6 +30,7 @@ failOnConsoleNoise();
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  document.cookie = 'mindsprout_session_binding=; Path=/; Max-Age=0';
 });
 
 const NOT_FOUND = '找不到这张导图';
@@ -479,5 +480,43 @@ describe('editor load session expiry', () => {
     expect(server.requests).toHaveLength(2);
     expect(assign).not.toHaveBeenCalled();
     expect(screen.getByTestId('editor-title').textContent).toBe('标题A');
+  });
+});
+
+describe('editor composition', () => {
+  it('hands the session generate source to the editor, so 生成 posts with the session binding', async () => {
+    const server = new MapFetch();
+    server.authenticateAs('Composer');
+    const binding = Buffer.from('Composer', 'utf8').toString('base64url');
+    // MapFetch serves only map routes; the generate requests are recorded here.
+    const generate: { body: RequestInit['body']; binding: string | null }[] = [];
+    vi.stubGlobal('fetch', async (...[input, init]: Parameters<typeof fetch>) => {
+      if (input !== '/api/ai/generate') return server.fetch(input, init);
+      generate.push({
+        body: init?.body,
+        binding: new Headers(init?.headers).get('x-mindsprout-session-binding'),
+      });
+      return new Response('event: done\ndata: {}\n\n', { status: 200 });
+    });
+    await new HttpMapRepository(server.fetch, binding).put({
+      ...mapOf(node('fresh-root')),
+      id: 'fresh',
+      title: '新导图',
+    });
+    document.cookie = `mindsprout_session_binding=${binding}; Path=/`;
+    render(
+      <MapRepositoryProvider>
+        <MapEditor id="fresh" />
+      </MapRepositoryProvider>,
+    );
+
+    fireEvent.change(await screen.findByRole('textbox', { name: '主题' }), {
+      target: { value: '组合' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '生成' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: '停止生成' })).toBeNull();
+    });
+    expect(generate).toStrictEqual([{ body: '{"topic":"组合","rootId":"fresh-root"}', binding }]);
   });
 });

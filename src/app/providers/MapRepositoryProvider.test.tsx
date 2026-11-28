@@ -5,6 +5,7 @@ import { failOnConsoleNoise } from '../../../tests/support/canvas';
 import { mapOf, node } from '../../../tests/support/map-domain';
 import { MapFetch } from '../../../tests/support/map-fetch';
 import type { MapRepository } from '../../contexts/map/domain/map-repository';
+import { HttpGenerateSource } from '../../contexts/map/infrastructure/ai/http-generate-source';
 import { HttpMapRepository } from '../../contexts/map/infrastructure/persistence/http-map-repository';
 import { InMemoryMapRepository } from '../../../tests/support/in-memory-map-repository';
 import {
@@ -95,6 +96,8 @@ describe('MapRepositoryProvider', () => {
 
     expect(shownState()).toBe('ready');
     expect(lastRepository(seen)).toBe(repository);
+    // The injected open path composes no generate source.
+    expect(seen.at(-1)).toStrictEqual({ status: 'ready', repository });
   });
 
   it('is failed when the open rejects with a plain Error', async () => {
@@ -166,6 +169,8 @@ describe('MapRepositoryProvider', () => {
     expect(shownState()).toBe('ready');
     expect(lastRepository(seen)).toBe(session.repository);
     expect(session.repository).toBeInstanceOf(HttpMapRepository);
+    expect(seen.at(-1)).toStrictEqual({ status: 'ready', ...session });
+    expect(session.generateSource).toBeInstanceOf(HttpGenerateSource);
   });
 
   it('throws when useMapRepository is used outside the provider', () => {

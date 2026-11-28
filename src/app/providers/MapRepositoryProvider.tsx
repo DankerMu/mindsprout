@@ -15,12 +15,16 @@ import {
   resumeFromPublicAuth,
   SessionNavigationScope,
 } from '../../components/account/session-navigation';
+import type { GenerateSource } from '../../contexts/map/domain/generate-source';
 import type { MapRepository } from '../../contexts/map/domain/map-repository';
+import { HttpGenerateSource } from '../../contexts/map/infrastructure/ai/http-generate-source';
 import { HttpMapRepository } from '../../contexts/map/infrastructure/persistence/http-map-repository';
 import { readCookie, SESSION_BINDING_COOKIE } from '../../shared/session-binding';
 
+// The injected open path (tests) composes no generate source.
 interface ReadyRepository {
   repository: MapRepository;
+  generateSource?: GenerateSource;
 }
 
 export type RepositoryState =
@@ -39,14 +43,20 @@ async function openRepository(open: () => Promise<MapRepository>): Promise<Ready
 }
 
 // Effect-only open: SSR issues no request. Remounts share the repository until the account changes.
+// Both adapters carry the same binding, so an absent cookie fails closed for generation too
+// (decision 0028). The executor turns a throwing constructor into a failed open.
 export function openSessionRepository(): Promise<ReadyRepository> {
   const binding = documentBinding();
   if (!session || session.binding !== binding) {
+    const bound = binding ?? '';
     session = {
       binding,
-      promise: openRepository(() =>
-        Promise.resolve(new HttpMapRepository(undefined, binding ?? '')),
-      ),
+      promise: new Promise((resolve) => {
+        resolve({
+          repository: new HttpMapRepository(undefined, bound),
+          generateSource: new HttpGenerateSource(undefined, bound),
+        });
+      }),
     };
   }
   return session.promise;
