@@ -140,7 +140,7 @@ export function useNodeDrag(
   const [preview, setPreview] = useState<Preview | null>(null);
   const [active, setActive] = useState<Gesture | null>(null);
   const [quiescing, setQuiescing] = useState(false);
-  const enabled = controls !== undefined && selection?.editing === null;
+  const enabled = controls !== undefined && selection?.editing === null && !selection.generating;
   const cancel = useCallback(() => {
     if (gesture.current !== null) setQuiescing(true);
     gesture.current = null;

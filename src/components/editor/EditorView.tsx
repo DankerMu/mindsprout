@@ -118,9 +118,11 @@ export function EditorView({ header }: { header?: ReactNode }) {
             key={JSON.stringify([map.id, noteNode.id])}
             node={noteNode}
             inputRef={noteInput}
+            readOnly={selection.generating}
             onCommit={(note) => {
               const current = store.getState();
               if (
+                current.generating ||
                 current.map?.id !== map.id ||
                 current.selectedIds.length !== 1 ||
                 current.selectedIds[0] !== noteNode.id

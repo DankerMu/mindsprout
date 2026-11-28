@@ -16,7 +16,7 @@ export function handleTitleKey(
 ): void {
   if (event.key !== 'F2' || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)
     return;
-  if (controls === undefined || selection.primaryId === null) return;
+  if (controls === undefined || selection.primaryId === null || selection.generating) return;
   if (selectionBlocked(selection, event.target, event.isComposing)) return;
   event.preventDefault();
   controls.startEdit(selection.primaryId);

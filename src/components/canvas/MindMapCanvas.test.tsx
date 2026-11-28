@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Activity, Profiler, StrictMode, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useStore } from 'zustand';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
   borderBoxEntry,
@@ -14,15 +15,17 @@ import {
   sizedWrapperEntry,
   viewportTransform,
 } from '../../../tests/support/canvas';
+import { FakeGenerateSource } from '../../../tests/support/generate-source';
 import { mapOf, node } from '../../../tests/support/map-domain';
 import { RecordingRepository } from '../../../tests/support/map-repository-stub';
+import { createEditorStore } from '../../contexts/map/application/editor-store/editor-store';
 import {
   DEFAULT_GAP,
   estimateNodeSize,
   layoutForest,
 } from '../../contexts/map/application/layout/layout-forest';
 import type { MindMap } from '../../contexts/map/domain/types';
-import { EditorSession } from '../editor/EditorSession';
+import { EditorSession, selectMap } from '../editor/EditorSession';
 import { EditorView } from '../editor/EditorView';
 import { MindMapCanvas } from './MindMapCanvas';
 
@@ -439,6 +442,53 @@ describe('MindMapCanvas view', () => {
 
     dragViewport(pane, 1, 100);
     expect(viewportTransform()).toStrictEqual({ ...start, x: start.x + 100 });
+  });
+
+  it('pans and zooms while a generation runs, and the generation continues', async () => {
+    const source = new FakeGenerateSource();
+    const store = createEditorStore({ generateSource: source });
+    store.getState().load(mapOf(node('r')));
+    function Canvas() {
+      const state = useStore(store);
+      return (
+        <MindMapCanvas
+          map={selectMap(state)}
+          selection={state}
+          titleEditing={state}
+          history={state}
+          deletion={state}
+        />
+      );
+    }
+    const { container } = render(<Canvas />);
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = store.getState().generate('主题');
+      await Promise.resolve();
+    });
+    const grow = (id: string) => ({
+      op: 'add_children' as const,
+      parentId: 'r',
+      children: [{ id, text: id }],
+    });
+    await act(() => source.run(0).push(grow('a')));
+    const pane = container.querySelector('.react-flow__pane');
+    if (pane === null) throw new Error('no pane');
+    const start = viewportTransform();
+
+    dragViewport(pane, 1, 100);
+    expect(viewportTransform()).toStrictEqual({ ...start, x: start.x + 100 });
+    fireEvent.wheel(pane, { deltaY: -100000 });
+    expect(viewportTransform().zoom).toBe(2);
+    await act(() => delay(200));
+    expect(store.getState().generating).toBe(true);
+    await act(() => source.run(0).push(grow('b')));
+    expect(selectMap(store.getState()).roots[0]?.children.map((child) => child.id)).toEqual([
+      'a',
+      'b',
+    ]);
+    source.run(0).finish();
+    await act(() => done);
   });
 
   it('renders from props: a changed title replaces the old one', () => {

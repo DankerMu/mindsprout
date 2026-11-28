@@ -7,6 +7,7 @@ import {
   createEditorStore,
   type EditorState,
 } from '../../contexts/map/application/editor-store/editor-store';
+import type { GenerateSource } from '../../contexts/map/domain/generate-source';
 import type { MapRepository } from '../../contexts/map/domain/map-repository';
 import type { MindMap } from '../../contexts/map/domain/types';
 
@@ -22,14 +23,19 @@ const EditorStoreContext = createContext<StoreApi<EditorState> | null>(null);
 export function EditorSession({
   map,
   repository,
+  generateSource,
   children,
 }: {
   map: MindMap;
   repository: MapRepository;
+  generateSource?: GenerateSource;
   children: ReactNode;
 }) {
   const [store] = useState(() => {
-    const created = createEditorStore({ repository });
+    const created = createEditorStore({
+      repository,
+      ...(generateSource === undefined ? {} : { generateSource }),
+    });
     created.getState().load(map);
     return created;
   });

@@ -6,7 +6,7 @@ function HistoryButton({ controls, action }: { controls: CanvasHistory; action: 
   return (
     <button
       type="button"
-      disabled={!(action === 'undo' ? controls.canUndo : controls.canRedo)}
+      disabled={controls.generating || !(action === 'undo' ? controls.canUndo : controls.canRedo)}
       onPointerDown={() => {
         startedEditing.current = controls.editing !== null;
       }}
