@@ -37,3 +37,24 @@ export class UnsupportedSchemaVersionError extends Error {
     this.supported = supported;
   }
 }
+
+// Why a generation failed (design D9 notice table). Map's own vocabulary: map never imports ai.
+export type GenerateErrorCode =
+  | 'timeout'
+  | 'provider-error'
+  | 'invalid-output'
+  | 'refused'
+  | 'ai-unavailable'
+  | 'unauthenticated'
+  | 'network';
+
+// The fixed message names only the code, so no server diagnostic text can reach it.
+export class GenerateError extends Error {
+  override readonly name = 'GenerateError';
+  readonly code: GenerateErrorCode;
+
+  constructor(code: GenerateErrorCode) {
+    super(`generation failed: ${code}`);
+    this.code = code;
+  }
+}

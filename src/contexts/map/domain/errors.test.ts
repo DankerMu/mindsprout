@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
 import {
+  GenerateError,
   StorageUnauthorizedError,
   TreeOpError,
   UnsupportedSchemaVersionError,
+  type GenerateErrorCode,
   type TreeOpErrorCode,
 } from './errors';
 
@@ -61,5 +63,16 @@ describe('StorageUnauthorizedError', () => {
     expect(error).toBeInstanceOf(Error);
     expect(error.name).toBe('StorageUnauthorizedError');
     expect(error.message).toBe('GET /api/maps returned HTTP 401');
+  });
+});
+
+describe('GenerateError', () => {
+  it('carries its code under a fixed message that names only the code', () => {
+    const code: GenerateErrorCode = 'ai-unavailable';
+    const error = new GenerateError(code);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe('GenerateError');
+    expect(error.code).toBe('ai-unavailable');
+    expect(error.message).toBe('generation failed: ai-unavailable');
   });
 });

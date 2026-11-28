@@ -126,7 +126,7 @@ Minimal mergeable slice: 4.1 - the composition is unit-tested alone; 4.2 (verifi
 
 ## 5. Editor topic generation
 
-- [ ] 5.1 Add the `GenerateSource` port in `map/domain` and the browser adapter `map/infrastructure/ai/http-generate-source.ts` (design D9).
+- [x] 5.1 Add the `GenerateSource` port in `map/domain` and the browser adapter `map/infrastructure/ai/http-generate-source.ts` (design D9).
   - Update the CONTEXT map integration row (design D12).
   - Verify (unit, injected fetch with bodies split mid-frame):
     - frames reassemble;
