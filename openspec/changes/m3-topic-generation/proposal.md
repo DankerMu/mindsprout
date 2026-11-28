@@ -1368,6 +1368,14 @@ Must preserve:
 - `scripts/e2e-server.mjs` keeps the derived test database variables and its credential handling (decision 0026).
 - No `src/**` change.
 
+Shipped deviations (PR for #311):
+
+- The no-console-noise collector is registered in `beforeEach` and asserted empty in `afterEach`.
+- Hydration of `/` is detected by `还没有导图`, because the `app-ready` marker is server-rendered.
+- Stop clicks `适应画布` before clicking the root, as m2's `child()` does.
+- The completion PUT waiter matches only a body that contains `要点 4.3`, so it skips mid-stream saves.
+- The undo-focus gap is filed as #343.
+
 Not in this slice (recorded):
 
 - The IME check (an Enter that confirms a Chinese candidate must not submit) cannot be driven by Playwright. It is a manual WebKit check for the owner's functional acceptance.

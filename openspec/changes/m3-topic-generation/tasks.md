@@ -148,7 +148,7 @@ Minimal mergeable slice: 4.1 - the composition is unit-tested alone; 4.2 (verifi
   - Wire unmount/pagehide abort-end-flush in `EditorSession`.
   - Add README Known Limitations: no quota, local only, AI optional (design D12).
   - Verify (jsdom): topic-generation "New map", "Non-empty map", "Invalid topic cannot be submitted", "Double submit" (one request), "AI unavailable" (shows `AI 未配置`) and the Stop button's presence while generating. Unmount during generation aborts, then flushes.
-- [ ] 5.5 Make `scripts/e2e-server.mjs` force `AI_PROVIDER=mock` (process environment set by the script wins over `.env`), and add the mock generation e2e walk.
+- [x] 5.5 Make `scripts/e2e-server.mjs` force `AI_PROVIDER=mock` (process environment set by the script wins over `.env`), and add the mock generation e2e walk.
   - Verify (e2e, mock): topic-generation "Progressive appearance", "Stop", "Mid-stream error", "Leaving saves partial result", "Saved after completion" and "Undo completed generation", with zero console errors and screenshots in `.run/ui-evidence/`; ai-live-acceptance "Default e2e" (mock server half), proven by running `AI_PROVIDER=anthropic ANTHROPIC_API_KEY=dummy AI_MODEL=dummy pnpm e2e` and observing mock output. `.env` is neither read nor written.
 
 Suggested fixture level: expanded - user-visible editing flow across the store, the canvas lock and the save path; a lock or group slip corrupts undo or loses edits.
