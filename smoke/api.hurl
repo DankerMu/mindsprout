@@ -374,3 +374,42 @@ HTTP 403
 [Asserts]
 body == "{\"error\":\"forbidden\"}"
 header "Set-Cookie" not exists
+
+# Generation: the cookie jar holds the second user's session, so the 401 case is a binding
+# mismatch; the signed-out case is unit-covered. dev:bg forces the mock provider.
+POST {{base_url}}/api/ai/generate
+x-mindsprout-session-binding: not-this-user
+Content-Type: application/json
+{
+  "topic": "smoke generate",
+  "rootId": "root"
+}
+
+HTTP 401
+[Asserts]
+body == "{\"error\":\"unauthenticated\"}"
+
+POST {{base_url}}/api/ai/generate
+Content-Type: application/json
+{
+  "topic": "   ",
+  "rootId": "root"
+}
+
+HTTP 400
+[Asserts]
+body == "{\"error\":\"invalid-input\"}"
+
+POST {{base_url}}/api/ai/generate
+Content-Type: application/json
+{
+  "topic": "smoke generate",
+  "rootId": "root"
+}
+
+HTTP 200
+[Asserts]
+header "Content-Type" == "text/event-stream"
+header "Cache-Control" == "no-store"
+body matches /^(event: op\ndata: \{[^\n]*\}\n\n){5}event: done\ndata: \{\}\n\n$/
+body contains "要点 4.3"

@@ -526,7 +526,7 @@ Selected risk packs:
 1. `requireJson(request)` gives 415 `unsupported-media-type`. `requireUser` is not called.
 2. `requireUser(request)` passes through its 401 Response unchanged. The body is not read.
 3. `request.json()` is parsed with a strict Zod object `{ topic, rootId }`.
-   - `topic` is `z.string().max(200)`, which counts UTF-16 code units on the raw string, and it is refined to be non-blank after `trim()`.
+   - `topic` is a string whose `length` is at most 200 and that is not blank after `trim()`, as one `refine`. Shipped deviation: zod 4's `max` counts code points past the limit (`node_modules/zod/v4/core/checks.js:271-274`), so 101 `'𐀀'` (202 code units) passed `max(200)`; `length` counts UTF-16 code units, as `auth.ts:53` does.
    - `rootId` is `z.string().min(1)`.
    - Invalid JSON, a non-object body, a missing or extra field, or a wrong type gives 400 `{"error":"invalid-input"}`.
    - The raw `topic` goes to `generate` unchanged. The editor trims it (topic-generation spec).
@@ -557,7 +557,7 @@ Contract surfaces:
   - the `SessionBinding` parameter;
   - a request body `GenerateRequest` (`additionalProperties: false`, `topic` with `maxLength: 200`, `rootId` with `minLength: 1`);
   - a 200 `text/event-stream` response whose description names the three frames;
-  - components `GenerateOp`, `GenerateError` and `GenerateDone`:
+  - components `GenerateRequest`, `NewNode`, `GenerateOp`, `GenerateError` and `GenerateDone` (shipped: `NewNode` names the recursive child node, because `MindNode` requires `children` and allows `position`; JSON Schema `maxLength` counts code points, so the description states the code-unit limit the route enforces):
     - `GenerateOp` is the `add_children` TreeOp, the only op `generate` emits. It mirrors `addChildrenOp` and `newNodeSchema` in `src/contexts/map/domain/tree-op.ts`.
     - `GenerateError` has a `code` enum of the four terminal codes and a `message`.
     - `GenerateDone` is an empty object with `additionalProperties: false`.

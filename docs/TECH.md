@@ -245,8 +245,9 @@ src/
     admin/                      管理员用户列表与密码重置页面
     maps/[id]/                  编辑器路由、导图加载与状态展示
     providers/                  会话级 MapRepository 绑定
-    server/                     账号、会话与 Postgres 服务组合
+    server/                     账号、会话、Postgres 与 AI 服务组合
     api/auth/                   register、login、logout、session
+    api/ai/generate/            主题生成（SSE 流式 TreeOp）
     api/maps/                   导图列表、读取、保存与删除
     api/admin/users/            用户列表与密码重置
     api/healthz/                健康检查
@@ -280,6 +281,7 @@ docs/                           PRD、技术与工程文档
 ## 8. 安全与限流
 
 - Key 只在服务端环境变量里，`.env.example` 已给占位
+- 主题生成（`POST /api/ai/generate`）要求登录会话，携带的会话绑定须与会话用户一致；请求体用 Zod 严格校验（topic ≤ 200 个 UTF-16 码元且非空白，rootId 非空）；客户端断开即中止提供方调用；SSE 帧只携带固定的错误信息，不含提供方原文、Key 或主题
 - 每用户每日配额写在 `ai_usage` 表，超过返回 429 并在前端提示
 - 请求体校验用 Zod，防止超长输入
 - 导图读写全部走 RLS，服务端也不绕过
