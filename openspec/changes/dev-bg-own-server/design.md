@@ -26,7 +26,7 @@ So "our child is alive and the health probe answers" is a sound ownership signal
   - This beats refusing a live pidfile. The reused server may predate the current environment (the pre-#306 scenario), and only a restart guarantees the environment. Refusing would also make a second `dev:bg` always fail, so callers would chain `dev:stop` in front, which is a restart done outside the script.
   - It costs one server start, about 10 s locally. CI starts fresh.
   - An environment marker in `.run/` was rejected: it would have to stay in sync with every exported variable.
-- **One clean exit.** Every non-zero exit after start runs `dev-stop.sh`, so no failed run leaves a pidfile behind. The pgid-leader check means a pidfile left by a crash or reboot, whose pid the OS has since reused, is treated as stale and never signalled.
+- **One clean exit.** Every non-zero exit after start runs `dev-stop.sh`, so no failed run leaves a pidfile behind. The pgid-leader check means a stale pidfile whose pid now belongs to a process that does not lead its own group is removed and never signalled. A reused pid that does lead its own group is still stopped; see Risks.
 - **The pre-start probe is the main defence.** Scenario 1 (owner's server) answers on the very first probe, before our child has reached `EADDRINUSE`. Only a check before starting catches it deterministically.
 - **Alive-gated readiness covers the remaining race.** A probe success with our child dead means someone else answered. A dead child with no success means we failed to start, so the script exits at once with the log tail.
 - **Deterministic stubs.** f4's `curl` stub blocks until our child is dead. Serve stubs live until they are stopped, so no case depends on how long a stub happens to live.

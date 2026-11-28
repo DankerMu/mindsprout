@@ -34,6 +34,12 @@ Blast radius: a wrong edit could
 - `bash -n` passes on the changed scripts, and `shellcheck` reports no new finding.
 - PR CI passes, including "Integration tests + API smoke" (layer3).
 
+Review round 1, deferred P2s, filed as a follow-up:
+
+- No guardrail case yet covers the spec scenario "Earlier server does not stop". In that scenario the old group ignores TERM and still answers, and the expected result is a refusal that names `:3000`. Until the follow-up lands, this path is covered only by code structure: the pre-start probe is unconditional.
+- No guardrail case covers the pid-leader guard, which leaves a live pidfile pid that does not lead its own group unsignalled.
+- The `dev-bg.sh` comment "removed without signalling anything" overstates the guarantee. A reused pid that leads its own group is still stopped.
+
 ## Why
 
 Issue #333. `scripts/dev-bg.sh` declares the server ready as soon as anything on `:3000` answers `/api/healthz`. It also reuses any live `.run/dev.pid` as is.
