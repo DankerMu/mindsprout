@@ -281,7 +281,7 @@ verification:
     - path: "/api/auth/logout"
       status: "covered by smoke/api.hurl"
     - path: "/api/ai/generate"
-      status: "pending — add to smoke/api.hurl when the route lands (M3)"
+      status: "covered by smoke/api.hurl"
     - path: "/api/maps"
       status: "covered by smoke/api.hurl"
     - path: "/api/maps/{id}"
