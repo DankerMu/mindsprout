@@ -30,8 +30,8 @@ function menuContext(
   if (controls === undefined) return;
   const state = controls.getState();
   if (map !== session.map || positions !== session.positions) return;
-  if (state.map !== session.map || state.editing !== null || state.menuTargetId !== session.target)
-    return;
+  if (state.generating || state.map !== session.map || state.editing !== null) return;
+  if (state.menuTargetId !== session.target) return;
   if (!visibleIds(state.map).includes(session.target)) return;
   return {
     target: session.target,
@@ -84,7 +84,8 @@ export function useContextMenu(
   return {
     open(event: MouseEvent, target: NodeId) {
       const state = controls?.getState();
-      if (state?.map !== map || state.editing !== null || !positions.has(target)) return;
+      if (state?.map !== map || state.generating || state.editing !== null) return;
+      if (!positions.has(target)) return;
       const canvas = event.currentTarget.closest<HTMLElement>('[role="region"]');
       if (canvas === null) return;
       event.preventDefault();

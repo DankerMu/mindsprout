@@ -1119,6 +1119,13 @@ Downstream consumers:
 
 Sibling surfaces: `EditorView.tsx` and `EditorSession.tsx` are also 5.4's files. This slice touches only the note `onCommit` guard and the `NotePanel` `readOnly` prop in `EditorView`, and only the optional `generateSource` prop in `EditorSession`. 5.4 lands after it and rebases. The PR boundary is `src/components/canvas/` plus those two edits.
 
+Shipped deviations (PR for #309):
+
+- Most tests render through `EditorSession` and `EditorView`, the real composition. Only the pan test builds the store directly.
+- `tests/support/canvas-drag.tsx` `measure` now takes the ids to measure, so it can be reused for a root-only map.
+- In-flight drag: on a root-only map the drop is already refused (`node-drop.ts:73`), so "drop dispatches nothing" does not detect a missing guard. The test checks instead that the preview snaps back and stays at its start position on the next move.
+- Menu `open` guard: without it, `menuContext` still hides the menu. The test checks instead that the contextmenu event is not `defaultPrevented` and that `menuTargetId` is never set.
+
 Not in this slice (recorded):
 
 - The topic form, Stop and notices (5.4).

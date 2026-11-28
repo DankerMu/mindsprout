@@ -6,10 +6,12 @@ export function NotePanel({
   node,
   onCommit,
   inputRef,
+  readOnly,
 }: {
   node: MindNode;
   onCommit: (note: string | null) => void;
   inputRef: Ref<HTMLTextAreaElement>;
+  readOnly: boolean;
 }) {
   const [draft, setDraft] = useState({ source: node, value: node.note ?? '' });
   if (draft.source !== node) {
@@ -24,6 +26,7 @@ export function NotePanel({
           ref={inputRef}
           className={styles.input}
           value={draft.value}
+          readOnly={readOnly}
           onChange={(event) => {
             setDraft({ source: node, value: event.target.value });
           }}

@@ -16,9 +16,13 @@ export type CanvasSelection = Pick<
   | 'setSelection'
   | 'selectAll'
   | 'clearSelection'
+  | 'generating'
 >;
 
-export type CanvasHistory = Pick<EditorState, 'undo' | 'redo' | 'canUndo' | 'canRedo' | 'editing'>;
+export type CanvasHistory = Pick<
+  EditorState,
+  'undo' | 'redo' | 'canUndo' | 'canRedo' | 'editing' | 'generating'
+>;
 
 export type CanvasDeletion = Pick<EditorState, 'deleteSelection'>;
 
@@ -29,6 +33,7 @@ export function handleDeletionKey(
 ): void {
   if (controls === undefined || (event.key !== 'Delete' && event.key !== 'Backspace')) return;
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (selection.generating) return;
   if (selectionBlocked(selection, event.target, isCompositionKey(event))) return;
   event.preventDefault();
   controls.deleteSelection();
@@ -40,7 +45,7 @@ export function handleHistoryKey(
   controls: CanvasHistory | undefined,
 ): void {
   if (controls === undefined || event.altKey || !(event.ctrlKey || event.metaKey)) return;
-  if (event.key.toLowerCase() !== 'z') return;
+  if (event.key.toLowerCase() !== 'z' || selection.generating) return;
   if (selectionBlocked(selection, event.target, isCompositionKey(event))) return;
   event.preventDefault();
   if (event.shiftKey) controls.redo();
@@ -134,7 +139,7 @@ export function handleCreationKey(
   selection: CanvasSelection,
   controls: Pick<EditorState, 'createNode'> | undefined,
 ): void {
-  if (!isCreationKey(event) || controls === undefined) return;
+  if (!isCreationKey(event) || controls === undefined || selection.generating) return;
   if (selectionBlocked(selection, event.target, isCompositionKey(event))) return;
   if (selection.selectedIds.length !== 1) return;
   const id = selection.selectedIds[0];

@@ -326,6 +326,7 @@ function CanvasView({ map, selection, titleEditing, history, deletion, drag, men
             }}
             onNodeDoubleClick={(event, node) => {
               if (titleEditing === undefined || selection === undefined || space) return;
+              if (selection.generating) return;
               if (selectionBlocked(selection, event.target, composing.current)) return;
               titleEditing.startEdit(node.id);
             }}

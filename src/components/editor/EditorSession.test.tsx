@@ -1,6 +1,7 @@
 import { act, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { failOnConsoleNoise } from '../../../tests/support/canvas';
+import { FakeGenerateSource } from '../../../tests/support/generate-source';
 import { mapOf, node, sampleMap } from '../../../tests/support/map-domain';
 import { RecordingRepository } from '../../../tests/support/map-repository-stub';
 import {
@@ -127,6 +128,34 @@ describe('EditorSession', () => {
     firePagehide();
 
     expect(repository.puts).toHaveLength(1);
+  });
+
+  it('gives the store the generate source it is handed', async () => {
+    const source = new FakeGenerateSource();
+    const probe: Probe = { states: [] };
+    function ProbeChild() {
+      probe.states.push(useEditorStore((state) => state));
+      return null;
+    }
+    render(
+      <EditorSession
+        map={mapOf(node('r'))}
+        repository={new RecordingRepository()}
+        generateSource={source}
+      >
+        <ProbeChild />
+      </EditorSession>,
+    );
+    let done: Promise<void> = Promise.resolve();
+    act(() => {
+      done = latest(probe).generate('主题');
+    });
+
+    expect(source.runs.map((run) => run.input)).toStrictEqual([{ topic: '主题', rootId: 'r' }]);
+    expect(latest(probe).generating).toBe(true);
+    source.run(0).finish();
+    await act(() => done);
+    expect(latest(probe).generating).toBe(false);
   });
 
   it('throws when useEditorStore is used outside the session', () => {

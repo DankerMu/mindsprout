@@ -55,8 +55,7 @@ export function setup() {
   return { store, repository, ...view };
 }
 
-export function measure() {
-  const ids = ['r', 'a', 'd', 'p', 'f'];
+export function measure(ids: readonly string[] = ['r', 'a', 'd', 'p', 'f']) {
   const active = observers().filter((observer) => observer.observed.size > 0);
   canvasObserverOf(active).fire(ids.map((id) => borderBoxEntry(mindNodeElement(id), 80, 32)));
   reactFlowNodeObserverOf(active).fire(ids.map((id) => sizedWrapperEntry(id, 80, 32)));
