@@ -1453,6 +1453,14 @@ Must preserve:
 - The drag preview, the drop planning, auto-pan, and measured-content framing (decision 0033 measures size, not position).
 - The viewport is not animated. Fit and pan are unchanged.
 
+Shipped deviations (PR for #312):
+
+- The bystander test was red with a plain fade class: `c` and `d` faded again. So the fade class is gated until the node's own first `animationend`.
+- `tests/support/dom-shims.ts` installs an `AnimationEvent` stand-in and imports `cleanup` lazily. jsdom lacks `AnimationEvent`, so react-dom would otherwise listen only for `webkitAnimationEnd`.
+- The bystander check waits two frames and then for no remaining animations, with the listener installed before the drag.
+- The motion spec seeds its own drag tree.
+- With the `reduce` default removed, 4 `single-node-drag` reads still fail. All 4 sample a start position during the first-load slide.
+
 Not in this slice (recorded):
 
 - Edge animation. Edges are SVG paths recomputed from node positions, so during the 200 ms they may lead the node boxes. The spec does not require edges to animate.

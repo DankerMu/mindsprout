@@ -17,6 +17,7 @@ import {
 } from '../../contexts/map/application/node-drop';
 import type { TreeOp } from '../../contexts/map/domain/tree-op';
 import type { MindMap, MindNode, Position } from '../../contexts/map/domain/types';
+import motion from './canvas-motion.module.css';
 import type { MindFlowNode } from './flow-elements';
 import type { CanvasSelection } from './selection-input';
 
@@ -223,7 +224,10 @@ export function useNodeDrag(
     const point = releasePoint(current.touchId, event);
     if (point === undefined) return;
     cancel();
-    if (blocked(event.target)) return;
+    // A no-move release is a click: mid-slide the pointer may sit outside the snapped node.
+    const { anchor } = current.drag;
+    if (blocked(event.target) || (node.position.x === anchor.x && node.position.y === anchor.y))
+      return;
     const pointer = screenToFlowPosition({ x: point.clientX, y: point.clientY });
     const plan = planNodeDrop(
       current.map,
@@ -262,6 +266,9 @@ export function useNodeDrag(
   }, [nodes, preview, map, layout, enabled, membershipMatches]);
 
   return {
+    // Removed for the whole gesture so the preview tracks the pointer; the drop's commit restores
+    // it in the same render as the new layout.
+    className: active === null ? motion.motion : undefined,
     nodes: projected,
     nodesDraggable: enabled,
     autoPanOnNodeDrag: enabled && !quiescing && active?.map === map && active.layout === layout,

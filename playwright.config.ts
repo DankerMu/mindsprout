@@ -17,6 +17,9 @@ export default defineConfig({
     baseURL: 'http://localhost:3100',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
+    // A position assertion sampled during the 200 ms layout transition would read a mid-flight
+    // box and flake; e2e/canvas-motion.spec.ts opts back in to motion (design D10).
+    reducedMotion: 'reduce',
     ...(process.env.PLAYWRIGHT_CHROMIUM_PATH
       ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } }
       : {}),

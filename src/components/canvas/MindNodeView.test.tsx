@@ -17,6 +17,7 @@ import { EditorView } from '../editor/EditorView';
 import type { MindFlowNode } from './flow-elements';
 import { MindMapCanvas } from './MindMapCanvas';
 import { MindNodeView } from './MindNodeView';
+import styles from './MindNodeView.module.css';
 
 // Seam: MindNodeView as rendered by MindMapCanvas (design "Fixture — issue #15"). Unmeasured
 // React Flow node wrappers are visibility: hidden, so node content is queried by label or text.
@@ -95,6 +96,17 @@ describe('MindNodeView', () => {
 
     expect(colorClassesOf('b')).toStrictEqual(['mind-node--color-blue']);
     expect(colorClassesOf('z')).toStrictEqual([]);
+  });
+
+  it('fades a node in once, so a node reinserted by a DOM reorder does not fade again', () => {
+    render(<MindMapCanvas map={mapOf(node('r', [], { text: '中心主题' }))} />);
+    const entering = () => mindNodeElement('r').classList.contains(String(styles.enter));
+
+    expect(entering()).toBe(true);
+    fireEvent.animationEnd(screen.getByText('中心主题'));
+    expect(entering()).toBe(true);
+    fireEvent.animationEnd(mindNodeElement('r'));
+    expect(entering()).toBe(false);
   });
 
   it('renders target and source handles that cannot connect', () => {
