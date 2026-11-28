@@ -17,6 +17,7 @@ import {
 } from '../../contexts/map/application/node-drop';
 import type { TreeOp } from '../../contexts/map/domain/tree-op';
 import type { MindMap, MindNode, Position } from '../../contexts/map/domain/types';
+import motion from './canvas-motion.module.css';
 import type { MindFlowNode } from './flow-elements';
 import type { CanvasSelection } from './selection-input';
 
@@ -32,6 +33,15 @@ interface Gesture {
 }
 interface Preview extends Gesture {
   position: Position;
+}
+
+// Tap jitter, in screen px. A grab mid-slide snaps the node to its layout box, so a jittery tap
+// read as a drop would detach or reparent it.
+const CLICK_TOLERANCE_PX = 3;
+
+function isClick(position: Position, anchor: Position, zoom: number): boolean {
+  const slack = CLICK_TOLERANCE_PX / zoom;
+  return Math.abs(position.x - anchor.x) <= slack && Math.abs(position.y - anchor.y) <= slack;
 }
 
 function releasePoint(touchId: number | null, event: MouseEvent | TouchEvent) {
@@ -135,7 +145,7 @@ export function useNodeDrag(
   blocked: (target: EventTarget | null) => boolean,
   onDragMove: () => void,
 ) {
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getZoom } = useReactFlow();
   const gesture = useRef<Gesture | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [active, setActive] = useState<Gesture | null>(null);
@@ -223,7 +233,7 @@ export function useNodeDrag(
     const point = releasePoint(current.touchId, event);
     if (point === undefined) return;
     cancel();
-    if (blocked(event.target)) return;
+    if (blocked(event.target) || isClick(node.position, current.drag.anchor, getZoom())) return;
     const pointer = screenToFlowPosition({ x: point.clientX, y: point.clientY });
     const plan = planNodeDrop(
       current.map,
@@ -262,6 +272,9 @@ export function useNodeDrag(
   }, [nodes, preview, map, layout, enabled, membershipMatches]);
 
   return {
+    // Removed for the whole gesture so the preview tracks the pointer; the drop's commit restores
+    // it in the same render as the new layout.
+    className: active === null ? motion.motion : undefined,
     nodes: projected,
     nodesDraggable: enabled,
     autoPanOnNodeDrag: enabled && !quiescing && active?.map === map && active.layout === layout,

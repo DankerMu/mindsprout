@@ -1395,6 +1395,97 @@ Evidence floor:
 - `pnpm lint`, `typecheck`, `fmt:check`, `test:guardrails` (`scripts/` touched) and `native:browser:test` pass.
 - Diff budget: the fixture already uses about 75 lines of the 400-line guard, so the spec and the script get about 325. If the total goes over, the PR carries `diff-limit-exempt` with a justification.
 
+## Issue #312 Fixture Triage
+
+Issue type: feature
+Fixture level: compact
+Upstream suggested level: compact. Agree. This is presentation CSS plus a class toggle and test configuration. There is no state, persistence or API change. Every canvas e2e is touched only through the `reducedMotion` default.
+Blast radius: every canvas render. A transition that is still active while a position assertion runs makes existing e2e specs flaky. A transition left on during a drag makes the preview lag behind the pointer.
+
+Governing invariant:
+
+- Positions come only from the deterministic layout. CSS animates the move between two layout positions and never computes a position. No JS interpolation is used (D10, rejected).
+- The transform transition is applied only while no node drag gesture is live.
+- With `prefers-reduced-motion: reduce`, neither the transition nor the fade applies.
+- Playwright's default `use` sets `reducedMotion: 'reduce'`, so no existing spec samples mid-transition.
+
+Selected risk packs:
+
+- User-visible behaviour: the motion and the drag preview.
+- Test infrastructure: the Playwright default that every e2e inherits.
+  Not selected: Public API, Schema, Config, Auth, Concurrency, File IO, Legacy, Release, Docs. None apply, and no README limitation changes.
+
+Interface:
+
+1. Motion class on the React Flow root. `useNodeDrag` (`src/components/canvas/node-drag.tsx`) returns `className`, which `MindMapCanvas` already spreads into `<ReactFlow {...dragView}>` (`MindMapCanvas.tsx:300`). The value is the motion class while no gesture is active (`active === null`) and `undefined` while a gesture is active. The class's CSS is `.motion :global(.react-flow__node) { transition: transform 200ms ease-out; }`. It lives in a new `src/components/canvas/canvas-motion.module.css`, inside `@media (prefers-reduced-motion: no-preference)`, so reduced motion never gets it.
+   - The gesture is live from `onNodeDragStart` until `cancel()` runs at the drop or at any cancel path. The commit of a drop restores the class in the same render as the new layout. The dropped nodes then settle from the preview position to the layout position, which is a layout change. The exception is a wrapper that React reinserts while reordering the DOM: it jumps to its position. The spec delta records this exception.
+2. Fade-in. In `MindNodeView.module.css`, a fade class gets `animation: <fade> 200ms ease-out`, with keyframes from `opacity: 0` to `opacity: 1`, inside `@media (prefers-reduced-motion: no-preference)`.
+   - A move op reorders the wrappers in the DOM, because React Flow renders them in `nodeLookup` order (`flow-elements.ts:76` is pre-order) and react-dom 19 moves them with `insertBefore`. A reinserted element restarts its CSS animations, so an existing node would fade again after a reorder drop or its undo.
+   - Prove this first with a red e2e on the `single-node-drag` map: drag `p` onto `s`, which reinserts the bystanders `c` and `d`. Before `mouse.up()`, install a capture-phase `animationstart` listener in the page. It records `event.target.closest('.react-flow__node')?.dataset.id`. After the drop, wait one frame and assert that neither `c` nor `d` is in the record. Reading `getAnimations()` after a Playwright round trip would miss a 200 ms replay. `dropOn` and `position` move from `e2e/single-node-drag.spec.ts:34-45` into `e2e/support/canvas-geometry.ts` so both specs share them. Only if that test is red, `MindNodeBody` applies the fade class from mount until its first `animationend` and then drops it. The component instance survives the DOM move, so a reinsertion without the class does not fade. If the test is already green, the plain class stays and the PR records it.
+3. `playwright.config.ts`: `use.reducedMotion: 'reduce'`, with a comment naming the failure mode (position assertions sampling mid-transition).
+4. New `e2e/canvas-motion.spec.ts`. A motion `describe` calls `test.use({ reducedMotion: 'no-preference' })` inside it, and a reduced-motion `describe` keeps the default. The tests are named after the scenarios. CSS Module class names are hashed in `next dev`, so the spec asserts computed styles, never class names.
+
+5. A click during a slide commits nothing (tap jitter of at most 3 screen px counts as a click). With `nodeDragThreshold={0}` (`MindMapCanvas.tsx:305`), a mousedown starts a gesture. That removes the motion class, so the node snaps to its layout position while the pointer is still where the node was drawn mid-slide. On release, `planNodeDrop` (`node-drop.ts:96-111`) then reads a detach or a reparent. The implementer reproduced this 5/5 with motion on. `onNodeDragStop` therefore treats a release where the grabbed node moved at most `CLICK_TOLERANCE_PX` (3 screen px, divided by the zoom) from the captured anchor as a click, and plans no drop. Touch taps carry jitter, and with `nodeDragThreshold={0}` any 1 px move changes the node position, so exact equality would still let a jittery tap detach a sliding node (PR #345 review). Without motion, such a release is over the node itself, and `planNodeDrop` already yields no op, so behaviour without motion is unchanged.
+
+Scenarios (spec `specs/canvas-layout/spec.md`):
+
+- **Sibling shifts smoothly.** The root has children A and B. Select A the way `e2e/node-creation.spec.ts:39-50` (`createFrom`) does, so the canvas region holds focus, and press Enter. Enter creates an empty sibling in creation edit, and focus moves into its title input. A blur would commit the empty text and delete the node, moving B back. So every assertion runs before anything moves focus. This inserts a sibling after A and above B (`selection-input.tsx:148-150`), which moves B. Adding a child to a leaf A would not move B: tidy-tree separation applies only between neighbours at the same depth. Assertions:
+  - precondition: B's inline `style.transform` before and after the operation differ;
+  - B's wrapper computed `transition-property` includes `transform`, with `transition-duration` `0.2s`;
+  - settle procedure:
+    1. record B's inline transform;
+    2. `expect.poll` until it changes;
+    3. wait until `el.getAnimations().length === 0`;
+    4. parse both `getComputedStyle(el).transform` and `el.style.transform` with `DOMMatrixReadOnly` and compare `e` and `f` with `toBeCloseTo(…, 1)`. React Flow writes `translate(${x}px,${y}px)` without a space, so strings are never compared.
+- **New node fades in.** The new node's content (`.mind-node`) has computed `animation-duration` `0.2s` and a non-`none` `animation-name`, sampled in the first frame the node exists. Its opacity settles at `1`. Also, after `p` is dropped onto `s`, no `animationstart` fires for the bystanders `c` and `d`. That is the red test from interface item 2, in its own test.
+- **Drag preview is immediate.** This is its own test. Drag is disabled during an edit (`node-drag.tsx:143`). On the `single-node-drag` map, drag `c`, which has the child `d`, using the `e2e/support/canvas-geometry.ts` helpers. During the live drag:
+  - the grabbed wrapper has computed `transition-duration` `0s`;
+  - at least one descendant wrapper also has `0s`. Descendants move through the preview, not XYDrag, so they get no `.dragging` class.
+    After the drop, a wrapper's computed `transition-duration` is `0.2s` again.
+- **Reduced motion.** Under the default `reduce`, in the describe that does not override it:
+  - assert `matchMedia('(prefers-reduced-motion: reduce)').matches`;
+  - select A and press Enter;
+  - sample the first frame in which the new node exists, using the `e2e/topic-generation.spec.ts:44-61` pattern. `waitForFunction(…, { polling: 'raf' })` returns `{ computed, inline, duration, animationName }` as soon as the node appears, and the assertions run on the Node side. B's computed and inline translations are equal, its duration is `0s`, and the new node's `animation-name` is `none`.
+
+Must preserve:
+
+- Every existing e2e spec, unchanged, under the `reduce` default.
+- The drag preview, the drop planning, auto-pan, and measured-content framing (decision 0033 measures size, not position).
+- The viewport is not animated. Fit and pan are unchanged.
+
+Shipped deviations (PR for #312):
+
+- The bystander test was red with a plain fade class: `c` and `d` faded again. So the fade class is gated until the node's own first `animationend`.
+- `tests/support/dom-shims.ts` installs an `AnimationEvent` stand-in and imports `cleanup` lazily. jsdom lacks `AnimationEvent`, so react-dom would otherwise listen only for `webkitAnimationEnd`.
+- The bystander check waits two frames and then for no remaining animations, with the listener installed before the drag.
+- The motion spec seeds its own drag tree.
+- With the `reduce` default removed, 4 `single-node-drag` reads still fail. All 4 sample a start position during the first-load slide.
+
+Not in this slice (recorded):
+
+- Edge animation. Edges are SVG paths recomputed from node positions, so during the 200 ms they may lead the node boxes. The spec does not require edges to animate.
+- The first-load shift. When measured sizes replace estimated sizes, the layout can move nodes slightly. Users see that small shift slide over 200 ms instead of jumping. Node sizes are estimated close to the measured size (`MindNodeView.module.css` header), so the shift is small.
+- Wrappers reinserted by a DOM reorder jump to their new position instead of sliding, because a reinserted element has no before-change style. Visible effect: after a reparenting drag, the siblings it displaces jump into place, and after its undo or redo the moved subtree jumps. Not tried in this slice: emitting nodes from `toFlowElements` in a stable order instead of pre-order (`flow-elements.ts:70-80`) might avoid the reinsertion altogether. That is a follow-up candidate.
+- Grabbing a node during its transition finishes that transition at once, so the grab offset can be off once. A click without movement commits nothing (interface item 5).
+
+Evidence floor:
+
+- jsdom (`node-drag` tests, a real canvas). If the fade gating from interface item 2 ships, a `MindNodeView` test covers it: the class is present at mount and absent after `fireEvent.animationEnd`.
+- jsdom no-move release: a gesture that starts and stops at the anchor while the pointer is over another node commits no drop (no `commitDrop` call). Bite check: remove the guard, and the test fails.
+- e2e no-move click: with motion on, click a node while it slides (for example right after an undo moves it), then assert the stored structure is unchanged and `撤销` is in its prior state.
+- jsdom drag class:
+  - before a drag, the `.react-flow` root has the motion class;
+  - after `onNodeDragStart` (a live gesture), it does not;
+  - after the drop, and separately after a cancel, it has the class again.
+  - Bite check: always return the class, and the during-drag assertion fails.
+- e2e:
+  - the four scenarios pass under `pnpm e2e`;
+  - every existing spec passes unchanged;
+  - the new spec passes alone with `--repeat-each=10`.
+  - Bite check: remove the `reducedMotion` default, then run at least one position-sensitive existing spec (for example `e2e/canvas-editing.spec.ts`) and report whether it fails.
+- Run e2e only with the mock forced, which `scripts/e2e-server.mjs` now guarantees. `.env` is neither read nor written.
+- Gates: per-file coverage ≥ 90% for changed `src/**` files; `pnpm lint`, `typecheck`, `fmt:check`, `boundaries` and `native:browser:test` pass. The native HMR source anchors are in `MapEditor.tsx` and `MapRepositoryProvider.tsx`, so confirm none of them is touched.
+
 ## Impact
 
 - **Code:**

@@ -21,6 +21,7 @@ import {
 } from '../../../tests/support/canvas-drag';
 import { node } from '../../../tests/support/map-domain';
 import { MindMapCanvas } from './MindMapCanvas';
+import motion from './canvas-motion.module.css';
 
 describe('native drag input ownership', () => {
   it.each([
@@ -455,5 +456,52 @@ describe('controlled node drag through the editor', () => {
     fireEvent(window, release);
     expect(store.getState().map).toBe(before);
     expect(store.getState().canUndo).toBe(false);
+  });
+});
+
+describe('layout motion around a drag gesture', () => {
+  const moving = () =>
+    document.querySelector('.react-flow')?.classList.contains(String(motion.motion));
+
+  it('drops the transition for a live gesture and restores it at the drop', () => {
+    const { store } = setup();
+    expect(moving()).toBe(true);
+    start('a');
+    expect(moving()).toBe(false);
+    move(420, 310);
+    expect(moving()).toBe(false);
+    stop(420, 310);
+    expect(store.getState().canUndo).toBe(true);
+    expect(moving()).toBe(true);
+  });
+
+  it.each([
+    [0, false],
+    [1, false],
+    [3, false],
+    [4, true],
+  ])('a release %ipx from the grab over another node drops: %s', (jitter, drops) => {
+    const { store } = setup();
+    expect(viewportTransform().zoom).toBe(1);
+    const before = store.getState().map;
+    const target = renderedPosition('p');
+    const origin = start('a');
+    if (jitter > 0) move(origin.x + 20 + jitter, origin.y + 10 - jitter);
+    stop(target.x + 10, target.y + 10);
+    expect(store.getState().canUndo).toBe(drops);
+    if (!drops) expect(store.getState().map).toBe(before);
+    expect(moving()).toBe(true);
+  });
+
+  it('restores the transition when the gesture is cancelled', () => {
+    const { store } = setup();
+    start('a');
+    move(420, 310);
+    expect(moving()).toBe(false);
+    fireEvent.keyDown(screen.getByRole('region'), { key: 'Escape' });
+    expect(moving()).toBe(true);
+    stop(420, 310);
+    expect(store.getState().canUndo).toBe(false);
+    expect(moving()).toBe(true);
   });
 });

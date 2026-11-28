@@ -1,4 +1,3 @@
-import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
 // Setup file of the `dom` Vitest project only (design "Fixture — issue #14"); node tests never
@@ -67,12 +66,19 @@ class IdentityMatrix {
 }
 
 installIfAbsent('ResizeObserver', InertResizeObserver);
+// react-dom subscribes to the unprefixed `animationend` only when AnimationEvent exists at its
+// module load; jsdom lacks it, so React would listen for `webkitAnimationEnd` instead.
+installIfAbsent('AnimationEvent', Event);
 installIfAbsent('matchMedia', inertMatchMedia);
 installIfAbsent('DOMMatrixReadOnly', IdentityMatrix);
 installIfAbsent('DOMMatrix', IdentityMatrix);
 
 // Vitest globals are off, so Testing Library's auto-cleanup never registers; unmount explicitly.
-afterEach(cleanup);
+// Imported lazily: a static import would load react-dom before the globals above exist.
+afterEach(async () => {
+  const { cleanup } = await import('@testing-library/react');
+  cleanup();
+});
 
 declare global {
   // Read by React: when true, a state update outside act(...) logs a "not wrapped in act" error.

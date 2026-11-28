@@ -156,7 +156,7 @@ Minimal mergeable slice: 5.1 - the HTTP adapter is fully unit-tested and unused 
 
 ## 6. Layout transitions
 
-- [ ] 6.1 Add node position transitions, the mount fade-in, drag-time transition suppression and the reduced-motion override (design D10).
+- [x] 6.1 Add node position transitions, the mount fade-in, drag-time transition suppression and the reduced-motion override (design D10).
   - Set Playwright's default project to `reducedMotion: 'reduce'`, and add one motion-enabled spec.
   - Verify (jsdom): the transition class is removed during a live drag gesture and restored after it.
   - Verify (e2e): canvas-layout "Sibling shifts smoothly", "New node fades in", "Drag preview is immediate" and "Reduced motion". All existing e2e specs pass unchanged.

@@ -3,7 +3,13 @@ import { test } from './support/session';
 import * as fs from 'node:fs';
 import type { MindMap, MindNode, Position } from '../src/contexts/map/domain/types';
 import { envelopeOf, readRecord, seedRecords } from './support/seed';
-import { beginNativeMouseDrag, nativeCanvasPointer, translated } from './support/canvas-geometry';
+import {
+  beginNativeMouseDrag,
+  dropOn,
+  nativeCanvasPointer,
+  position,
+  translated,
+} from './support/canvas-geometry';
 
 const EVIDENCE = '.run/ui-evidence';
 fs.mkdirSync(EVIDENCE, { recursive: true });
@@ -32,18 +38,6 @@ const PREVIEW_POINTER = { x: 420, y: 310 };
 const nodeAt = (page: Page, id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
 const undo = (page: Page) => page.getByRole('button', { name: '撤销', exact: true });
 
-async function position(page: Page, id: string): Promise<Position> {
-  return nodeAt(page, id).evaluate((element) => {
-    const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
-    return { x: matrix.e, y: matrix.f };
-  });
-}
-async function dropOn(page: Page, id: string, target: string) {
-  const destination = await position(page, target);
-  const move = await beginNativeMouseDrag(page, await position(page, id));
-  await move({ x: destination.x + 20, y: destination.y + 10 });
-  await page.mouse.up();
-}
 async function storedRoots(page: Page) {
   const record = (await readRecord(page, MAP.id)) as { map: MindMap };
   return record.map.roots;

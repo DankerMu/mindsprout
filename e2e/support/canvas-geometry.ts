@@ -41,6 +41,21 @@ export async function beginNativeMouseDrag(page: Page, origin: Position) {
   };
 }
 
+// A node wrapper's rendered flow position.
+export async function position(page: Page, id: string): Promise<Position> {
+  return page.locator(`.react-flow__node[data-id="${id}"]`).evaluate((element) => {
+    const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+    return { x: matrix.e, y: matrix.f };
+  });
+}
+
+export async function dropOn(page: Page, id: string, target: string) {
+  const destination = await position(page, target);
+  const move = await beginNativeMouseDrag(page, await position(page, id));
+  await move({ x: destination.x + 20, y: destination.y + 10 });
+  await page.mouse.up();
+}
+
 export function translated(origin: Position, displacement: Position): Position {
   return { x: origin.x + displacement.x, y: origin.y + displacement.y };
 }

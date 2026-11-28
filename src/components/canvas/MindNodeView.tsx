@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { createContext, memo, useCallback, useContext } from 'react';
+import { createContext, memo, useCallback, useContext, useState, type AnimationEvent } from 'react';
 import type { ColorToken, NodeId } from '../../contexts/map/domain/types';
 import type { MindFlowNode } from './flow-elements';
 import styles from './MindNodeView.module.css';
@@ -18,8 +18,9 @@ export const NodeMeasurerContext = createContext<NodeMeasurer | null>(null);
 
 // "mind-node" and "mind-node--color-<token>" are literal contract classes (read by 9.2 and the e2e
 // walk); a CSS Module class would be hashed, so the Module only adds its own scoped class.
-function classNameOf(color: ColorToken | null): string {
+function classNameOf(color: ColorToken | null, entering: boolean): string {
   const names = ['mind-node', styles.node];
+  if (entering) names.push(styles.enter);
   if (color !== null) names.push(`mind-node--color-${color}`);
   return names.join(' ');
 }
@@ -42,6 +43,12 @@ function useMeasuredBox(id: NodeId) {
 function MindNodeBody({ id, data, selected, width, height }: NodeProps<MindFlowNode>) {
   const measuredBox = useMeasuredBox(id);
   const titleEditing = useContext(TitleEditingContext);
+  // Kept from mount until the fade ends: React reinserts wrappers when a move reorders them, and a
+  // reinserted element would replay the animation. The instance survives the DOM move.
+  const [entering, setEntering] = useState(true);
+  const entered = (event: AnimationEvent) => {
+    if (event.target === event.currentTarget) setEntering(false);
+  };
   return (
     <>
       <Handle
@@ -52,7 +59,8 @@ function MindNodeBody({ id, data, selected, width, height }: NodeProps<MindFlowN
       />
       <div
         ref={measuredBox}
-        className={classNameOf(data.color)}
+        className={classNameOf(data.color, entering)}
+        onAnimationEnd={entered}
         role="button"
         aria-pressed={selected}
         aria-label={data.text}

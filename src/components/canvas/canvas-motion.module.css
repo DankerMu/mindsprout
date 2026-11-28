@@ -1,0 +1,7 @@
+/* Layout changes slide between two deterministic layout positions (design D10). useNodeDrag sets
+ * the class only while no drag gesture is live, so the drag preview tracks the pointer. */
+@media (prefers-reduced-motion: no-preference) {
+  .motion :global(.react-flow__node) {
+    transition: transform 200ms ease-out;
+  }
+}
