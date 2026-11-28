@@ -237,7 +237,7 @@ Each adapter runs at most **4 model turns per attempt**.
   | `refused`        | `AI 拒绝了这个主题，请换一个主题` |
   | `network`        | `网络连接失败，请检查网络后重试`  |
   - A failure with zero ops applied shows `生成失败：<text>`; with ops applied, `生成中断：<text>`. Stop shows nothing.
-  - `ai-unavailable` switches the form to `AI 未配置` for the page session.
+  - `ai-unavailable` switches the form to `AI 未配置` for the rest of the editor visit (the editor store's lifetime; one store per editor mount).
   - `unauthenticated` shows the account-auth session-expiry notice and does not navigate.
 
 - **Reducer rejection.** A reducer rejection of a streamed op (`TreeOpError` from dispatch) means History has already reverted and closed the group.
