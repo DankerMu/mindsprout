@@ -1047,6 +1047,113 @@ Evidence floor (Vitest). Tests go in a new `editor-store-generate.test.ts`, foll
 - Gates: per-file coverage of at least 90% for `editor-store.ts` and `generation-notice.ts`. `pnpm lint` (complexity 10, 700-line files), `typecheck`, `boundaries` and `fmt:check` pass. All existing editor-store tests pass unchanged.
 - Runtime evidence: none. This is a review-only surface: the store action is unused until 5.4 composes it. The 5.5 e2e covers the UI path.
 
+## Issue #309 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded. Agree. Since 5.2, the store throws `EditorStoreError('generating')` from every tree-changing action. Any canvas entry point that still calls one turns a user gesture into an uncaught error during generation, and the e2e "zero console errors" gate fails.
+Blast radius: every canvas gesture during a generation.
+
+Governing invariant:
+
+- While `generating` is true, no canvas or editor-view handler calls a locked store action.
+- Every gesture that would edit does nothing and raises no error.
+- Selection, panning and zooming behave exactly as when idle.
+- The store remains the single lock authority; handlers only read `generating`.
+
+Selected risk packs:
+
+- Concurrency/state: a gesture that started before generation (an open menu, an active drag, a focused note) when `generating` flips to true.
+- User-visible behaviour: nothing happens, and no console error.
+- Not selected:
+  - Public API, Auth, Schema, Config, File IO, Legacy, Release: not applicable.
+  - Docs: no doc names these handlers.
+
+Entry points (every call site of a locked action, from `grep` over `src/components`):
+
+1. Keyboard, `src/components/canvas/selection-input.tsx` and `InlineTitleInput.tsx`:
+   - `handleTitleKey` (F2 → `startEdit`);
+   - `handleCreationKey` (Tab/Enter → `createNode`);
+   - `handleHistoryKey` (Cmd/Ctrl+Z, with Shift → `undo`/`redo`);
+   - `handleDeletionKey` (Delete/Backspace → `deleteSelection`).
+   - Each returns before `preventDefault` when `selection.generating` is true, so the browser default is not swallowed either.
+   - `handleSelectionKey` is unchanged.
+2. Double-click, `MindMapCanvas.tsx:326-331` (`titleEditing.startEdit`): returns when `generating` is true.
+3. Context menu, `ContextMenu.tsx`:
+   - `open` refuses when `state.generating` is true;
+   - `menuContext` returns `undefined` when `state.generating` is true.
+   - So an open menu closes through the existing effect once a generation starts, and no entry can run.
+4. Node drag:
+   - `node-drag.tsx` `enabled` also requires `selection.generating` to be false. The existing `[enabled]` cleanup cancels an in-flight gesture, and `nodesDraggable` becomes false.
+   - `EditorView.tsx` `commitDrop` also returns when `current.generating` is true, as a defence for a drop that is already queued.
+5. History toolbar, `HistoryToolbar.tsx`: both buttons are `disabled` when `controls.generating` is true, and `onClick` returns when it is true.
+6. Note panel:
+   - `EditorView.tsx` `onCommit` returns when `current.generating` is true;
+   - `NotePanel` gains a `readOnly` prop, set from `generating`, so the textarea cannot be edited.
+
+Types:
+
+- `CanvasSelection` and `CanvasHistory` (`selection-input.tsx`) add `'generating'` to their `Pick`, which is the store's own flag.
+- `EditorView` already passes the whole state object, so no new prop plumbing is needed beyond `NotePanel`'s `readOnly`.
+
+Unchanged:
+
+- `panOnDrag={PAN_BUTTONS}`, zoom and `minZoom`/`maxZoom`;
+- `onNodeClick` selection and the rubber band;
+- `handleSelectionKey`;
+- `ViewportControls`.
+- `zoomOnDoubleClick` stays `titleEditing === undefined`. A double-click during generation therefore neither edits nor zooms, as when idle.
+
+Must preserve:
+
+- every existing canvas and editor test, unchanged and green;
+- every handler's behaviour while not generating.
+
+Downstream consumers:
+
+- 5.4 renders the form and Stop.
+- 5.5 e2e asserts zero console errors during generation.
+
+Sibling surfaces: `EditorView.tsx` is also 5.4's file. This slice touches only `commitDrop`, `onCommit` and the `NotePanel` prop there. 5.4 lands after it and rebases.
+
+Not in this slice (recorded):
+
+- The topic form, Stop and notices (5.4).
+- Dimming or a cursor change on the canvas while generating: no requirement asks for it.
+
+Evidence floor (Vitest, jsdom):
+
+- Test setup:
+  - A real `createEditorStore` with the #308 fake source from `tests/support/generate-source.ts`.
+  - The test calls `generate` on an empty map and lets the source hold, so the store has `generating: true` and an open group.
+  - It then pushes one op, so the map has nodes to act on. The suite also covers the zero-op state.
+  - `console.error` is spied on, and `window` `error` events are recorded. Each test asserts that both are empty.
+- Shortcut ignored during generation:
+  - with a node selected, Tab, Enter, F2, Delete, Cmd+Z, Ctrl+Z and Cmd+Shift+Z each leave the map `===` its prior value;
+  - `editing` stays `null`, `canUndo` is unchanged and no error is raised;
+  - none of these keydown events is `defaultPrevented`.
+- Selection still works: arrows and Cmd+A change `selectedIds` while generating.
+- Pan during generation: the rendered ReactFlow props `panOnDrag`, `minZoom`, `maxZoom` and the zoom controls are identical while generating and while idle. Use the existing canvas test harness's way of reading ReactFlow props.
+- Double-click a node: no edit opens and no error is raised.
+- Context menu:
+  - a right-click while generating opens no menu;
+  - a menu opened before `generate` closes once generating starts;
+  - no entry ran, and the map is unchanged.
+- Drag:
+  - `nodesDraggable` is false while generating;
+  - a drag that started before `generate` is cancelled when it starts, and a drop then dispatches nothing;
+  - `commitDrop` called directly while generating dispatches nothing and raises no error.
+- History toolbar: both buttons are disabled while generating, and a forced click event changes nothing.
+- Note panel: the textarea is `readOnly`, and an `onCommit` fired while generating dispatches nothing.
+- After the generation ends, by completion or Stop, each guarded gesture works again. Tab creates a node, which proves the guards read live state.
+- Gates:
+  - per-file coverage is at least 90% for every changed file;
+  - `pnpm lint`, `typecheck`, `boundaries` and `fmt:check` pass;
+  - all existing component tests pass.
+- Runtime evidence:
+  - `pnpm verify-ui` is not applicable yet, because no UI path starts a generation until 5.4.
+  - This is a review-only surface. The 5.5 e2e covers the browser path.
+
 ## Impact
 
 - **Code:**
