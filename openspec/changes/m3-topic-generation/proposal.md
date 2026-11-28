@@ -720,14 +720,16 @@ Behaviour:
 3. Fetch rejection:
    - with `signal.aborted`, it returns normally;
    - otherwise it throws `GenerateError('network')`.
-4. Status:
+4. Abort wins once the fetch resolves. If `signal.aborted` is true when the fetch resolves, the adapter returns normally before mapping the status. This holds even for a fetch implementation that ignores the signal, so a Stop during a pending fetch never yields `ai-unavailable` or any other code.
+5. Status:
    - 401 gives `unauthenticated`.
    - 503 gives `ai-unavailable`.
    - Any other non-200 gives `provider-error`. This includes 400, 415 and 500.
    - A 200 with a null `body` gives `provider-error`.
    - The response body of a non-200 is never read.
-5. Reading.
+6. Reading.
    - It uses `body.getReader()` and one `TextDecoder('utf-8')` with `{ stream: true }`, and appends each chunk to a buffer.
+   - Before each frame is handled, including right after resuming from `yield`, `signal.aborted` is checked. If it is true, the adapter returns normally, so an abort stops the frames already buffered in the same chunk.
    - Each complete frame is the text before the next `\n\n`. A frame is valid only when it is exactly two lines, `event: <name>` and `data: <json>`, which is the shape `frame()` in route.ts writes.
    - The server writes `\n` only, so `\r\n` and multi-line `data` are out of scope (recorded).
    - `op`: `JSON.parse` followed by `parseTreeOp`, then yield.
@@ -738,13 +740,17 @@ Behaviour:
      - The server's `message` is never read.
    - `done`: the data must be exactly `{}`. The adapter then returns. Bytes after the terminal frame are not read.
    - Anything else is `provider-error`: an unknown event name, a frame that is not two lines, or `done` with data other than `{}`.
-6. End of the body without a terminal frame gives `provider-error`, including a partial frame left in the buffer.
+7. End of the body without a terminal frame gives `provider-error`, including a partial frame left in the buffer.
    - With `signal.aborted`, it returns normally instead.
-7. A `read()` rejection:
+8. A `read()` rejection:
    - with `signal.aborted`, it returns normally;
-   - otherwise it throws `network`, because the connection dropped mid-stream.
-8. Abort while reading. An `abort` listener on `signal` calls `reader.cancel()`, so a pending `read()` settles even when the fetch implementation ignores the signal. The iterable then returns normally.
-9. Release on every exit. This covers `done`, a throw, an abort and a consumer `return()`. A `finally` removes the abort listener and calls `reader.cancel()`; a cancel on a closed stream is harmless. It then calls `releaseLock()`.
+   - otherwise it throws `network`, because the connection dropped mid-stream. This includes a server-side non-`GenerationError` throw (route.ts rethrows it), which errors the response stream. The user then sees the `network` text instead of `provider-error`. This is a recorded choice, reachable only through a server defect.
+9. Abort while reading. An `abort` listener on `signal` calls `reader.cancel()`, so a pending `read()` settles even when the fetch implementation ignores the signal. The iterable then returns normally. The listener is registered in the same synchronous run as the step-4 check, with no `await` between them, so no abort can fall between the two.
+10. Release on every exit. This covers `done`, a throw, an abort and a consumer `return()`.
+
+- A `finally` removes the abort listener, calls `reader.cancel()` and then `releaseLock()`.
+- `reader.cancel()` rejects with the stored error on an errored stream, for example after a `read()` rejection.
+- So both cancel calls, in the listener and in the `finally`, swallow that rejection with a `.catch` whose comment names it. The `finally` never awaits a cancel that can replace the generator's own outcome.
 
 Downstream consumers:
 
@@ -774,7 +780,7 @@ Not in this slice (recorded):
 - A client-side cap on frame or buffer size: the server caps the op count, and the route is first-party.
 - A dependency-cruiser rule forbidding map → ai: an existing rule already blocks cross-context imports outside `acl/`.
 
-Evidence floor (Vitest, `http-generate-source.test.ts`). An injected `fetch` returns `new Response(stream)`, where `stream` is a `ReadableStream` with a controlled `pull`/`cancel`.
+Evidence floor (Vitest, `http-generate-source.test.ts`). An injected `fetch` returns `new Response(stream)`, where `stream` is a `ReadableStream` with a controlled `pull`/`cancel`, built with `{ highWaterMark: 0 }` so that the pull count equals the read count.
 
 - Request:
   - exactly one call, to `/api/ai/generate` with `POST`;
@@ -797,15 +803,25 @@ Evidence floor (Vitest, `http-generate-source.test.ts`). An injected `fetch` ret
   - 401 gives `unauthenticated`;
   - 503 gives `ai-unavailable`;
   - 400, 415 and 500 give `provider-error`;
-  - in each case the body's `cancel` was not reached by a read, which shows the body was never parsed;
+  - each non-200 carries a misleading body: a 500 whose body is `{"error":"unauthenticated"}`, and a 400 whose body is an SSE `error` frame with `timeout`. Each still gives `provider-error`;
+  - in each case `response.bodyUsed` is false and the pull count is 0;
   - a 200 with a null body gives `provider-error`.
-- A fetch rejection (`TypeError('Failed to fetch')`) gives `network`. A `read()` rejection mid-stream gives `network`.
+- A fetch rejection (`TypeError('Failed to fetch')`) gives `network`. A `read()` rejection mid-stream gives an `instanceof GenerateError` with code `network`, and no unhandled rejection occurs. This proves that the swallowed cancel rejection did not replace it.
 - Abort:
   - an already-aborted signal means `fetch` is not called and iteration ends with no value;
-  - for an abort after the first op, the body never ends and the fake fetch ignores the signal. Iteration then ends normally with exactly one op, and the body's `cancel` callback ran;
+  - Abort while a read is pending, in a pinned order:
+    - take op1;
+    - start `next()` without awaiting it, on a `pull` that never resolves;
+    - call `abort()`;
+    - the pending `next()` resolves `{ done: true }`, and the source's `cancel` ran.
+    - The fake fetch ignores the signal, so only the listener can settle the read.
+  - One chunk holds `op1`, `op2` and `error{timeout}`. When the abort happens inside the loop body after op1, exactly one op is yielded, and the generator returns normally without throwing.
+  - Abort during a pending fetch: the fake fetch ignores the signal and then resolves with 503, and separately with a 200 SSE body. Both end normally with no value and no throw;
   - a fetch that rejects with `AbortError` after an abort ends normally and does not throw `network`.
 - Consumer `return()`: after one op, `break` out of `for await`; the body's `cancel` ran.
-- Bytes after `done` are never pulled: the stream's `pull` count stops at the chunk that held `done`.
+- Bytes after `done` are never read:
+  - one chunk holds `op1`, then `done`, then another `op` frame. Exactly op1 is yielded;
+  - with `highWaterMark: 0`, a further chunk queued after it is never pulled.
 - `errors.test.ts`: `GenerateError` has its name, its code and the fixed message, and it is an `instanceof Error`.
 - `generate-source.test.ts`: the port's shape, checked with `expectTypeOf`.
 - `pnpm boundaries` passes, so map imports no ai code. `pnpm lint`, `typecheck`, `dead-code` (knip) and `docs:check` pass.
