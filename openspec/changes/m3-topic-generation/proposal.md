@@ -669,6 +669,164 @@ Evidence floor:
 - Per-file coverage is at least 90%.
 - The PR carries `diff-limit-exempt`, with the M2 route-PR justification and a self-checked `git diff --numstat origin/main...HEAD` total.
 
+## Issue #307 Fixture Triage
+
+Issue type: feature
+Fixture level: expanded
+Upstream suggested level: expanded. Agree. This adapter is the only way TreeOps enter the browser. A wrong code mapping shows the wrong notice. A missed abort leaves the stream billing, and a missed frame split drops ops. 5.2's undo grouping and lock both depend on its end semantics.
+Blast radius: every editor generation once 5.4 composes it.
+Governing invariant:
+
+- The iterable yields only ops that passed `parseTreeOp`, in frame order.
+- It ends in exactly one of three ways:
+  - it returns normally after `done`;
+  - it returns normally because the caller's signal aborted;
+  - it throws exactly one `GenerateError` whose code follows the table below.
+- No server diagnostic text reaches the error.
+
+Selected risk packs:
+
+- Public API (consumer side): the 4.3 frame syntax and status codes, as shipped in PR #337 (`src/app/api/ai/generate/route.ts`).
+- Concurrency/abort: the caller's signal, the release of the reader on every exit, and a consumer `return()`.
+- Error handling / partial outputs: an error after ops, a stream truncated mid-frame, a malformed frame.
+- Auth/secrets: the Session binding header (decision 0028). Only the server's code is used, and its message is never read.
+  Not selected:
+- Schema: no storage.
+- Config: no env variable.
+- File IO.
+- Legacy: new code only.
+- Release: unused until 5.4.
+- Resource limits: the server caps the output (caps from D4), so no client cap is needed.
+- Docs beyond the CONTEXT row: TECH §5.6 already describes SSE consumption.
+  Interface:
+- `src/contexts/map/domain/generate-source.ts` is type-only, following the `map-repository.ts` precedent:
+  - `GenerateInput { topic: string; rootId: NodeId }`;
+  - `GenerateSource { generate(input: GenerateInput, signal: AbortSignal): AsyncIterable<TreeOp> }`.
+  - The paired `generate-source.test.ts` uses `expectTypeOf`, as `map-repository.test.ts` does.
+- `src/contexts/map/domain/errors.ts` gains `GenerateErrorCode`, which is `'timeout' | 'provider-error' | 'invalid-output' | 'refused' | 'ai-unavailable' | 'unauthenticated' | 'network'`.
+  - It also gains `class GenerateError extends Error`, with `name` set to `'GenerateError'`, a readonly `code`, and the fixed message `` `generation failed: ${code}` ``.
+  - Map's existing error classes live in this file. Map never imports ai, so these codes are map's own vocabulary.
+- `src/contexts/map/infrastructure/ai/http-generate-source.ts` exports `class HttpGenerateSource implements GenerateSource`.
+  - Its constructor is `(fetchGenerate: typeof fetch = globalThis.fetch.bind(globalThis), binding?: string)`, the same shape as `HttpMapRepository`.
+  - `generate` is an async generator.
+
+Behaviour:
+
+1. Request. It calls `fetchGenerate('/api/ai/generate', { method: 'POST', headers, body: JSON.stringify({ topic, rootId }), signal })`.
+   - `Content-Type` is `application/json`.
+   - `x-mindsprout-session-binding` is the binding, set only when a binding is given. This mirrors `HttpMapRepository.request`.
+   - The input is sent unchanged; the store trims (5.2).
+2. Already aborted. If `signal.aborted` is true before the call, it returns without fetching.
+3. Fetch rejection:
+   - with `signal.aborted`, it returns normally;
+   - otherwise it throws `GenerateError('network')`.
+4. Abort wins once the fetch resolves. If `signal.aborted` is true when the fetch resolves, the adapter returns normally before mapping the status. This holds even for a fetch implementation that ignores the signal, so a Stop during a pending fetch never yields `ai-unavailable` or any other code.
+5. Status:
+   - 401 gives `unauthenticated`.
+   - 503 gives `ai-unavailable`.
+   - Any other non-200 gives `provider-error`. This includes 400, 415 and 500.
+   - A 200 with a null `body` gives `provider-error`.
+   - The response body of a non-200 is never read.
+6. Reading.
+   - It uses `body.getReader()` and one `TextDecoder('utf-8')` with `{ stream: true }`, and appends each chunk to a buffer.
+   - Before each frame is handled, including right after resuming from `yield`, `signal.aborted` is checked. If it is true, the adapter returns normally, so an abort stops the frames already buffered in the same chunk.
+   - Each complete frame is the text before the next `\n\n`. A frame is valid only when it is exactly two lines, `event: <name>` and `data: <json>`, which is the shape `frame()` in route.ts writes.
+   - The server writes `\n` only, so `\r\n` and multi-line `data` are out of scope (recorded).
+   - `op`: `JSON.parse` followed by `parseTreeOp`, then yield.
+     - If `JSON.parse` throws or `parseTreeOp` throws `TreeOpError`, the result is `invalid-output`: the payload is unusable content.
+   - `error`: the data must be an object whose `code` is one of `timeout`, `provider-error`, `invalid-output` or `refused`.
+     - If it is, the adapter throws `GenerateError(code)`.
+     - Otherwise it throws `provider-error`.
+     - The server's `message` is never read.
+   - `done`: the data must be exactly `{}`. The adapter then returns. Bytes after the terminal frame are not read.
+   - Anything else is `provider-error`: an unknown event name, a frame that is not two lines, or `done` with data other than `{}`.
+7. End of the body without a terminal frame gives `provider-error`, including a partial frame left in the buffer.
+   - With `signal.aborted`, it returns normally instead.
+8. A `read()` rejection:
+   - with `signal.aborted`, it returns normally;
+   - otherwise it throws `network`, because the connection dropped mid-stream. This includes a server-side non-`GenerationError` throw (route.ts rethrows it), which errors the response stream. The user then sees the `network` text instead of `provider-error`. This is a recorded choice, reachable only through a server defect.
+9. Abort while reading. An `abort` listener on `signal` calls `reader.cancel()`, so a pending `read()` settles even when the fetch implementation ignores the signal. The iterable then returns normally. The listener is registered in the same synchronous run as the step-4 check, with no `await` between them, so no abort can fall between the two.
+10. Release on every exit. This covers `done`, a throw, an abort and a consumer `return()`.
+
+- A `finally` removes the abort listener, calls `reader.cancel()` and then `releaseLock()`.
+- `reader.cancel()` rejects with the stored error on an errored stream, for example after a `read()` rejection.
+- So both cancel calls, in the listener and in the `finally`, swallow that rejection with a `.catch` whose comment names it. The `finally` never awaits a cancel that can replace the generator's own outcome.
+
+Downstream consumers:
+
+- 5.2's store action relies on three things:
+  - a normal return without its own abort means completion;
+  - a normal return after its own abort means Stop or leave;
+  - the `GenerateError` code picks the notice (D9 notice table).
+    The `ai-unavailable` and `unauthenticated` codes drive the `AI 未配置` form and the session-expiry notice.
+- 5.4 composes `new HttpGenerateSource(undefined, binding)` beside `HttpMapRepository` in the `src/app` provider. This slice leaves it unused. `knip.json` lists `src/**/*.test.ts` as entries, so an export used only by its test passes `pnpm dead-code`, as the provider adapters did before 4.1.
+- 5.5 e2e reaches it through the real route.
+
+Must preserve:
+
+- `HttpMapRepository` and its tests;
+- the existing classes in `errors.ts`;
+- `tree-op.ts`.
+- Map imports nothing from `src/contexts/ai`, which `pnpm boundaries` enforces.
+
+Sibling surfaces:
+
+- the CONTEXT map row: its Owns cell gains "`GenerateSource` port and its browser adapter (M3: SSE client over `/api/ai/generate`)", and its Integration cell changes from "consumes TreeOps from ai via `acl/ai.ts`" to "consumes TreeOps from `/api/ai/generate` over HTTP";
+- the 4.3 route's frame writer.
+
+Not in this slice (recorded):
+
+- `\r\n` line endings and multi-line `data`: our server never emits them (route.ts `frame()`).
+- A client-side cap on frame or buffer size: the server caps the op count, and the route is first-party.
+- A dependency-cruiser rule forbidding map → ai: an existing rule already blocks cross-context imports outside `acl/`.
+
+Evidence floor (Vitest, `http-generate-source.test.ts`). An injected `fetch` returns `new Response(stream)`, where `stream` is a `ReadableStream` with a controlled `pull`/`cancel`, built with `{ highWaterMark: 0 }` so that the pull count equals the read count.
+
+- Request:
+  - exactly one call, to `/api/ai/generate` with `POST`;
+  - the body parses to exactly `{ topic, rootId }`, and the topic is unchanged, including surrounding spaces;
+  - `Content-Type: application/json`;
+  - the binding header equals the binding when one is given, and is absent when it is not;
+  - the passed `signal` is the caller's signal.
+- Reassembly:
+  - the same 2-op-plus-`done` body is delivered split at every byte offset (one loop over offsets), including a split inside a multibyte character of `要点`;
+  - each split yields exactly the 2 parsed ops, deep-equal to the originals, and then ends.
+- Several frames in one chunk yield each op.
+- An `error` frame:
+  - for each of the four codes, after one op, the op is yielded first and then `GenerateError` is thrown with that code;
+  - the thrown message does not contain the frame's `message`, which is a sentinel such as `server-diagnostic-307`.
+- An `error` frame with an unknown code, or with no code, gives `provider-error`.
+- A stream ending without a terminal frame gives `provider-error`. This covers an empty body, one op then EOF, and a partial frame then EOF.
+- A malformed frame gives `provider-error`: an unknown event, a three-line frame, and `done` with data `{"x":1}`.
+- An invalid op gives `invalid-output`: `data` that is not JSON, and an op that is valid JSON but fails `parseTreeOp` (for example `children: []`).
+- Status:
+  - 401 gives `unauthenticated`;
+  - 503 gives `ai-unavailable`;
+  - 400, 415 and 500 give `provider-error`;
+  - each non-200 carries a misleading body: a 500 whose body is `{"error":"unauthenticated"}`, and a 400 whose body is an SSE `error` frame with `timeout`. Each still gives `provider-error`;
+  - in each case `response.bodyUsed` is false and the pull count is 0;
+  - a 200 with a null body gives `provider-error`.
+- A fetch rejection (`TypeError('Failed to fetch')`) gives `network`. A `read()` rejection mid-stream gives an `instanceof GenerateError` with code `network`, and no unhandled rejection occurs. This proves that the swallowed cancel rejection did not replace it.
+- Abort:
+  - an already-aborted signal means `fetch` is not called and iteration ends with no value;
+  - Abort while a read is pending, in a pinned order:
+    - take op1;
+    - start `next()` without awaiting it, on a `pull` that never resolves;
+    - call `abort()`;
+    - the pending `next()` resolves `{ done: true }`, and the source's `cancel` ran.
+    - The fake fetch ignores the signal, so only the listener can settle the read.
+  - One chunk holds `op1`, `op2` and `error{timeout}`. When the abort happens inside the loop body after op1, exactly one op is yielded, and the generator returns normally without throwing.
+  - Abort during a pending fetch: the fake fetch ignores the signal and then resolves with 503, and separately with a 200 SSE body. Both end normally with no value and no throw;
+  - a fetch that rejects with `AbortError` after an abort ends normally and does not throw `network`.
+- Consumer `return()`: after one op, `break` out of `for await`; the body's `cancel` ran.
+- Bytes after `done` are never read:
+  - one chunk holds `op1`, then `done`, then another `op` frame. Exactly op1 is yielded;
+  - with `highWaterMark: 0`, a further chunk queued after it is never pulled.
+- `errors.test.ts`: `GenerateError` has its name, its code and the fixed message, and it is an `instanceof Error`.
+- `generate-source.test.ts`: the port's shape, checked with `expectTypeOf`.
+- `pnpm boundaries` passes, so map imports no ai code. `pnpm lint`, `typecheck`, `dead-code` (knip) and `docs:check` pass.
+- Runtime evidence: none. This is a review-only surface, because the adapter is unused until 5.4. The real route is covered by 4.3 smoke and the 5.5 e2e.
+
 ## Impact
 
 - **Code:**
