@@ -10,6 +10,7 @@ The canvas SHALL animate layout changes as follows:
 - A newly rendered node SHALL fade in from opacity 0 to 1 over 200 ms.
 - Both SHALL settle exactly at the positions the deterministic layout computes.
 - The live drag preview SHALL follow the pointer without transition.
+- A node whose element the renderer reinserts while reordering the DOM (after a reparenting drop or its undo) MAY appear at its new position without the transition, but it SHALL NOT fade in again.
 - When the user prefers reduced motion, neither the transition nor the fade SHALL be applied.
 
 #### Scenario: Sibling shifts smoothly
