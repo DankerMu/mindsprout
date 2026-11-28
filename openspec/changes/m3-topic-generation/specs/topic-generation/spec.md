@@ -94,7 +94,7 @@ Generation failures SHALL show a notice built from this table:
 | `refused`        | `AI 拒绝了这个主题，请换一个主题` |
 | `network`        | `网络连接失败，请检查网络后重试`  |
 
-The prefix SHALL be `生成失败：` when no op was applied and `生成中断：` when ops were applied. When the server reports `ai-unavailable`, the form SHALL show `AI 未配置` for the rest of the page session. When the server reports `unauthenticated`, the editor SHALL show the session-expiry notice `登录已过期，请在新标签页重新登录后继续编辑` without navigating. In both of these cases the map SHALL be unchanged.
+The prefix SHALL be `生成失败：` when no op was applied and `生成中断：` when ops were applied. When the server reports `ai-unavailable`, the form SHALL show `AI 未配置` for the rest of the editor visit (until the user leaves the editor). When the server reports `unauthenticated`, the editor SHALL show the session-expiry notice `登录已过期，请在新标签页重新登录后继续编辑` without navigating. In both of these cases the map SHALL be unchanged.
 
 #### Scenario: AI unavailable
 

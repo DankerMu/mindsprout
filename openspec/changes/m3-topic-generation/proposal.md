@@ -865,7 +865,7 @@ Interface (all in `src/contexts/map/application/editor-store/`):
   - `stopGeneration(): void`.
 - The notice table lives in one new module, `generation-notice.ts` (paired test). It exports `generationNotice(code, opsApplied): string | null`:
   - The five codes `timeout`, `provider-error`, `invalid-output`, `refused` and `network` give `生成失败：` + text when `opsApplied` is 0, and `生成中断：` + text otherwise. The texts are the ones in the D9 table.
-  - `unauthenticated` gives the existing `SESSION_EXPIRED`.
+  - `unauthenticated` gives `SESSION_EXPIRED`. Its definition moves from `editor-store.ts:90` into `generation-notice.ts`, and `editor-store.ts` re-exports it unchanged. The import direction is store → notice module, so there is no cycle (`no-circular`). `EditorView.tsx:3` keeps importing it from `editor-store`.
   - `ai-unavailable` gives `null`. Its state is `aiUnavailable`, and the form text `AI 未配置` belongs to 5.4.
   - It is the single source of these strings (D9).
 
@@ -879,6 +879,8 @@ Interface (all in `src/contexts/map/application/editor-store/`):
    - `not-empty`: the primary root has children, or more than one root exists.
    - `invalid-topic`: the trimmed topic is empty, or its `length` (UTF-16 code units) is over 200.
 2. Start. In the same synchronous run:
+   - create a session token (a fresh object). The store holds `current = token`, and every end path below acts only while `current === token`. An old session that is stopped, reloaded or replaced never touches a later session's group, lock or notice;
+   - clear the notice if it is the last notice a generation set (the store remembers that string). A save notice (`保存失败`, or a `SESSION_EXPIRED` set by autosave) is kept;
    - create an `AbortController`;
    - set `generating: true`;
    - call `history.beginGroup('generate')` and publish through `commit`, so `groupOpen` is true and autosave stops observing.
@@ -903,7 +905,7 @@ Interface (all in `src/contexts/map/application/editor-store/`):
 6. Reducer rejection. The session's dispatch throws `TreeOpError`, which means History has already reverted and closed the group:
    - abort the controller first, then stop iterating, following the #307 handoff;
    - do not call `endGroup`;
-   - restore the remembered title if this session renamed it and the title still equals the topic;
+   - restore the remembered title, through `rename`, if this session renamed it and the title still equals the topic. `updatedAt` is not restored: it is metadata stamped by `rename`, and the next save carries it;
    - set `generating: false` and `notice: generationNotice('invalid-output', 0)`, which is `生成失败：AI 返回的内容无法使用，请重试`.
 7. `stopGeneration()`:
    - with no generation running, it does nothing;
@@ -911,8 +913,9 @@ Interface (all in `src/contexts/map/application/editor-store/`):
    - The session is then inactive. Every later op, return or error from the source is ignored, so nothing is dispatched and no notice is shown.
    - This keeps Stop synchronous, so 5.4's unmount and pagehide handlers can call `stopGeneration()` and then `flush()`. The partial map is already stable, so the flush saves it.
 8. `load(map)` during a generation aborts the controller and marks the session inactive. The session must not touch the new map or the new History. `load` already resets `groupOpen`, and it also sets `generating: false`. `aiUnavailable` is kept.
-   - "Page session" for `AI 未配置` means the store's lifetime, one editor visit, because `EditorSession` creates one store per mount. This interpretation is recorded.
-9. Any other error thrown by the source, which is a defect: the session ends the group if it is still open, clears `generating`, and rethrows from the returned promise. It never leaves the lock set.
+   - `AI 未配置` lasts for the editor visit, which is the store's lifetime, because `EditorSession` creates one store per mount. Spec and D9 wording now say "editor visit". A module-level flag would be hidden global state.
+9. Any other error thrown by the source is a defect. While this session is active (`current === token`), it ends the group, clears `generating` and rethrows from the returned promise. After Stop or `load`, the session is inactive: the error is ignored like every other late item, and the promise resolves. The lock is never left set.
+   - Placement: `generate` stays small under complexity 10. Its refusals are a `requireCanGenerate` helper, and the loop with its end handling is a separate session function inside `createEditorStore`, or a module-level helper taking the store's internals.
 10. Lock. While `generating` is true, these refuse with `EditorStoreError('generating')` before any change:
     - `dispatch`, `undo`, `redo`;
     - `beginGroup`, `endGroup`, `cancelGroup`, and so `runGrouped`;
@@ -952,7 +955,10 @@ Not in this slice (recorded):
 
 Evidence floor (Vitest). Tests go in a new `editor-store-generate.test.ts`, following the existing split per behaviour. Notice-table tests go in `generation-notice.test.ts`.
 
-- Test setup. A fake `GenerateSource` returns an async generator driven by the test:
+- Test setup. A fake `GenerateSource` returns an async generator driven by the test, with an explicit handshake:
+  - `push(op)` returns a promise that settles on the consumer's next pull, or when the generator's `finally` runs because the session called `return()`. In the first case the op was dispatched. In the second it was rejected or dropped;
+  - `finish()` and `fail(error)` end the fake generator. The sync point for an end is the promise that `generate()` returned, and the test awaits it directly;
+  - no test relies on a count of microtask flushes.
   - a deferred queue of ops, then a return or a throw;
   - it records the input and the signal, and whether the signal was aborted.
   - Ops are real `add_children` TreeOps under the root id.
@@ -963,12 +969,29 @@ Evidence floor (Vitest). Tests go in a new `editor-store-generate.test.ts`, foll
   - after the first op, the root text and title are both `学习 TypeScript`.
 - Custom title kept: titled `我的计划`, the title is unchanged and only the root text changes.
 - Nothing changes before the first op: while the source has yielded nothing, the map is `===` the pre-generation map, the title is unchanged, `canUndo` is false, `generating` is true and `groupOpen` is true.
+- Zero-op ends, two runs, each with autosave and fake timers:
+  - `stopGeneration()` before any op;
+  - a normal return with zero ops.
+  - Each leaves the map `===` the pre-generation map, the title unchanged, `canUndo`, `groupOpen` and `generating` all false, no notice, and no `put` after `AUTOSAVE_DELAY_MS` × 2.
+- Restart after Stop:
+  - Stop before the first op, then start a second `generate`, then let the first fake return; in separate runs it throws a `GenerateError` and throws a plain `Error`;
+  - the second session's `generating`, `groupOpen` and `notice` are unchanged;
+  - the first promise resolves.
+  - A fourth run: the old fake yields an op after the second `generate` has started. Before the second source yields anything:
+    - the map is `===` the pre-generation map;
+    - the root text and title are unchanged;
+    - the second session's signal is not aborted.
+      This proves ops are gated by the token, not by `generating` or `groupOpen`.
+- Stale notice cleared:
+  - a zero-op `network` failure, then a retry that completes, gives `notice === null`;
+  - a retry that is stopped also gives `notice === null`;
+  - a `保存失败` notice set before a generation is kept at start. A `SESSION_EXPIRED` equal to the remembered string is cleared even if autosave set it later. This is accepted: the next 401 shows it again.
 - Failure before the first op:
   - the source throws `GenerateError('invalid-output')` before any op;
   - the map is still the identical object, the title is unchanged and `canUndo` is false;
   - the notice is `生成失败：AI 返回的内容无法使用，请重试`, and `generating` is false.
 - Completed, then undo and redo:
-  - after the 5-op skeleton, the map holds 16 nodes and one `undo()` gives only the root with its pre-generation text;
+  - after the 5-op skeleton, the map holds 16 non-root nodes and one `undo()` gives only the root with its pre-generation text;
   - `redo()` gives the 16 nodes back;
   - `canUndo` is false after the undo, which proves this was one entry.
 - Undo partial generation: after 2 ops and `stopGeneration()`, one undo restores the pre-generation tree.
@@ -977,16 +1000,17 @@ Evidence floor (Vitest). Tests go in a new `editor-store-generate.test.ts`, foll
   - the source was called once.
 - Refusals:
   - `not-empty`, for a root with a child and separately for a floating root;
-  - `invalid-topic`, for `'   '`, for 201 ASCII units and for 101 `'𐀀'`;
+  - `invalid-topic`, for `'   '`, for 201 ASCII units and for 101 `'𐀀'`. At the limit, 200 ASCII units, 100 `'𐀀'`, and a padded topic whose trimmed length is 200 are each accepted, and the source receives them;
   - `no-source`;
   - `already-editing`, with a rename edit open.
   - Each leaves the state unchanged and calls no source.
 - Reducer rejection:
   - after one valid op, the source yields an op whose `parentId` is unknown;
-  - the map is deep-equal to the pre-generation map, `canUndo` is false and the title is restored to `新导图`;
+  - `map.roots` is deep-equal to the pre-generation roots, `canUndo` is false and the title is restored to `新导图`;
   - the signal was aborted before the iterator's `return` ran, which the fake records;
   - the notice is the invalid-output failure text and `generating` is false;
   - a later `undo` is a no-op, so no entry exists.
+- Reducer rejection of the very first source op, after the root `update_node` and `rename` have run: the title returns to `新导图`, `roots` is as before, `canUndo` is false, and the notice is the `生成失败：` invalid-output text.
 - AI unavailable:
   - `GenerateError('ai-unavailable')` gives `aiUnavailable: true`, no notice and an unchanged map;
   - `aiUnavailable` stays true after `load` of another map.
@@ -996,7 +1020,7 @@ Evidence floor (Vitest). Tests go in a new `editor-store-generate.test.ts`, foll
 - Stop:
   - after the first op, `stopGeneration()` synchronously sets `generating: false` and `groupOpen: false`, with no notice;
   - the nodes from that op remain, and the signal is aborted;
-  - an op the fake then yields is not dispatched, and a `GenerateError` it then throws shows no notice.
+  - two separate runs check what arrives after Stop: in one, an op the fake then yields is not dispatched; in the other, a `GenerateError` the fake then throws shows no notice.
 - Mid-stream error:
   - 2 ops (the root call with 4 children, then 3 children under `p1`), then `provider-error`;
   - 7 non-root nodes remain;
