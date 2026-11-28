@@ -1078,18 +1078,21 @@ Entry points (every call site of a locked action, from `grep` over `src/componen
    - `handleDeletionKey` (Delete/Backspace → `deleteSelection`).
    - Each returns before `preventDefault` when `selection.generating` is true, so the browser default is not swallowed either.
    - `handleSelectionKey` is unchanged.
-2. Double-click, `MindMapCanvas.tsx:326-331` (`titleEditing.startEdit`): returns when `generating` is true.
+2. Double-click, `MindMapCanvas.tsx:327-331` (`titleEditing.startEdit`): returns when `generating` is true.
 3. Context menu, `ContextMenu.tsx`:
    - `open` refuses when `state.generating` is true;
    - `menuContext` returns `undefined` when `state.generating` is true.
    - So an open menu closes through the existing effect once a generation starts, and no entry can run.
-4. Node drag:
-   - `node-drag.tsx` `enabled` also requires `selection.generating` to be false. The existing `[enabled]` cleanup cancels an in-flight gesture, and `nodesDraggable` becomes false.
-   - `EditorView.tsx` `commitDrop` also returns when `current.generating` is true, as a defence for a drop that is already queued.
-5. History toolbar, `HistoryToolbar.tsx`: both buttons are `disabled` when `controls.generating` is true, and `onClick` returns when it is true.
+4. Node drag: `node-drag.tsx` `enabled` also requires `selection.generating` to be false. The existing `[enabled]` cleanup (`node-drag.tsx:164`) cancels an in-flight gesture, and `nodesDraggable` becomes false. `commitDrop` in `EditorView.tsx` is reachable only through `node-drag.tsx:236`, after `currentGesture()` (which is null when `!enabled`). It gets no guard, because a guard there would be an untestable dead branch.
+5. History toolbar, `HistoryToolbar.tsx`: both buttons are `disabled` when `controls.generating` is true. There is no `onClick` guard, because React never fires `onClick` on a disabled button, and the closure reads the same render's `controls`.
 6. Note panel:
    - `EditorView.tsx` `onCommit` returns when `current.generating` is true;
    - `NotePanel` gains a `readOnly` prop, set from `generating`, so the textarea cannot be edited.
+
+7. `EditorSession.tsx` gains an optional `generateSource?: GenerateSource` prop, passed to `createEditorStore`. This is the seam that lets the tests render EditorView-level handlers through `EditorSession` with the #308 fake source (`tests/support/canvas-drag.tsx` and the NotePanel tests both render through it). 5.4's `src/app` provider passes the real `HttpGenerateSource` through the same prop.
+8. These need no guard, which is recorded. `InlineTitleInput.tsx:50-51` (`commitTitle`/`cancelEdit` on blur, Enter and Esc) and `EditorView.tsx:43` and `:51-52` run only while `editing` is not null. `generate` requires `editing === null` (`editor-store.ts:313`), and `startEdit` and `createNode` refuse during a generation, so `editing` stays null throughout. `MindNodeView` has no handlers, and every `menu.ts` action is behind the menu guard.
+9. Do not fold `generating` into `blocked()` (`MindMapCanvas.tsx:255-256`). That would also disable pointer selection and the rubber band. The guards are per entry point.
+10. Note draft when a generation starts. Through the UI no draft exists, because the blur caused by the Generate click commits it first. If one did exist, the first op's `growRoot` rewrites the root, and `NotePanel.tsx:15-17` resets the draft, so the draft is discarded and never committed later. In the zero-op state, the `onCommit` guard drops it.
 
 Types:
 
@@ -1114,7 +1117,7 @@ Downstream consumers:
 - 5.4 renders the form and Stop.
 - 5.5 e2e asserts zero console errors during generation.
 
-Sibling surfaces: `EditorView.tsx` is also 5.4's file. This slice touches only `commitDrop`, `onCommit` and the `NotePanel` prop there. 5.4 lands after it and rebases.
+Sibling surfaces: `EditorView.tsx` and `EditorSession.tsx` are also 5.4's files. This slice touches only the note `onCommit` guard and the `NotePanel` `readOnly` prop in `EditorView`, and only the optional `generateSource` prop in `EditorSession`. 5.4 lands after it and rebases. The PR boundary is `src/components/canvas/` plus those two edits.
 
 Not in this slice (recorded):
 
@@ -1124,28 +1127,39 @@ Not in this slice (recorded):
 Evidence floor (Vitest, jsdom):
 
 - Test setup:
-  - A real `createEditorStore` with the #308 fake source from `tests/support/generate-source.ts`.
-  - The test calls `generate` on an empty map and lets the source hold, so the store has `generating: true` and an open group.
-  - It then pushes one op, so the map has nodes to act on. The suite also covers the zero-op state.
-  - `console.error` is spied on, and `window` `error` events are recorded. Each test asserts that both are empty.
+  - A real store with the #308 fake source (`tests/support/generate-source.ts`). Canvas-level tests use `createEditorStore({ generateSource })` directly. EditorView-level tests render through `EditorSession` with the new `generateSource` prop.
+  - The test calls `generate` on an empty map and lets the source hold, so the store has `generating: true` and an open group. It then pushes one op, so the map has nodes to act on. The zero-op state is covered too.
+  - Errors are captured with the existing `failOnConsoleNoise()` (`tests/support/canvas.ts:13`) plus a `window` `error` listener whose list must be empty. Do not add a new spy.
+- The detecting assertions. The store lock alone keeps the map, `editing` and `canUndo` unchanged, so those do not show a missing guard. What shows it is: no console or window error, `defaultPrevented`, whether a menu is rendered, the `.draggable` class, the `disabled` attribute and the `readOnly` attribute. Each guard's test is shown failing with that guard removed (bite check, reported in the PR).
 - Shortcut ignored during generation:
-  - with a node selected, Tab, Enter, F2, Delete, Cmd+Z, Ctrl+Z and Cmd+Shift+Z each leave the map `===` its prior value;
-  - `editing` stays `null`, `canUndo` is unchanged and no error is raised;
-  - none of these keydown events is `defaultPrevented`.
-- Selection still works: arrows and Cmd+A change `selectedIds` while generating.
-- Pan during generation: the rendered ReactFlow props `panOnDrag`, `minZoom`, `maxZoom` and the zoom controls are identical while generating and while idle. Use the existing canvas test harness's way of reading ReactFlow props.
+  - with a node selected, Tab, Enter, F2, Delete, Cmd+Z, Ctrl+Z and Cmd+Shift+Z each raise no error;
+  - none of these keydown events is `defaultPrevented`;
+  - the map stays `===` its prior value and `editing` stays `null`.
+- Selection still works while generating:
+  - arrows and Cmd+A change `selectedIds`;
+  - a click selects;
+  - a shift-click toggles;
+  - a rubber-band drag selects its nodes.
+  - These catch `generating` being folded into `blocked()`.
+- Pan during generation, observed through behaviour with the existing harness (`dragViewport` / `viewportTransform` in `MindMapCanvas.test.tsx`, and the wheel tests):
+  - while generating, a middle-button drag changes `viewportTransform()`, and so does a wheel;
+  - `generating` stays true;
+  - the next `push(op)` is applied.
 - Double-click a node: no edit opens and no error is raised.
 - Context menu:
-  - a right-click while generating opens no menu;
-  - a menu opened before `generate` closes once generating starts;
-  - no entry ran, and the map is unchanged.
+  - a right-click while generating renders no menu;
+  - a menu opened before `generate` closes once generating starts, in the zero-op state, where the map object is unchanged;
+  - no entry ran.
 - Drag:
-  - `nodesDraggable` is false while generating;
-  - a drag that started before `generate` is cancelled when it starts, and a drop then dispatches nothing;
-  - `commitDrop` called directly while generating dispatches nothing and raises no error.
-- History toolbar: both buttons are disabled while generating, and a forced click event changes nothing.
-- Note panel: the textarea is `readOnly`, and an `onCommit` fired while generating dispatches nothing.
-- After the generation ends, by completion or Stop, each guarded gesture works again. Tab creates a node, which proves the guards read live state.
+  - the node wrapper loses the `.draggable` class while generating;
+  - a drag that started before `generate` is cancelled when it starts, and the drop then dispatches nothing.
+- History toolbar:
+  - before `generate`, make `canUndo` and `canRedo` both true: two root note `update_node` dispatches, then one `undo`. Both stay true inside the group, because a group leaves `future` untouched;
+  - while generating, in the zero-op and the one-op state, both buttons are `disabled`.
+- Note panel, rendered through `EditorSession`:
+  - the textarea is `readOnly` while generating;
+  - a blur commit fired while generating dispatches nothing and raises no error.
+- After the generation ends, by completion and separately by Stop, each guarded gesture works again: Tab creates a node, the menu opens, `.draggable` returns, and the buttons follow `canUndo`/`canRedo`. This proves the guards read live state.
 - Gates:
   - per-file coverage is at least 90% for every changed file;
   - `pnpm lint`, `typecheck`, `boundaries` and `fmt:check` pass;
