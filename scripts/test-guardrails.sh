@@ -673,46 +673,102 @@ if [ "$(git rev-parse HEAD)" != "$diff_base" ] || [ -n "$(git status --porcelain
   fail=$((fail + 1))
 fi
 
-# 9b. Verification server forces the mock provider (decision 0039, design D7) — the repo root's
-# dev-bg.sh runs with stub pnpm and curl from $tmp/bin, each case in its own dir under $tmp so .run/
-# never lands in the worktree. The pnpm stub records the AI_PROVIDER its process sees, in its cwd.
+# 9b. Verification server forces the mock provider (decision 0039, design D7) and reports only a
+# server it started (#333). The repo root's dev-bg.sh runs with stub pnpm and curl from $tmp/bin,
+# each case in its own dir under $tmp so .run/ never lands in the worktree. The case dir's mode file
+# selects the stubs: serve = pnpm records the AI_PROVIDER it sees, creates the healthz marker and
+# sleeps until stopped, while curl answers only while the marker exists; exit = pnpm logs a line and
+# exits 1; block = pnpm only records, while curl waits (once .run/dev.pid exists) for that pid to
+# die and then answers, so the health success always arrives after our child is dead.
 cat > "$tmp/bin/pnpm" <<'STUB'
 #!/bin/sh
 printf '%s\n' "${AI_PROVIDER-<unset>}" > provider-seen
+case "$(cat mode)" in
+  serve) : > healthz; exec sleep 60 ;;
+  exit) echo "stub pnpm: exited before listening"; exit 1 ;;
+esac
 STUB
 cat > "$tmp/bin/curl" <<'STUB'
 #!/bin/sh
-exit 0
+if [ "$(cat mode)" = block ]; then
+  [ -f .run/dev.pid ] || exit 7
+  i=0
+  while kill -0 "$(cat .run/dev.pid)" 2>/dev/null && [ "$i" -lt 50 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  exit 0
+fi
+[ -f healthz ] || exit 7
 STUB
 chmod +x "$tmp/bin/pnpm" "$tmp/bin/curl"
-# dev_bg_sees_mock <dir> <env args...> — exits 0 only if dev-bg.sh exits 0 and its child records
-# exactly mock within 5 s; a missing or empty record fails. Waits up to 5 s for the child to exit.
-dev_bg_sees_mock() {
+foreign_msg="something else is serving :3000 (not started by dev:bg); stop it first"
+# dev_bg <dir> <env args...> — runs the repo root's dev-bg.sh in <dir> with the stubs first on PATH.
+dev_bg() {
   dir="$1"
   shift
-  in_dir "$dir" env "$@" PATH="$tmp/bin:$PATH" bash "$repo_root/scripts/dev-bg.sh" || {
-    echo "dev-bg.sh exited $?"
-    return 1
-  }
+  in_dir "$dir" env "$@" PATH="$tmp/bin:$PATH" bash "$repo_root/scripts/dev-bg.sh"
+}
+# stop_dev_bg <dir> — stops the server in <dir>/.run/dev.pid through dev-stop.sh and fails unless
+# its process group is gone within 5 s. A surviving group is killed: an exec'd `sleep 60` no longer
+# names $tmp, so fixture_strays cannot see it.
+stop_dev_bg() {
+  [ -f "$1/.run/dev.pid" ] || { echo "no .run/dev.pid to stop in $1"; return 1; }
+  pid=$(cat "$1/.run/dev.pid")
+  in_dir "$1" bash "$repo_root/scripts/dev-stop.sh" >/dev/null
   i=0
-  while [ ! -s "$dir/provider-seen" ] && [ "$i" -lt 50 ]; do
+  while kill -0 -- "-$pid" 2>/dev/null && [ "$i" -lt 50 ]; do
     sleep 0.1
     i=$((i + 1))
   done
-  i=0
-  while kill -0 "$(cat "$dir/.run/dev.pid")" 2>/dev/null && [ "$i" -lt 50 ]; do
-    sleep 0.1
-    i=$((i + 1))
-  done
-  if [ ! -s "$dir/provider-seen" ]; then
-    echo "the pnpm child left no AI_PROVIDER record within 5 s"
+  if kill -0 -- "-$pid" 2>/dev/null; then
+    kill -KILL -- "-$pid" 2>/dev/null
+    echo "the dev:bg process group $pid outlived dev-stop.sh by 5 s"
     return 1
   fi
-  seen=$(cat "$dir/provider-seen")
-  echo "the pnpm child saw AI_PROVIDER=$seen"
+}
+# seen_mock <dir> — exits 0 only if the pnpm child recorded exactly mock; no record fails.
+seen_mock() {
+  seen=$(cat "$1/provider-seen" 2>/dev/null)
+  echo "the pnpm child saw AI_PROVIDER=${seen:-<no record>}"
   [ "$seen" = "mock" ]
 }
-mkdir -p "$tmp/dev-bg-m1" "$tmp/dev-bg-m2"
+# dev_bg_sees_mock <dir> <env args...> — exits 0 only if dev-bg.sh exits 0, its server stops
+# cleanly and its child recorded mock.
+dev_bg_sees_mock() {
+  printf 'serve\n' > "$1/mode"
+  dev_bg "$@" || { echo "dev-bg.sh exited $?"; return 1; }
+  stop_dev_bg "$1" || return 1
+  seen_mock "$1"
+}
+# dev_bg_restarts <dir> <old pid> — exits 0 only if dev-bg.sh exits 0 having replaced the earlier
+# server: its group is dead, .run/dev.pid names a new pid, and the new child recorded mock.
+dev_bg_restarts() {
+  dev_bg "$1" AI_PROVIDER=anthropic || { echo "dev-bg.sh exited $?"; return 1; }
+  new=$(cat "$1/.run/dev.pid")
+  old_alive=no
+  kill -0 -- "-$2" 2>/dev/null && old_alive=yes
+  stop_dev_bg "$1" || return 1
+  [ "$old_alive" = no ] || { echo "the earlier server's group $2 is still alive"; return 1; }
+  [ "$new" != "$2" ] || { echo ".run/dev.pid still names the earlier pid $2"; return 1; }
+  seen_mock "$1"
+}
+# dev_bg_left <name> <dir> <file...> — FAIL for each file a rejected case must not leave behind,
+# then stop any server a pidfile still names (a mutant that started one).
+dev_bg_left() {
+  name="$1"
+  dir="$2"
+  shift 2
+  for f in "$@"; do
+    if [ -e "$dir/$f" ]; then
+      echo "FAIL  $name — left $f behind"
+      fail=$((fail + 1))
+    fi
+  done
+  if [ -f "$dir/.run/dev.pid" ]; then stop_dev_bg "$dir" >/dev/null; fi
+}
+mkdir -p "$tmp/dev-bg-m1" "$tmp/dev-bg-m2" "$tmp/dev-bg-f1" "$tmp/dev-bg-f2/.run" "$tmp/dev-bg-f3" \
+  "$tmp/dev-bg-f4"
 printf 'AI_PROVIDER=anthropic\n' > "$tmp/dev-bg-m2/.env"
 expect_accept --what "a caller with AI_PROVIDER=anthropic" \
   "dev-bg mock forcing (m1) caller AI_PROVIDER=anthropic" \
@@ -720,7 +776,33 @@ expect_accept --what "a caller with AI_PROVIDER=anthropic" \
 expect_accept --what "an unset AI_PROVIDER with .env AI_PROVIDER=anthropic" \
   "dev-bg mock forcing (m2) unset AI_PROVIDER, .env AI_PROVIDER=anthropic" \
   dev_bg_sees_mock "$tmp/dev-bg-m2" -u AI_PROVIDER
-rm -rf "$tmp/dev-bg-m1" "$tmp/dev-bg-m2"
+
+printf 'serve\n' > "$tmp/dev-bg-f1/mode"
+: > "$tmp/dev-bg-f1/healthz"
+expect_reject --absent ready "dev-bg own server (f1) foreign server answers, no pidfile" \
+  "$foreign_msg" dev_bg "$tmp/dev-bg-f1"
+dev_bg_left "dev-bg own server (f1) pnpm dev must not start" "$tmp/dev-bg-f1" \
+  provider-seen .run/dev.pid
+
+printf 'serve\n' > "$tmp/dev-bg-f2/mode"
+spawn_fixture f2-old sleep 60
+f2_old=$(cat "$tmp/pids/f2-old")
+printf '%s\n' "$f2_old" > "$tmp/dev-bg-f2/.run/dev.pid"
+expect_accept --what "a live earlier dev:bg server, replaced" \
+  "dev-bg own server (f2) earlier server is restarted, not reused" \
+  dev_bg_restarts "$tmp/dev-bg-f2" "$f2_old"
+
+printf 'exit\n' > "$tmp/dev-bg-f3/mode"
+expect_reject --line "stub pnpm: exited before listening" \
+  "dev-bg own server (f3) pnpm dev exits before ready" "dev server exited before ready" \
+  dev_bg "$tmp/dev-bg-f3"
+dev_bg_left "dev-bg own server (f3)" "$tmp/dev-bg-f3" .run/dev.pid
+
+printf 'block\n' > "$tmp/dev-bg-f4/mode"
+expect_reject --absent ready "dev-bg own server (f4) health answers, our child dead" \
+  "$foreign_msg" dev_bg "$tmp/dev-bg-f4"
+dev_bg_left "dev-bg own server (f4)" "$tmp/dev-bg-f4" .run/dev.pid
+rm -rf "$tmp"/dev-bg-*
 
 # 10. Residue — reap every recorded fixture group, then sweep for anything that still names the root.
 reap_fixtures
