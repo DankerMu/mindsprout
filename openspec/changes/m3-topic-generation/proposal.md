@@ -947,6 +947,13 @@ Downstream consumers:
 
 Sibling surfaces: `EditorStoreError` codes; the notice slot shared with the autosave notices (`保存失败`, `SESSION_EXPIRED`); `MapLibrary.tsx:249`, where the default title `新导图` is set.
 
+Shipped deviations (PR for #308):
+
+- Start order: `history.beginGroup('generate')` runs first, and the token, the controller, `generating: true` and the notice follow in one publication. If `generating` were set before `beginGroup` throws `group-open` (a manual store group is open), the lock would stay set for good. `generate` therefore also refuses with `HistoryError('group-open')` while a group is open, changes no state, and calls no source. A test covers this.
+- Reducer rejection reuses `apply`, so it publishes the reverted map, with `groupOpen` false, once before the title restore and `generating: false`. That is one extra synchronous publication; every other end path publishes once.
+- `commit` takes a third `flags` argument, with default `{}`, so the group flags, `generating` and the notice are published in one `set()`.
+- The fake source lives in `tests/support/generate-source.ts`. It ignores the signal, so tests call `finish()` after Stop or `load`, the way a real source returns after an abort.
+
 Not in this slice (recorded):
 
 - A shared constant for `新导图`: `MapLibrary.tsx` keeps its literal. A shared constant would cross into the components layer, so the literal is compared in one place in the store.

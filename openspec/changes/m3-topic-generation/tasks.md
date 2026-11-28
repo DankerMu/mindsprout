@@ -135,7 +135,7 @@ Minimal mergeable slice: 4.1 - the composition is unit-tested alone; 4.2 (verifi
     - 503 raises `ai-unavailable`, 401 raises `unauthenticated` and a fetch rejection raises `network`;
     - the binding header is sent;
     - abort stops reading.
-- [ ] 5.2 Add the editor store `generate(topic)` action, first-op deferral, the reducer-rejection path and the `generating` lock (design D9).
+- [x] 5.2 Add the editor store `generate(topic)` action, first-op deferral, the reducer-rejection path and the `generating` lock (design D9).
   - Verify (unit, fake `GenerateSource`):
     - topic-generation "Root text and title", "Custom title kept", "Failure before the first op", "Undo completed generation", "Undo partial generation", "Double submit" (store refusal), "Reducer rejection", "AI unavailable", "Session expired at submit", "Network failure", every row of "Failure notices use fixed texts" (table-driven over all five codes, both prefixes) and "Saved after completion" (autosave holds while generating and saves once afterwards);
     - the store halves of "Stop" and "Mid-stream error";
