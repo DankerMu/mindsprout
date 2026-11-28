@@ -1395,6 +1395,69 @@ Evidence floor:
 - `pnpm lint`, `typecheck`, `fmt:check`, `test:guardrails` (`scripts/` touched) and `native:browser:test` pass.
 - Diff budget: the fixture already uses about 75 lines of the 400-line guard, so the spec and the script get about 325. If the total goes over, the PR carries `diff-limit-exempt` with a justification.
 
+## Issue #312 Fixture Triage
+
+Issue type: feature
+Fixture level: compact
+Upstream suggested level: compact. Agree. This is presentation CSS plus a class toggle and test configuration. There is no state, persistence or API change. Every canvas e2e is touched only through the `reducedMotion` default.
+Blast radius: every canvas render. A transition that is still active while a position assertion runs makes existing e2e specs flaky. A transition left on during a drag makes the preview lag behind the pointer.
+
+Governing invariant:
+
+- Positions come only from the deterministic layout. CSS animates the move between two layout positions and never computes a position. No JS interpolation is used (D10, rejected).
+- The transform transition is applied only while no node drag gesture is live.
+- With `prefers-reduced-motion: reduce`, neither the transition nor the fade applies.
+- Playwright's default `use` sets `reducedMotion: 'reduce'`, so no existing spec samples mid-transition.
+
+Selected risk packs:
+
+- User-visible behaviour: the motion and the drag preview.
+- Test infrastructure: the Playwright default that every e2e inherits.
+  Not selected: Public API, Schema, Config, Auth, Concurrency, File IO, Legacy, Release, Docs. None apply, and no README limitation changes.
+
+Interface:
+
+1. Motion class on the React Flow root. `useNodeDrag` (`src/components/canvas/node-drag.tsx`) returns `className`, which `MindMapCanvas` already spreads into `<ReactFlow {...dragView}>` (`MindMapCanvas.tsx:300`). The value is the motion class while no gesture is active (`active === null`) and `undefined` while a gesture is active. The class's CSS is `.motion :global(.react-flow__node) { transition: transform 200ms ease-out; }`. It lives in a new `src/components/canvas/canvas-motion.module.css`, inside `@media (prefers-reduced-motion: no-preference)`, so reduced motion never gets it.
+   - The gesture is live from `onNodeDragStart` until `cancel()` runs at the drop or at any cancel path. The commit of a drop restores the class in the same render as the new layout. The dropped nodes then settle from the preview position to the layout position, which is a layout change.
+2. Fade-in. In `MindNodeView.module.css`, `.node` gets `animation: <fade> 200ms ease-out`, with keyframes from `opacity: 0` to `opacity: 1`, inside `@media (prefers-reduced-motion: no-preference)`. A CSS animation runs once when the element mounts, so an update to an existing node does not fade it again.
+3. `playwright.config.ts`: `use.reducedMotion: 'reduce'`, with a comment naming the failure mode (position assertions sampling mid-transition).
+4. New `e2e/canvas-motion.spec.ts` with `test.use({ reducedMotion: 'no-preference' })`. Its four tests are named after the scenarios.
+
+Scenarios (spec `specs/canvas-layout/spec.md`):
+
+- **Sibling shifts smoothly.** The root has children A and B. Adding a child under A moves B down. Assertions:
+  - B's wrapper computed `transition-property` includes `transform`, with `transition-duration` `0.2s`;
+  - after the transition settles (await `transitionend` on B, or poll until the computed transform is stable), B's computed transform matrix equals the inline `translate(x, y)` that React Flow set from the layout, exactly.
+- **New node fades in.** The new node's content (`.mind-node`) has computed `animation-duration` `0.2s` and a non-`none` `animation-name`, and its opacity settles at `1`.
+- **Drag preview is immediate.** During a live mouse drag (use the `e2e/support/canvas-geometry.ts` helpers), the dragged nodes' wrappers have computed `transition-duration` `0s` (or no `transform` in `transition-property`). After the drop the root has the motion class again.
+- **Reduced motion.** Under the default `reduce` (a separate `describe` that does not override it), add a child under A. B's wrapper has `transition-duration` `0s`, and the new node's `animation-name` is `none`. B's computed transform equals its inline translate in the first frame after the change: sample it with `waitForFunction(…, { polling: 'raf' })` once the new node exists.
+
+Must preserve:
+
+- Every existing e2e spec, unchanged, under the `reduce` default.
+- The drag preview, the drop planning, auto-pan, and measured-content framing (decision 0033 measures size, not position).
+- The viewport is not animated. Fit and pan are unchanged.
+
+Not in this slice (recorded):
+
+- Edge animation. Edges are SVG paths recomputed from node positions, so during the 200 ms they may lead the node boxes. The spec does not require edges to animate.
+- The first-load shift. When measured sizes replace estimated sizes, the layout can move nodes slightly, and that shift animates as a layout change. The default e2e runs reduced motion.
+
+Evidence floor:
+
+- jsdom (`node-drag` tests, a real canvas):
+  - before a drag, the `.react-flow` root has the motion class;
+  - after `onNodeDragStart` (a live gesture), it does not;
+  - after the drop, and separately after a cancel, it has the class again.
+  - Bite check: always return the class, and the during-drag assertion fails.
+- e2e:
+  - the four scenarios pass under `pnpm e2e`;
+  - every existing spec passes unchanged;
+  - the new spec passes alone with `--repeat-each=10`.
+  - Bite check: remove the `reducedMotion` default, then run at least one position-sensitive existing spec (for example `e2e/canvas-editing.spec.ts`) and report whether it fails.
+- Run e2e only with the mock forced, which `scripts/e2e-server.mjs` now guarantees. `.env` is neither read nor written.
+- Gates: per-file coverage ≥ 90% for changed `src/**` files; `pnpm lint`, `typecheck`, `fmt:check`, `boundaries` and `native:browser:test` pass. The native HMR source anchors are in `MapEditor.tsx` and `MapRepositoryProvider.tsx`, so confirm none of them is touched.
+
 ## Impact
 
 - **Code:**
